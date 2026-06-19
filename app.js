@@ -359,7 +359,7 @@ async function clearCloud(){
 }
 
 function init(){
-  injectIcons();const d=new Date();$('#todayLabel').textContent=d.toLocaleDateString('en-PH',{weekday:'short',month:'short',day:'numeric'});$$('input[type=date]').forEach(i=>i.value=d.toISOString().slice(0,10));
+  injectIcons();const d=new Date();$('#todayLabel').textContent=d.toLocaleDateString('en-PH',{timeZone:TZ,weekday:'short',month:'short',day:'numeric'});$$('input[type=date]').forEach(i=>i.value=manilaToday());
   $('#expenseTeam').innerHTML=teams.map(t=>`<option>${t.name}</option>`).join('');renderOverview();renderTeams();renderNotifPop();
 
   $$('.nav-item').forEach(b=>b.onclick=()=>switchPage(b.dataset.page));
