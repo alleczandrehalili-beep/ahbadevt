@@ -84,7 +84,14 @@
       }
     };
     refresh();
-    setInterval(refresh, 2000);
+    if (window.supabase?.createClient) {
+      const realtime = window.supabase.createClient(config.url, config.anonKey);
+      realtime
+        .channel('ahba-dashboard-jobs')
+        .on('postgres_changes', {event: '*', schema: 'public', table: 'jobs'}, refresh)
+        .subscribe();
+    }
+    setInterval(refresh, 15000);
   }
 
   window.AHBACloud = {configured, getJobs, upsertJobs, startDashboard};
