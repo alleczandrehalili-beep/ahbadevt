@@ -161,18 +161,19 @@
     ensureBadge();
     setStatus('syncing', 'Connecting…');
 
-    // Push local changes to the cloud whenever the app saves — but only the
-    // change itself, layered on top of cloud state we already adopted on load.
+    // save() now only writes the local cache. Cloud writes are done as TARGETED
+    // single-job upserts by the app (assignTeam / new order) so a background poll
+    // can never overwrite a fresh change with the whole stale array.
     const saveLocally = save;
-    save = function () {
-      saveLocally();
+    save = function () { saveLocally(); };
+
+    // Helper the app calls to persist ONE job to the cloud immediately.
+    window.AHBASync = function (job) {
+      if (!job) return Promise.resolve();
       setStatus('syncing', 'Saving…');
-      upsertJobs(jobs)
+      return upsertJobs([job])
         .then(() => setStatus('live', 'Synced', 'Cloud sync active'))
-        .catch(error => {
-          setStatus('error', 'Sync error', error.message);
-          console.warn('AHBA cloud sync:', error.message);
-        });
+        .catch(error => { setStatus('error', 'Sync error', error.message); console.warn('AHBA cloud sync:', error.message); });
     };
 
     // IMPORTANT: do NOT blindly upsert the local cache here. Adopt the cloud as

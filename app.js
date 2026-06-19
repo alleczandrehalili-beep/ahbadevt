@@ -183,7 +183,7 @@ async function openAssign(jobId){
   }).join('');
   $$('[data-team]').forEach(b=>b.onclick=()=>assignTeam(jobId,b.dataset.team));
 }
-function assignTeam(jobId,team){const j=jobs.find(x=>x.id===jobId);j.team=team;j.status='assigned';save();closeModals();renderJobs();showToast(`${team} assigned to ${jobId}`)}
+function assignTeam(jobId,team){const j=jobs.find(x=>x.id===jobId);j.team=team;j.status='assigned';save();closeModals();renderJobs();showToast(`${team} assigned to ${jobId}`);if(window.AHBASync)window.AHBASync(j)}
 function openModal(modal){$('#modalBackdrop').classList.add('show');modal.showModal()}
 function closeModals(){$$('dialog[open]').forEach(d=>d.close());$('#modalBackdrop').classList.remove('show')}
 
@@ -553,7 +553,7 @@ function init(){
     const num=2050+jobs.length;
     const job={id:`WO-2026-${num}`,subscriber:full||'Subscriber',type:f.type,plan:f.plan,area:f.city||f.brgy||'Quezon City',address:addr,status:f.team?'assigned':'pending',wait:'Just now',priority:f.priority,schedule:`${f.date}, 9:00 AM`,team:f.team||null,load_date:f.date||null};
     SUB_FIELDS.forEach(k=>{ if(f[k]) job[k]=f[k]; });
-    jobs.unshift(job);save();e.target.reset();$$('input[type=date]').forEach(i=>i.value=manilaToday());closeModals();renderOverview();showToast('Work order created and added to dispatch queue')};
+    jobs.unshift(job);save();if(window.AHBASync)window.AHBASync(job);e.target.reset();$$('input[type=date]').forEach(i=>i.value=manilaToday());closeModals();renderOverview();showToast('Work order created and added to dispatch queue')};
   $('#expenseForm').onsubmit=e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));expenses.unshift({time:new Date().toLocaleTimeString('en-PH',{hour:'numeric',minute:'2-digit'}),team:f.team,category:f.category,description:f.description,workOrder:f.workOrder||'—',amount:Number(f.amount),status:'Pending'});save();e.target.reset();closeModals();renderExpenses();showToast('Expense recorded for approval')};
 
   // Search + filters
