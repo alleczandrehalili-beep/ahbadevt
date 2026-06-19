@@ -145,7 +145,7 @@ function renderNotifPop(){
   injectIcons();
 }
 
-function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>{const on=n.dataset.page===page;n.classList.toggle('active',on);on?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current')});const labels={overview:'Good morning, Alex',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring',accounts:'Technician accounts'};$('#pageTitle').textContent=labels[page];if(page==='accounts')renderAccounts();closeSidebar();scrollTo(0,0)}
+function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>{const on=n.dataset.page===page;n.classList.toggle('active',on);on?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current')});const labels={overview:'Good morning, Alex',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring',accounts:'Technician accounts',attendance:'Attendance · Time records'};$('#pageTitle').textContent=labels[page];if(page==='accounts')renderAccounts();if(page==='attendance')renderAttendance();closeSidebar();scrollTo(0,0)}
 
 // ---------- Accounts (technician login accounts) ----------
 async function fetchTechnicians(){
@@ -154,7 +154,11 @@ async function fetchTechnicians(){
     return r.ok?await r.json():[];
   }catch(e){return[]}
 }
-function fmtWhen(s){if(!s)return'—';const d=new Date(s);return d.toLocaleString('en-PH',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}
+const TZ='Asia/Manila';
+const manilaToday=()=>new Date().toLocaleDateString('en-CA',{timeZone:TZ});
+function fmtWhen(s){if(!s)return'—';return new Date(s).toLocaleString('en-PH',{timeZone:TZ,month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}
+function fmtTime(s){if(!s)return'—';return new Date(s).toLocaleTimeString('en-PH',{timeZone:TZ,hour:'numeric',minute:'2-digit'})}
+function fmtDur(inTs,outTs){if(!inTs)return'—';const end=outTs?new Date(outTs):new Date();let mins=Math.max(0,Math.round((end-new Date(inTs))/60000));const h=Math.floor(mins/60),m=mins%60;return `${h}h ${String(m).padStart(2,'0')}m`}
 async function renderAccounts(){
   const body=$('#accountsBody'); if(!body)return;
   body.innerHTML=`<tr><td colspan="6" class="empty-cell">Loading accounts…</td></tr>`;
@@ -177,6 +181,30 @@ function openReset(username,email){
   $('#resetUser').textContent=username;
   $('#resetEmail').textContent=email||`${username.toLowerCase()}@ahbafield.app`;
   openModal($('#resetModal'));
+}
+
+// ---------- Attendance (time-in / time-out) ----------
+async function fetchAttendance(date){
+  try{
+    const r=await fetch(`${SUPA_URL}/rest/v1/attendance?select=*&work_date=eq.${date}&order=time_in.desc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    return r.ok?await r.json():[];
+  }catch(e){return[]}
+}
+async function renderAttendance(){
+  const body=$('#attendanceBody'); if(!body)return;
+  const dateEl=$('#attDate'); if(dateEl && !dateEl.value){dateEl.value=manilaToday(); dateEl.onchange=renderAttendance;}
+  const date=dateEl?dateEl.value:manilaToday();
+  body.innerHTML=`<tr><td colspan="6" class="empty-cell">Loading…</td></tr>`;
+  const rows=await fetchAttendance(date);
+  const open=rows.filter(r=>!r.time_out).length, closed=rows.filter(r=>r.time_out).length;
+  let totalMin=0; rows.forEach(r=>{if(r.time_in){const end=r.time_out?new Date(r.time_out):new Date();totalMin+=Math.max(0,(end-new Date(r.time_in))/60000)}});
+  $('#attIn').textContent=open; $('#attOut').textContent=closed; $('#attTotal').textContent=rows.length;
+  $('#attHours').textContent=`${Math.floor(totalMin/60)}h ${String(Math.round(totalMin%60)).padStart(2,'0')}m`;
+  if(!rows.length){body.innerHTML=`<tr><td colspan="6" class="empty-cell">No time records for this day.</td></tr>`;return}
+  body.innerHTML=rows.map(r=>{
+    const status=r.time_out?'<span class="status completed">Timed out</span>':'<span class="status en-route">Timed in</span>';
+    return `<tr><td><strong>${r.username}</strong></td><td>${r.work_date}</td><td>${fmtTime(r.time_in)}</td><td>${r.time_out?fmtTime(r.time_out):'—'}</td><td>${fmtDur(r.time_in,r.time_out)}</td><td>${status}</td></tr>`;
+  }).join('');
 }
 
 function init(){

@@ -26,6 +26,7 @@
         <button class="nav-item" data-page="workorders"><i data-icon="clipboard"></i><span>Work Orders</span></button>
         <button class="nav-item" data-page="expenses"><i data-icon="wallet"></i><span>Expenses</span></button>
         <button class="nav-item" data-page="accounts"><i data-icon="users"></i><span>Accounts</span></button>
+        <button class="nav-item" data-page="attendance"><i data-icon="clock"></i><span>Attendance</span></button>
       </nav>
       <div class="sidebar-spacer"></div>
       <div class="shift-card">
@@ -173,6 +174,20 @@
         <article class="panel full-table">
           <div class="filter-row"><div><h2 style="font:800 13px Manrope;margin:0">Accounts</h2><p style="font-size:10px;color:#8a9894;margin:4px 0 0">Passwords are encrypted and never shown. Use Reset to issue a new one via Supabase.</p></div></div>
           <div class="table-wrap"><table><thead><tr><th>Username</th><th>Login email</th><th>Area</th><th>Status</th><th>Last sign-in</th><th>Password changed</th></tr></thead><tbody id="accountsBody"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="attendancePage" class="page">
+        <div class="page-toolbar"><div><h2>Attendance · Time records</h2><p>Technician time-in / time-out (Philippine time). Serves as the daily work-hours log.</p></div><div class="search-box" style="min-width:auto"><i data-icon="calendar"></i><input id="attDate" type="date"></div></div>
+        <div class="dispatch-stats">
+          <div class="small-stat"><span>Currently timed in</span><strong id="attIn">0</strong></div>
+          <div class="small-stat"><span>Timed out</span><strong id="attOut">0</strong></div>
+          <div class="small-stat"><span>Records this day</span><strong id="attTotal">0</strong></div>
+          <div class="small-stat"><span>Total hours logged</span><strong id="attHours">0h</strong></div>
+        </div>
+        <article class="panel full-table">
+          <div class="filter-row"><div><h2 style="font:800 13px Manrope;margin:0">Daily log</h2><p style="font-size:10px;color:#8a9894;margin:4px 0 0">Time-in is recorded on sign-in; time-out on "Time out &amp; sign out".</p></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Technician</th><th>Date</th><th>Time in</th><th>Time out</th><th>Hours</th><th>Status</th></tr></thead><tbody id="attendanceBody"></tbody></table></div>
         </article>
       </section>
     </main>

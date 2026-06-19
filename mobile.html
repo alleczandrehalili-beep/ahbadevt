@@ -101,7 +101,7 @@
     </div>
     <div class="menu-pop hidden" id="menuPop">
       <button id="mChangePw">Change password</button>
-      <button id="mLogout" class="danger">Sign out</button>
+      <button id="mLogout" class="danger">Time out &amp; sign out</button>
     </div>
 
     <!-- LOGIN -->
@@ -161,9 +161,14 @@
     let jobs = [];
     let signature = '';
     let realtimeChan = null;
+    let attendanceId = null;   // current open time-in record
+    let pwForced = false;      // was the password screen a forced first-login?
 
     const emailFor = u => u.trim().toLowerCase() + '@' + EMAIL_DOMAIN;
     const teamFromEmail = e => (e||'').split('@')[0].toUpperCase();
+    const TZ = 'Asia/Manila';
+    const manilaDate = () => new Date().toLocaleDateString('en-CA', {timeZone: TZ}); // YYYY-MM-DD
+    const manilaTime = d => new Date(d).toLocaleTimeString('en-PH', {timeZone: TZ, hour:'numeric', minute:'2-digit'});
 
     const ic = {
       pin:'<path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2"/>',
@@ -174,7 +179,30 @@
     };
     const svg = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${ic[n]||''}</svg>`;
     function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('show'),2600)}
-    function setSync(state,text){const b=$('#syncbar');b.className='syncbar '+state;$('#syncText').textContent=text;if(state==='live')$('#syncStamp').textContent='Updated '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}
+    function setSync(state,text){const b=$('#syncbar');b.className='syncbar '+state;$('#syncText').textContent=text;if(state==='live')$('#syncStamp').textContent='Updated '+manilaTime(new Date())}
+
+    // ---------- attendance (time in / time out) ----------
+    async function clockIn(){
+      try{
+        const {data,error}=await sb.from('attendance').insert({username:myTeam, work_date:manilaDate()}).select('id,time_in').single();
+        if(error) throw error;
+        attendanceId = data?.id || null;
+        if(data?.time_in) toast('Timed in at '+manilaTime(data.time_in));
+      }catch(e){ console.warn('clockIn',e.message); toast('Timed in'); }
+    }
+    async function findOpenAttendance(){
+      try{
+        const {data}=await sb.from('attendance').select('id').eq('username',myTeam).is('time_out',null)
+          .eq('work_date',manilaDate()).order('time_in',{ascending:false}).limit(1);
+        attendanceId = (data && data[0]) ? data[0].id : null;
+      }catch(e){ attendanceId=null; }
+    }
+    async function clockOut(){
+      if(!attendanceId) return;
+      try{ await sb.from('attendance').update({time_out:new Date().toISOString()}).eq('id',attendanceId); }
+      catch(e){ console.warn('clockOut',e.message); }
+      attendanceId=null;
+    }
     function showErr(id,msg){const e=$(id);e.textContent=msg;e.classList.add('show')}
     function clearErr(id){$(id).classList.remove('show')}
 
@@ -237,16 +265,24 @@
     }
 
     // ---------- auth ----------
-    async function afterLogin(email){
+    // fresh=true means an explicit sign-in (record a new time-in);
+    // fresh=false means resuming an existing session (reuse open time-in).
+    async function afterLogin(email, fresh){
       myTeam = teamFromEmail(email);
-      // mirror last login + check if a forced password change is pending
       let must=false;
       try{
         const {data}=await sb.from('technicians').select('must_change').eq('username',myTeam).maybeSingle();
         must = !!(data && data.must_change);
         sb.from('technicians').update({last_login:new Date().toISOString(), updated_at:new Date().toISOString()}).eq('username',myTeam).then(()=>{});
       }catch(e){}
-      if(must){ openPw(true); } else { startApp(); }
+      if(must){ pwForced = true; openPw(true); return; }
+      await enterFlow(fresh);
+    }
+
+    // Clock in (fresh sign-in) or re-attach to an open time-in (resume), then open the app.
+    async function enterFlow(fresh){
+      if(fresh){ await clockIn(); } else { await findOpenAttendance(); }
+      startApp();
     }
 
     function openPw(forced){
@@ -264,8 +300,8 @@
       const btn=$('#loginBtn'); btn.disabled=true; btn.textContent='Signing in…';
       const {data,error}=await sb.auth.signInWithPassword({email:emailFor(u), password:p});
       btn.disabled=false; btn.textContent='Sign in';
-      if(error){ showErr('#loginErr', error.message.includes('Invalid')?'Wrong username or password.':error.message); return; }
-      afterLogin(data.user.email);
+      if(error){ const m=error&&error.message?error.message:'Sign-in failed. Please try again.'; showErr('#loginErr', /invalid/i.test(m)?'Wrong username or password.':m); return; }
+      afterLogin(data.user.email, true);
     });
 
     $('#pwForm').addEventListener('submit', async e=>{
@@ -278,20 +314,31 @@
       btn.disabled=false; btn.textContent='Save password';
       if(error){ showErr('#pwErr', error.message); return; }
       sb.from('technicians').update({must_change:false, password_changed_at:new Date().toISOString(), updated_at:new Date().toISOString()}).eq('username',myTeam).then(()=>{});
-      toast('Password updated'); startApp();
+      toast('Password updated');
+      if(pwForced){ pwForced=false; await enterFlow(true); }   // first-login: clock in now
+      else { startApp(); }                                      // voluntary change: already clocked in
     });
 
-    $('#pwCancel').onclick=()=>startApp();
+    $('#pwCancel').onclick=()=>{ pwForced=false; startApp(); };
     $('#menuBtn').onclick=e=>{e.stopPropagation();$('#menuPop').classList.toggle('hidden')};
     document.addEventListener('click',()=>$('#menuPop').classList.add('hidden'));
     $('#menuPop').onclick=e=>e.stopPropagation();
     $('#mChangePw').onclick=()=>{$('#menuPop').classList.add('hidden');openPw(false)};
-    $('#mLogout').onclick=async()=>{ if(realtimeChan)sb.removeChannel(realtimeChan); clearInterval(startApp._t); await sb.auth.signOut(); myTeam=''; jobs=[]; $('#uName').value='';$('#uPass').value=''; show('loginView'); };
+    $('#mLogout').onclick=async()=>{
+      $('#menuPop').classList.add('hidden');
+      await clockOut();                       // record time-out
+      if(realtimeChan)sb.removeChannel(realtimeChan);
+      clearInterval(startApp._t);
+      await sb.auth.signOut();
+      myTeam=''; jobs=[]; $('#uName').value=''; $('#uPass').value='';
+      toast('Timed out — signed off');
+      show('loginView');
+    };
 
-    // resume existing session on load
+    // resume existing session on load (do NOT create a new time-in)
     (async function init(){
       const {data}=await sb.auth.getSession();
-      if(data.session && data.session.user){ afterLogin(data.session.user.email); }
+      if(data.session && data.session.user){ afterLogin(data.session.user.email, false); }
       else { show('loginView'); }
     })();
   })();
