@@ -203,7 +203,7 @@ function renderNotifPop(){
   injectIcons();
 }
 
-function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>{const on=n.dataset.page===page;n.classList.toggle('active',on);on?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current')});const labels={overview:'Good morning, Alex',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring',accounts:'Technician accounts',attendance:'Attendance · Time records'};$('#pageTitle').textContent=labels[page];if(page==='accounts')renderAccounts();if(page==='attendance')renderAttendance();closeSidebar();scrollTo(0,0)}
+function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>{const on=n.dataset.page===page;n.classList.toggle('active',on);on?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current')});const labels={overview:'Good morning, Alex',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring',accounts:'Technician accounts',attendance:'Attendance · Time records',completed:'Completed jobs'};$('#pageTitle').textContent=labels[page];if(page==='accounts')renderAccounts();if(page==='attendance')renderAttendance();if(page==='completed')renderCompleted();closeSidebar();scrollTo(0,0)}
 
 // ---------- Accounts (technician login accounts) ----------
 async function fetchTechnicians(){
@@ -265,6 +265,99 @@ async function renderAttendance(){
   }).join('');
 }
 
+// ---------- Completed jobs · proof photos · validation · export ----------
+const photoBase = p => `${SUPA_URL}/storage/v1/object/public/job-photos/${p}`;
+let compJobs=[], compPhotos={};
+async function fetchCompleted(date){
+  try{
+    const r=await fetch(`${SUPA_URL}/rest/v1/jobs?status=eq.completed&select=*&order=updated_at.desc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const all=r.ok?await r.json():[];
+    return all.filter(j=>j.updated_at && new Date(j.updated_at).toLocaleDateString('en-CA',{timeZone:TZ})===date);
+  }catch(e){return[]}
+}
+async function fetchPhotosFor(ids){
+  if(!ids.length)return{};
+  try{
+    const q=ids.map(encodeURIComponent).join(',');
+    const r=await fetch(`${SUPA_URL}/rest/v1/job_photos?select=job_id,path&job_id=in.(${q})`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const rows=r.ok?await r.json():[]; const m={}; rows.forEach(x=>{(m[x.job_id]=m[x.job_id]||[]).push(x.path)}); return m;
+  }catch(e){return{}}
+}
+async function renderCompleted(){
+  const dEl=$('#compDate'); if(dEl&&!dEl.value){dEl.value=manilaToday();dEl.onchange=renderCompleted;}
+  const date=dEl?dEl.value:manilaToday();
+  const body=$('#completedBody'); if(!body)return;
+  body.innerHTML=`<tr><td colspan="7" class="empty-cell">Loading…</td></tr>`;
+  compJobs=await fetchCompleted(date);
+  compPhotos=await fetchPhotosFor(compJobs.map(j=>j.id));
+  const totalPhotos=Object.values(compPhotos).reduce((a,b)=>a+b.length,0);
+  const val=compJobs.filter(j=>j.validated).length;
+  $('#compTotal').textContent=compJobs.length;
+  $('#compValidated').textContent=val;
+  $('#compPending').textContent=compJobs.length-val;
+  $('#compPhotos').textContent=totalPhotos;
+  if(!compJobs.length){body.innerHTML=`<tr><td colspan="7" class="empty-cell">No completed jobs for this day.</td></tr>`;return}
+  body.innerHTML=compJobs.map(j=>{
+    const n=(compPhotos[j.id]||[]).length;
+    const vb=j.validated?'<span class="vbadge yes">Validated</span>':'<span class="vbadge no">Pending</span>';
+    return `<tr><td><strong>${j.id}</strong></td><td>${j.team||'—'}</td><td><strong>${j.subscriber||'—'}</strong></td><td>${j.area||'—'}</td><td>${fmtWhen(j.updated_at)}</td><td><button class="assign-btn" data-gallery="${j.id}">${n} photo${n===1?'':'s'} · View</button></td><td>${vb}${j.validated?'':` <button class="assign-btn" data-validate="${j.id}">Validate</button>`}</td></tr>`;
+  }).join('');
+  $$('#completedBody [data-gallery]').forEach(b=>b.onclick=()=>openGallery(b.dataset.gallery));
+  $$('#completedBody [data-validate]').forEach(b=>b.onclick=()=>validateJob(b.dataset.validate));
+}
+function openGallery(jobId){
+  const j=compJobs.find(x=>x.id===jobId)||{}; const paths=compPhotos[jobId]||[];
+  $('#photoTitle').textContent=`${jobId} · ${j.subscriber||''}`;
+  $('#photoSub').textContent=`${j.team||''} · ${paths.length} photo${paths.length===1?'':'s'}`;
+  $('#photoGrid').innerHTML=paths.length?paths.map(p=>`<a href="${photoBase(p)}" target="_blank" rel="noopener"><img src="${photoBase(p)}" alt="proof" loading="lazy"></a>`).join(''):'<div class="none">No photos uploaded for this job.</div>';
+  const vb=$('#validateBtn'); vb.style.display=j.validated?'none':''; vb.onclick=()=>{validateJob(jobId);closeModals();};
+  openModal($('#photoModal'));
+}
+async function validateJob(jobId){
+  try{
+    await fetch(`${SUPA_URL}/rest/v1/jobs?id=eq.${encodeURIComponent(jobId)}`,{method:'PATCH',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({validated:true,validated_at:new Date().toISOString()})});
+    showToast(`${jobId} validated`); renderCompleted();
+  }catch(e){showToast('Could not validate')}
+}
+async function exportZip(){
+  if(typeof JSZip==='undefined'){showToast('ZIP library still loading — try again');return}
+  if(!compJobs.length){showToast('Nothing to export for this day');return}
+  const date=$('#compDate').value||manilaToday();
+  showToast('Building ZIP… please wait');
+  const zip=new JSZip(), root=zip.folder(`completed_${date}`);
+  let csv='work_order,team,subscriber,area,completed_at,validated,photo_count\n';
+  for(const j of compJobs){
+    const paths=compPhotos[j.id]||[];
+    csv+=`${j.id},${j.team||''},"${(j.subscriber||'').replace(/"/g,'""')}",${j.area||''},${j.updated_at||''},${j.validated?'yes':'no'},${paths.length}\n`;
+    const folder=root.folder(j.id);
+    for(let i=0;i<paths.length;i++){
+      try{ const blob=await (await fetch(photoBase(paths[i]))).blob(); const ext=(paths[i].split('.').pop()||'jpg'); folder.file(`${String(i+1).padStart(2,'0')}.${ext}`, blob); }
+      catch(e){ console.warn('zip fetch',e.message); }
+    }
+  }
+  root.file('manifest.csv', csv);
+  const out=await zip.generateAsync({type:'blob'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(out); a.download=`AHBA_completed_${date}.zip`; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),15000);
+  showToast('ZIP downloaded');
+}
+async function clearCloud(){
+  const date=$('#compDate').value||manilaToday();
+  if(!compJobs.length){showToast('Nothing to clear for this day');return}
+  const allPaths=compJobs.flatMap(j=>compPhotos[j.id]||[]);
+  if(!allPaths.length){showToast('No photos to clear');return}
+  if(!confirm(`Delete ${allPaths.length} photo(s) from the cloud for ${date}?\n\nDownload the ZIP archive FIRST. Job records are kept — only the images are removed. This cannot be undone.`))return;
+  showToast('Clearing photos from cloud…');
+  try{
+    for(let i=0;i<allPaths.length;i+=100){
+      await fetch(`${SUPA_URL}/storage/v1/object/job-photos`,{method:'DELETE',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({prefixes:allPaths.slice(i,i+100)})});
+    }
+    const q=compJobs.map(j=>encodeURIComponent(j.id)).join(',');
+    await fetch(`${SUPA_URL}/rest/v1/job_photos?job_id=in.(${q})`,{method:'DELETE',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,Prefer:'return=minimal'}});
+    showToast('Cloud photos cleared'); renderCompleted();
+  }catch(e){showToast('Clear failed: '+e.message)}
+}
+
 function init(){
   injectIcons();const d=new Date();$('#todayLabel').textContent=d.toLocaleDateString('en-PH',{weekday:'short',month:'short',day:'numeric'});$$('input[type=date]').forEach(i=>i.value=d.toISOString().slice(0,10));
   $('#expenseTeam').innerHTML=teams.map(t=>`<option>${t.name}</option>`).join('');renderOverview();renderTeams();renderNotifPop();
@@ -310,5 +403,9 @@ function init(){
   $$('#jobFilters button').forEach(b=>b.onclick=()=>{$$('#jobFilters button').forEach(x=>x.classList.remove('active'));b.classList.add('active');applyJobTableFilter()});
 
   $('#autoAssignBtn').onclick=()=>{const pending=jobs.find(j=>j.status==='pending');pending?openAssign(pending.id):showToast('No unassigned jobs in the queue')};
+
+  // Completed view: export + clear
+  $('#exportBtn')?.addEventListener('click',exportZip);
+  $('#clearBtn')?.addEventListener('click',clearCloud);
 }
 document.addEventListener('DOMContentLoaded',init);
