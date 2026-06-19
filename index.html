@@ -12,13 +12,15 @@
 </head>
 <body>
   <div class="app-shell">
+    <div class="sidebar-scrim" id="sidebarScrim" hidden></div>
     <aside class="sidebar" id="sidebar">
       <div class="brand">
         <div class="brand-mark"><span></span><span></span><span></span></div>
         <div><strong>FieldFlow</strong><small>Service Operations</small></div>
+        <button class="icon-btn sidebar-close mobile-only" id="sidebarCloseBtn" aria-label="Close menu"><i data-icon="close"></i></button>
       </div>
       <nav class="nav-list" aria-label="Main navigation">
-        <button class="nav-item active" data-page="overview"><i data-icon="grid"></i><span>Overview</span></button>
+        <button class="nav-item active" data-page="overview" aria-current="page"><i data-icon="grid"></i><span>Overview</span></button>
         <button class="nav-item" data-page="dispatch"><i data-icon="route"></i><span>Dispatch Board</span><b id="pendingBadge">6</b></button>
         <button class="nav-item" data-page="teams"><i data-icon="users"></i><span>Field Teams</span></button>
         <button class="nav-item" data-page="workorders"><i data-icon="clipboard"></i><span>Work Orders</span></button>
@@ -31,11 +33,17 @@
         <div class="shift-progress"><span></span></div>
         <small id="shiftTime">8h 24m remaining</small>
       </div>
-      <button class="user-card" id="roleSwitcher">
+      <button class="user-card" id="roleSwitcher" aria-haspopup="true" aria-expanded="false">
         <span class="avatar">AM</span>
-        <span><strong>Alex Mercado</strong><small>Operations Manager</small></span>
+        <span><strong>Alex Mercado</strong><small id="roleLabel">Operations Manager</small></span>
         <i data-icon="chevron"></i>
       </button>
+      <div class="role-menu" id="roleMenu" hidden>
+        <button data-role="Operations Manager">Operations Manager</button>
+        <button data-role="Dispatcher">Dispatcher</button>
+        <button data-role="Sales Agent">Sales Agent</button>
+        <button data-role="Finance Officer">Finance Officer</button>
+      </div>
     </aside>
 
     <main class="main">
@@ -44,7 +52,13 @@
         <div class="title-wrap"><p>OPERATIONS CENTER</p><h1 id="pageTitle">Good morning, Alex</h1></div>
         <div class="top-actions">
           <div class="date-chip"><i data-icon="calendar"></i><span id="todayLabel"></span></div>
-          <button class="icon-btn notification" aria-label="Notifications"><i data-icon="bell"></i><span></span></button>
+          <div class="notif-wrap">
+            <button class="icon-btn notification" id="notifBtn" aria-label="Notifications" aria-haspopup="true" aria-expanded="false"><i data-icon="bell"></i><span class="notif-dot" id="notifDot"></span></button>
+            <div class="notif-pop" id="notifPop" hidden>
+              <div class="notif-pop-head"><strong>Notifications</strong><button class="text-btn" id="notifClear">Mark all read</button></div>
+              <div class="notif-pop-list" id="notifPopList"></div>
+            </div>
+          </div>
           <button class="primary-btn" data-action="new-order"><i data-icon="plus"></i>New work order</button>
         </div>
       </header>
@@ -53,7 +67,7 @@
         <div class="summary-grid">
           <article class="metric-card accent-green">
             <div class="metric-top"><span>Jobs completed</span><i data-icon="check"></i></div>
-            <div class="metric-value"><strong id="completedCount">24</strong><span>/ 38</span></div>
+            <div class="metric-value"><strong id="completedCount">24</strong><span>/ <span id="completedTarget">38</span></span></div>
             <div class="metric-foot positive"><b>↑ 12%</b><span>vs. yesterday</span></div>
             <div class="mini-bars" id="completionBars"></div>
           </article>
@@ -81,7 +95,7 @@
           <article class="panel map-panel">
             <div class="panel-head">
               <div><h2>Live team map</h2><p>Real-time field visibility · Metro Manila</p></div>
-              <div class="map-actions"><button class="seg active">All teams</button><button class="seg">Active only</button><button class="icon-btn"><i data-icon="expand"></i></button></div>
+              <div class="map-actions"><button class="seg active" data-seg="all">All teams</button><button class="seg" data-seg="active">Active only</button><button class="icon-btn" id="mapExpandBtn" aria-label="Toggle fullscreen map"><i data-icon="expand"></i></button></div>
             </div>
             <div class="map-canvas" id="mapCanvas">
               <svg class="map-art" viewBox="0 0 800 480" preserveAspectRatio="none" aria-hidden="true">
@@ -102,7 +116,7 @@
               </svg>
               <div id="mapPins"></div>
               <div class="map-legend"><span><i class="pin-green"></i>On site</span><span><i class="pin-blue"></i>En route</span><span><i class="pin-amber"></i>Available</span></div>
-              <div class="map-zoom"><button>+</button><button>−</button></div>
+              <div class="map-zoom"><button id="mapZoomIn" aria-label="Zoom in">+</button><button id="mapZoomOut" aria-label="Zoom out">−</button></div>
             </div>
           </article>
 
@@ -137,7 +151,7 @@
 
       <section id="workordersPage" class="page">
         <div class="page-toolbar"><div><h2>Work orders</h2><p>All installation and repair requests.</p></div><button class="primary-btn" data-action="new-order"><i data-icon="plus"></i>New work order</button></div>
-        <article class="panel full-table"><div class="filter-row"><div class="search-box"><i data-icon="search"></i><input id="jobSearch" placeholder="Search subscriber, ID, or area"></div><div class="filter-chips"><button class="active">All</button><button>Installation</button><button>Repair</button><button>Pending</button></div></div><div class="table-wrap"><table><thead><tr><th>Work order</th><th>Subscriber</th><th>Service</th><th>Location</th><th>Team</th><th>Status</th><th>Schedule</th></tr></thead><tbody id="workOrderBody"></tbody></table></div></article>
+        <article class="panel full-table"><div class="filter-row"><div class="search-box"><i data-icon="search"></i><input id="jobSearch" placeholder="Search subscriber, ID, or area"></div><div class="filter-chips" id="jobFilters"><button class="active" data-filter="all">All</button><button data-filter="installation">Installation</button><button data-filter="repair">Repair</button><button data-filter="pending">Pending</button></div></div><div class="table-wrap"><table><thead><tr><th>Work order</th><th>Subscriber</th><th>Service</th><th>Location</th><th>Team</th><th>Status</th><th>Schedule</th></tr></thead><tbody id="workOrderBody"></tbody></table><div class="empty-row" id="workOrderEmpty" hidden>No work orders match your filters.</div></div></article>
       </section>
 
       <section id="expensesPage" class="page">

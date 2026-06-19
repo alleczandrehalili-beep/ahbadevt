@@ -45,33 +45,45 @@ const activity=[
  {icon:'info',tone:'coral',title:'Job needs attention',text:'WO-2026-1048 has been waiting 42 min',time:'31m'}
 ];
 
+// UI state
+let mapFilter='all';
+
 function save(){localStorage.setItem('fieldflow_jobs',JSON.stringify(jobs));localStorage.setItem('fieldflow_expenses',JSON.stringify(expenses))}
 function statusLabel(s){return s.split('-').map(x=>x[0].toUpperCase()+x.slice(1)).join(' ')}
 function todayTotal(){return expenses.reduce((a,b)=>a+Number(b.amount),0)}
-function showToast(msg){$('#toast span').textContent=msg;$('#toast').classList.add('show');setTimeout(()=>$('#toast').classList.remove('show'),2600)}
+function showToast(msg){$('#toast span').textContent=msg;$('#toast').classList.add('show');clearTimeout(showToast._t);showToast._t=setTimeout(()=>$('#toast').classList.remove('show'),2600)}
 
 function renderOverview(){
   $('#activeTeamCount').textContent=teams.filter(t=>!['available','offline'].includes(t.status)).length;
   $('#availableTeamText').textContent=`${teams.filter(t=>t.status==='available').length} available · ${teams.filter(t=>t.status==='offline').length} offline`;
+  const done=jobs.filter(j=>j.status==='completed').length;
+  if($('#completedCount')) $('#completedCount').textContent=done;
+  if($('#completedTarget')) $('#completedTarget').textContent=jobs.length;
   $('#teamAvatars').innerHTML=teams.slice(0,6).map((t,i)=>`<span style="background:${t.color}">${t.code.slice(2)}</span>`).join('');
   $('#completionBars').innerHTML=[16,24,20,31,26,36,29].map(h=>`<span style="height:${h}px"></span>`).join('');
-  $('#mapPins').innerHTML=teams.filter(t=>t.status!=='offline').map(t=>`<button class="team-pin ${t.status}" style="left:${t.x}%;top:${t.y}%" aria-label="${t.name}, ${statusLabel(t.status)}"><span class="pin-tooltip"><b>${t.name}</b> · ${t.area}</span><span class="pin-dot"><span>${t.id}</span></span></button>`).join('');
+  renderMapPins();
   $('#activityList').innerHTML=activity.map(a=>`<div class="activity-item"><span class="activity-icon ${a.tone}" data-icon="${a.icon}"></span><div class="activity-copy"><strong>${a.title}</strong><p>${a.text}</p></div><time>${a.time}</time></div>`).join('');
+  injectIcons();
   renderExpenses();renderJobs();
+}
+function renderMapPins(){
+  const list=teams.filter(t=>t.status!=='offline').filter(t=>mapFilter==='all'||t.status!=='available');
+  $('#mapPins').innerHTML=list.map(t=>`<button class="team-pin ${t.status}" style="left:${t.x}%;top:${t.y}%" aria-label="${t.name}, ${statusLabel(t.status)}"><span class="pin-tooltip"><b>${t.name}</b> · ${t.area}</span><span class="pin-dot"><span>${t.id}</span></span></button>`).join('');
 }
 function renderJobs(){
   const pending=jobs.filter(j=>j.status==='pending');
   $('#pendingBadge').textContent=pending.length;
-  $('#queueBody').innerHTML=pending.slice(0,4).map(j=>`<tr><td><strong>${j.id}</strong><span>${j.priority}</span></td><td><strong>${j.subscriber}</strong></td><td>${j.type}</td><td>${j.area}</td><td><span class="status pending">${j.wait}</span></td><td><button class="assign-btn" data-assign="${j.id}">Assign</button></td></tr>`).join('')||'<tr><td colspan="6">No jobs waiting for dispatch.</td></tr>';
-  $('#workOrderBody').innerHTML=jobs.map(j=>`<tr><td><strong>${j.id}</strong><span>${j.priority}</span></td><td><strong>${j.subscriber}</strong><span>${j.plan}</span></td><td>${j.type}</td><td>${j.area}</td><td>${j.team||'—'}</td><td><span class="status ${j.status}">${statusLabel(j.status)}</span></td><td>${j.schedule}</td></tr>`).join('');
+  $('#queueBody').innerHTML=pending.slice(0,4).map(j=>`<tr><td><strong>${j.id}</strong><span>${j.priority}</span></td><td><strong>${j.subscriber}</strong></td><td>${j.type}</td><td>${j.area}</td><td><span class="status pending">${j.wait}</span></td><td><button class="assign-btn" data-assign="${j.id}">Assign</button></td></tr>`).join('')||'<tr><td colspan="6" class="empty-cell">No jobs waiting for dispatch.</td></tr>';
+  $('#workOrderBody').innerHTML=jobs.map(j=>`<tr data-type="${j.type.toLowerCase()}" data-status="${j.status}" data-text="${(j.id+' '+j.subscriber+' '+j.area).toLowerCase()}"><td><strong>${j.id}</strong><span>${j.priority}</span></td><td><strong>${j.subscriber}</strong><span>${j.plan}</span></td><td>${j.type}</td><td>${j.area}</td><td>${j.team||'—'}</td><td><span class="status ${j.status}">${statusLabel(j.status)}</span></td><td>${j.schedule}</td></tr>`).join('');
   const stages=[['pending','Unassigned'],['assigned','Assigned'],['en-route','En route'],['on-site,in-progress','On site']];
-  $('#dispatchBoard').innerHTML=stages.map(([keys,label])=>{const list=jobs.filter(j=>keys.split(',').includes(j.status));return `<div class="board-column"><div class="column-head"><strong>${label}</strong><span>${list.length}</span></div>${list.map(jobCard).join('')||'<div class="job-card"><p>No jobs in this stage.</p></div>'}</div>`}).join('');
+  $('#dispatchBoard').innerHTML=stages.map(([keys,label])=>{const list=jobs.filter(j=>keys.split(',').includes(j.status));return `<div class="board-column"><div class="column-head"><strong>${label}</strong><span>${list.length}</span></div>${list.map(jobCard).join('')||'<div class="job-card empty"><p>No jobs in this stage.</p></div>'}</div>`}).join('');
   const counts=[['Waiting',pending.length],['Assigned',jobs.filter(j=>j.status==='assigned').length],['On the road',jobs.filter(j=>j.status==='en-route').length],['In service',jobs.filter(j=>['on-site','in-progress'].includes(j.status)).length]];
   $('#dispatchStats').innerHTML=counts.map(([l,n])=>`<div class="small-stat"><span>${l}</span><strong>${n}</strong></div>`).join('');
   bindAssignButtons();
+  applyJobTableFilter();
 }
 function jobCard(j){return `<article class="job-card"><div class="job-top"><span class="job-id">${j.id}</span>${j.priority!=='Normal'?`<span class="priority">${j.priority}</span>`:''}</div><h3>${j.subscriber}</h3><p>${j.type} · ${j.plan}</p><div class="job-meta"><span>⌖ ${j.area}</span><span>${j.schedule.replace('Today, ','')}</span></div>${j.status==='pending'?`<div class="job-actions"><button class="assign-btn" data-assign="${j.id}">Assign team</button></div>`:`<div class="job-actions"><span class="status ${j.status}">${j.team||statusLabel(j.status)}</span></div>`}</article>`}
-function renderTeams(filter=''){$('#teamGrid').innerHTML=teams.filter(t=>(t.name+t.area+t.code).toLowerCase().includes(filter.toLowerCase())).map(t=>`<article class="team-card"><div class="team-card-head"><span class="team-avatar" style="background:${t.color}">${t.code.slice(2)}</span><div><h3>${t.name}</h3><p>${t.code} · ${t.members} technicians</p></div></div><span class="status ${t.status}">${statusLabel(t.status)}</span><div class="load-row"><span>Today’s load</span><b>${t.jobs} / 5 jobs</b></div><div class="load-bar"><span style="width:${t.jobs/5*100}%"></span></div><div class="team-info"><span>Current area<strong>${t.area}</strong></span><span>Completed<strong>${t.completed} jobs · ★ ${t.rating}</strong></span></div></article>`).join('')}
+function renderTeams(filter=''){$('#teamGrid').innerHTML=teams.filter(t=>(t.name+t.area+t.code).toLowerCase().includes(filter.toLowerCase())).map(t=>`<article class="team-card"><div class="team-card-head"><span class="team-avatar" style="background:${t.color}">${t.code.slice(2)}</span><div><h3>${t.name}</h3><p>${t.code} · ${t.members} technicians</p></div></div><span class="status ${t.status}">${statusLabel(t.status)}</span><div class="load-row"><span>Today’s load</span><b>${t.jobs} / 5 jobs</b></div><div class="load-bar"><span style="width:${t.jobs/5*100}%"></span></div><div class="team-info"><span>Current area<strong>${t.area}</strong></span><span>Completed<strong>${t.completed} jobs · ★ ${t.rating}</strong></span></div></article>`).join('')||'<div class="empty-row">No teams match your search.</div>'}
 function renderExpenses(){
   const total=todayTotal(),pct=Math.round(total/25000*100);$('#todayExpense').textContent=money(total);$('#budgetPercent').textContent=`${pct}% of ₱25,000`;$('#budgetBar').style.width=`${Math.min(pct,100)}%`;$('#donutTotal').textContent=`₱${(total/1000).toFixed(1)}k`;
   const cats=['Fuel','Materials','Meals','Toll & Parking','Other'], cols=['#18a57b','#ff765f','#e9a93d','#4285f4','#b0bab7'];
@@ -84,6 +96,22 @@ function renderExpenses(){
   const week=[14200,19800,17650,22100,15800,20400,total],days=['Thu','Fri','Sat','Sun','Mon','Tue','Today'];$('#weeklyChart').innerHTML=week.map((v,i)=>`<div class="bar-col ${i===6?'today':''}"><span style="height:${v/26000*100}%" title="${money(v)}"></span><b>${days[i]}</b></div>`).join('');
 }
 function bindAssignButtons(){$$('[data-assign]').forEach(b=>b.onclick=()=>openAssign(b.dataset.assign))}
+
+// Work-order table filtering (search text + active chip combined)
+function applyJobTableFilter(){
+  const chip=$('#jobFilters .active'), f=chip?chip.dataset.filter:'all';
+  const q=($('#jobSearch')?.value||'').toLowerCase().trim();
+  let shown=0;
+  $$('#workOrderBody tr').forEach(r=>{
+    const matchesChip = f==='all' || (f==='pending'?r.dataset.status==='pending':r.dataset.type===f);
+    const matchesText = !q || r.dataset.text.includes(q);
+    const show=matchesChip&&matchesText;
+    r.style.display=show?'':'none';
+    if(show) shown++;
+  });
+  const empty=$('#workOrderEmpty'); if(empty) empty.hidden=shown!==0;
+}
+
 function openAssign(jobId){
   const job=jobs.find(j=>j.id===jobId);$('#assignJobLabel').textContent=`${job.id} · ${job.subscriber} · ${job.area}`;$('#assignModal').dataset.job=jobId;
   const candidates=teams.filter(t=>t.status!=='offline').sort((a,b)=>(a.status==='available'?-2:0)+(a.area===job.area?-1:0)-((b.status==='available'?-2:0)+(b.area===job.area?-1:0))).slice(0,6);
@@ -93,15 +121,75 @@ function openAssign(jobId){
 function assignTeam(jobId,team){const j=jobs.find(x=>x.id===jobId);j.team=team;j.status='assigned';save();closeModals();renderJobs();showToast(`${team} assigned to ${jobId}`)}
 function openModal(modal){$('#modalBackdrop').classList.add('show');modal.showModal()}
 function closeModals(){$$('dialog[open]').forEach(d=>d.close());$('#modalBackdrop').classList.remove('show')}
-function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.page===page));const labels={overview:'Good morning, Alex',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring'};$('#pageTitle').textContent=labels[page];$('#sidebar').classList.remove('open');scrollTo(0,0)}
+
+// Sidebar (mobile)
+function openSidebar(){$('#sidebar').classList.add('open');const s=$('#sidebarScrim');if(s)s.hidden=false}
+function closeSidebar(){$('#sidebar').classList.remove('open');const s=$('#sidebarScrim');if(s)s.hidden=true}
+
+// Popovers
+function closePopovers(){
+  const np=$('#notifPop'); if(np){np.hidden=true;$('#notifBtn').setAttribute('aria-expanded','false')}
+  const rm=$('#roleMenu'); if(rm){rm.hidden=true;$('#roleSwitcher').setAttribute('aria-expanded','false')}
+}
+function toggleNotif(){
+  const np=$('#notifPop'),btn=$('#notifBtn');const open=np.hidden;
+  closePopovers();
+  if(open){np.hidden=false;btn.setAttribute('aria-expanded','true')}
+}
+function renderNotifPop(){
+  $('#notifPopList').innerHTML=activity.map(a=>`<div class="notif-item"><span class="activity-icon ${a.tone}" data-icon="${a.icon}"></span><div><strong>${a.title}</strong><p>${a.text}</p></div><time>${a.time}</time></div>`).join('');
+  injectIcons();
+}
+
+function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>{const on=n.dataset.page===page;n.classList.toggle('active',on);on?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current')});const labels={overview:'Good morning, Alex',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring'};$('#pageTitle').textContent=labels[page];closeSidebar();scrollTo(0,0)}
 
 function init(){
   injectIcons();const d=new Date();$('#todayLabel').textContent=d.toLocaleDateString('en-PH',{weekday:'short',month:'short',day:'numeric'});$$('input[type=date]').forEach(i=>i.value=d.toISOString().slice(0,10));
-  $('#expenseTeam').innerHTML=teams.map(t=>`<option>${t.name}</option>`).join('');renderOverview();renderTeams();
-  $$('.nav-item').forEach(b=>b.onclick=()=>switchPage(b.dataset.page));$$('[data-page-link]').forEach(b=>b.onclick=()=>switchPage(b.dataset.pageLink));$$('[data-action="new-order"]').forEach(b=>b.onclick=()=>openModal($('#orderModal')));$$('[data-action="add-expense"]').forEach(b=>b.onclick=()=>openModal($('#expenseModal')));$$('.close-modal').forEach(b=>b.onclick=closeModals);$('#modalBackdrop').onclick=closeModals;$('#menuBtn').onclick=()=>$('#sidebar').classList.add('open');
-  $('#orderForm').onsubmit=e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));const num=1050+jobs.length;jobs.unshift({id:`WO-2026-${num}`,subscriber:f.subscriber,type:f.type,plan:f.plan,area:f.area,address:f.address,status:'pending',wait:'Just now',priority:f.priority,schedule:`${f.date}, 9:00 AM`,team:null});save();e.target.reset();closeModals();renderJobs();showToast('Work order created and added to dispatch queue')};
+  $('#expenseTeam').innerHTML=teams.map(t=>`<option>${t.name}</option>`).join('');renderOverview();renderTeams();renderNotifPop();
+
+  $$('.nav-item').forEach(b=>b.onclick=()=>switchPage(b.dataset.page));
+  $$('[data-page-link]').forEach(b=>b.onclick=()=>switchPage(b.dataset.pageLink));
+  $$('[data-action="new-order"]').forEach(b=>b.onclick=()=>openModal($('#orderModal')));
+  $$('[data-action="add-expense"]').forEach(b=>b.onclick=()=>openModal($('#expenseModal')));
+  $$('.close-modal').forEach(b=>b.onclick=closeModals);
+  $('#modalBackdrop').onclick=closeModals;
+
+  // Sidebar (mobile)
+  $('#menuBtn').onclick=openSidebar;
+  $('#sidebarCloseBtn')?.addEventListener('click',closeSidebar);
+  $('#sidebarScrim')?.addEventListener('click',closeSidebar);
+
+  // Notification popover
+  $('#notifBtn').onclick=e=>{e.stopPropagation();toggleNotif()};
+  $('#notifPop').onclick=e=>e.stopPropagation();
+  $('#notifClear').onclick=()=>{$('#notifDot').style.display='none';closePopovers();showToast('All notifications marked as read')};
+
+  // Role switcher
+  $('#roleSwitcher').onclick=e=>{e.stopPropagation();const rm=$('#roleMenu'),open=rm.hidden;closePopovers();if(open){rm.hidden=false;$('#roleSwitcher').setAttribute('aria-expanded','true')}};
+  $('#roleMenu').onclick=e=>e.stopPropagation();
+  $$('#roleMenu [data-role]').forEach(b=>b.onclick=()=>{$('#roleLabel').textContent=b.dataset.role;closePopovers();showToast(`Viewing as ${b.dataset.role}`)});
+
+  // Dismiss popovers on outside click / Escape
+  document.addEventListener('click',closePopovers);
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'){closePopovers();closeSidebar()}});
+
+  // Map controls
+  $$('.map-actions [data-seg]').forEach(b=>b.onclick=()=>{$$('.map-actions [data-seg]').forEach(x=>x.classList.remove('active'));b.classList.add('active');mapFilter=b.dataset.seg;renderMapPins()});
+  let mapScale=1;const canvas=$('#mapCanvas'),art=$('#mapPins');
+  const applyScale=()=>{const s=Math.max(1,Math.min(2,mapScale));$('.map-art').style.transform=`scale(${s})`;art.style.transform=`scale(${s})`};
+  $('#mapZoomIn').onclick=()=>{mapScale=Math.min(2,mapScale+.2);applyScale()};
+  $('#mapZoomOut').onclick=()=>{mapScale=Math.max(1,mapScale-.2);applyScale()};
+  $('#mapExpandBtn').onclick=()=>$('.map-panel').classList.toggle('expanded');
+
+  // Forms
+  $('#orderForm').onsubmit=e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));const num=1050+jobs.length;jobs.unshift({id:`WO-2026-${num}`,subscriber:f.subscriber,type:f.type,plan:f.plan,area:f.area,address:f.address,status:'pending',wait:'Just now',priority:f.priority,schedule:`${f.date}, 9:00 AM`,team:null});save();e.target.reset();$$('input[type=date]').forEach(i=>i.value=new Date().toISOString().slice(0,10));closeModals();renderOverview();showToast('Work order created and added to dispatch queue')};
   $('#expenseForm').onsubmit=e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));expenses.unshift({time:new Date().toLocaleTimeString('en-PH',{hour:'numeric',minute:'2-digit'}),team:f.team,category:f.category,description:f.description,workOrder:f.workOrder||'—',amount:Number(f.amount),status:'Pending'});save();e.target.reset();closeModals();renderExpenses();showToast('Expense recorded for approval')};
-  $('#teamSearch').oninput=e=>renderTeams(e.target.value);$('#jobSearch').oninput=e=>{$$('#workOrderBody tr').forEach(r=>r.style.display=r.textContent.toLowerCase().includes(e.target.value.toLowerCase())?'':'none')};
+
+  // Search + filters
+  $('#teamSearch').oninput=e=>renderTeams(e.target.value);
+  $('#jobSearch').oninput=applyJobTableFilter;
+  $$('#jobFilters button').forEach(b=>b.onclick=()=>{$$('#jobFilters button').forEach(x=>x.classList.remove('active'));b.classList.add('active');applyJobTableFilter()});
+
   $('#autoAssignBtn').onclick=()=>{const pending=jobs.find(j=>j.status==='pending');pending?openAssign(pending.id):showToast('No unassigned jobs in the queue')};
 }
 document.addEventListener('DOMContentLoaded',init);

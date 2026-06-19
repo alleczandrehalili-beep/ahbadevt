@@ -18,7 +18,12 @@
       ...options,
       headers: {...headers, ...(options.headers || {})}
     });
-    if (!response.ok) throw new Error(`Cloud request failed (${response.status})`);
+    if (!response.ok) {
+      // Surface the real reason (RLS = 401/403, missing table = 404, bad column = 400)
+      let detail = '';
+      try { detail = (await response.text()).slice(0, 180); } catch (e) {}
+      throw new Error(`HTTP ${response.status} ${response.statusText}${detail ? ' — ' + detail : ''}`);
+    }
     return response.status === 204 ? null : response.json();
   }
 
@@ -34,7 +39,8 @@
       wait: row.wait_time || '—',
       priority: row.priority || 'Normal',
       schedule: row.schedule || 'Today',
-      team: row.team
+      team: row.team,
+      updatedAt: row.updated_at || null
     };
   }
 
@@ -68,18 +74,56 @@
     });
   }
 
-  function startDashboard(onJobs) {
+  // ---- Sync status badge (so failures are never silent) ----
+  let badge;
+  function ensureBadge() {
+    if (badge || !document.body) return;
+    badge = document.createElement('div');
+    badge.id = 'syncBadge';
+    badge.innerHTML = '<span class="sync-dot"></span><span class="sync-text">Connecting…</span>';
+    const css = document.createElement('style');
+    css.textContent =
+      '#syncBadge{position:fixed;left:18px;bottom:16px;z-index:80;display:flex;align-items:center;gap:7px;' +
+      'background:#fff;border:1px solid var(--line,#e3e8e2);border-radius:20px;padding:6px 11px;font:600 10px "DM Sans",sans-serif;' +
+      'color:#52635f;box-shadow:0 6px 18px rgba(24,49,44,.12)}' +
+      '#syncBadge .sync-dot{width:8px;height:8px;border-radius:50%;background:#b0bab7}' +
+      '#syncBadge.live .sync-dot{background:#18a57b;box-shadow:0 0 0 3px #18a57b22}' +
+      '#syncBadge.syncing .sync-dot{background:#e9a93d}' +
+      '#syncBadge.error .sync-dot{background:#ff765f}' +
+      '#syncBadge.error{color:#c2503a;cursor:help}' +
+      '@media(max-width:760px){#syncBadge{left:auto;right:14px;bottom:14px}}';
+    document.head.appendChild(css);
+    document.body.appendChild(badge);
+  }
+  function setStatus(state, text, title) {
+    ensureBadge();
+    if (!badge) return;
+    badge.className = state;
+    badge.querySelector('.sync-text').textContent = text;
+    badge.title = title || '';
+  }
+
+  function startDashboard(onJobs, onEmpty) {
     if (!configured) return;
     let signature = '';
+    let seeded = false;
     const refresh = async () => {
       try {
         const cloudJobs = await getJobs();
+        if (!cloudJobs.length && !seeded && typeof onEmpty === 'function') {
+          // Cloud is empty on a fresh project — push local seed ONCE to bootstrap it.
+          seeded = true;
+          await onEmpty();
+          return refresh();
+        }
         const nextSignature = JSON.stringify(cloudJobs);
         if (cloudJobs.length && nextSignature !== signature) {
           signature = nextSignature;
           onJobs(cloudJobs);
         }
+        setStatus('live', 'Synced', 'Cloud sync active');
       } catch (error) {
+        setStatus('error', 'Sync error', error.message);
         console.warn('AHBA cloud sync:', error.message);
       }
     };
@@ -94,20 +138,40 @@
     setInterval(refresh, 15000);
   }
 
-  window.AHBACloud = {configured, getJobs, upsertJobs, startDashboard};
+  window.AHBACloud = {configured, getJobs, upsertJobs, startDashboard, setStatus};
 
   document.addEventListener('DOMContentLoaded', () => {
-    if (!configured || typeof jobs === 'undefined') return;
+    if (!configured || typeof jobs === 'undefined') {
+      setStatus('', 'Local only', 'Cloud not configured — running on this device only');
+      return;
+    }
+    ensureBadge();
+    setStatus('syncing', 'Connecting…');
+
+    // Push local changes to the cloud whenever the app saves — but only the
+    // change itself, layered on top of cloud state we already adopted on load.
     const saveLocally = save;
     save = function () {
       saveLocally();
-      upsertJobs(jobs).catch(error => console.warn('AHBA cloud sync:', error.message));
+      setStatus('syncing', 'Saving…');
+      upsertJobs(jobs)
+        .then(() => setStatus('live', 'Synced', 'Cloud sync active'))
+        .catch(error => {
+          setStatus('error', 'Sync error', error.message);
+          console.warn('AHBA cloud sync:', error.message);
+        });
     };
-    upsertJobs(jobs).catch(error => console.warn('Initial cloud sync:', error.message));
-    startDashboard(cloudJobs => {
-      jobs = cloudJobs;
-      localStorage.setItem('fieldflow_jobs', JSON.stringify(jobs));
-      renderOverview();
-    });
+
+    // IMPORTANT: do NOT blindly upsert the local cache here. Adopt the cloud as
+    // the source of truth first (prevents stale local data from clobbering
+    // newer changes made by the mobile app). Seed only if the cloud is empty.
+    startDashboard(
+      cloudJobs => {
+        jobs = cloudJobs;
+        localStorage.setItem('fieldflow_jobs', JSON.stringify(jobs));
+        renderOverview();
+      },
+      () => upsertJobs(jobs) // onEmpty: bootstrap a brand-new/empty project once
+    );
   });
 })();

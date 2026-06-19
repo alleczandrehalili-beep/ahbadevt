@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#082c28" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="FieldFlow Tech" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <title>FieldFlow Tech</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{--ink:#102925;--muted:#71817d;--deep:#082c28;--green:#18a57b;--lime:#c9f36a;--coral:#ff765f;--amber:#e9a93d;--blue:#4285f4;--bg:#eef1ec;--line:#e3e8e2;--white:#fff;font-family:'DM Sans',sans-serif;color:var(--ink)}
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    body{margin:0;background:var(--bg);min-height:100vh;min-height:100dvh}
+    button{font:inherit;cursor:pointer}
+    .wrap{max-width:520px;margin:0 auto;min-height:100vh;min-height:100dvh;display:flex;flex-direction:column}
+
+    /* Top bar */
+    .appbar{position:sticky;top:0;z-index:10;background:var(--deep);color:#fff;padding:calc(env(safe-area-inset-top) + 14px) 18px 14px;display:flex;align-items:center;gap:12px}
+    .appbar .mark{width:32px;height:32px;background:var(--lime);border-radius:9px;display:flex;align-items:flex-end;justify-content:center;gap:2.5px;padding:8px}
+    .appbar .mark span{display:block;width:3.5px;background:var(--deep);border-radius:3px}
+    .appbar .mark span:nth-child(1){height:9px}.appbar .mark span:nth-child(2){height:15px}.appbar .mark span:nth-child(3){height:12px}
+    .appbar h1{font:800 15px Manrope;margin:0;flex:1}
+    .appbar h1 small{display:block;font:600 10px 'DM Sans';color:#9fc3b8;margin-top:2px}
+    .switch-btn{border:1px solid #2a544e;background:#0e3531;color:#cfe1dc;border-radius:9px;font-size:11px;font-weight:700;padding:8px 10px}
+
+    /* Sync badge */
+    .syncbar{display:flex;align-items:center;gap:7px;padding:8px 18px;background:#fff;border-bottom:1px solid var(--line);font-size:11px;color:#52635f;font-weight:600}
+    .sync-dot{width:8px;height:8px;border-radius:50%;background:#b0bab7;transition:.2s}
+    .syncbar.live .sync-dot{background:var(--green);box-shadow:0 0 0 3px #18a57b22}
+    .syncbar.syncing .sync-dot{background:var(--amber)}
+    .syncbar.error .sync-dot{background:var(--coral)}
+    .syncbar .stamp{margin-left:auto;color:#9aa6a2;font-weight:500}
+
+    /* Login */
+    .login{flex:1;display:flex;flex-direction:column;justify-content:center;padding:30px 22px;gap:16px}
+    .login .card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:24px;box-shadow:0 14px 34px rgba(24,49,44,.08)}
+    .login h2{font:800 20px Manrope;margin:0 0 4px}
+    .login p{font-size:13px;color:var(--muted);margin:0 0 20px}
+    .login label{font-size:11px;font-weight:700;color:#586965;display:block;margin-bottom:7px}
+    .login select{width:100%;border:1px solid #dfe5df;border-radius:11px;padding:13px 12px;font-size:15px;background:#fff;outline:0}
+    .login select:focus{border-color:var(--green);box-shadow:0 0 0 3px #18a57b17}
+    .btn-primary{width:100%;border:0;background:var(--deep);color:#fff;border-radius:11px;padding:14px;font-weight:700;font-size:14px;margin-top:18px}
+    .btn-primary:active{transform:translateY(1px)}
+
+    /* Summary */
+    .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;padding:14px 16px}
+    .stat{background:#fff;border:1px solid var(--line);border-radius:13px;padding:12px}
+    .stat b{display:block;font:800 20px Manrope}
+    .stat span{font-size:10px;color:#7f8d89}
+    .stat.green b{color:var(--green)}.stat.amber b{color:#c98a1e}.stat.blue b{color:var(--blue)}
+
+    /* Jobs */
+    .jobs{flex:1;padding:4px 16px calc(env(safe-area-inset-bottom) + 24px);display:flex;flex-direction:column;gap:11px}
+    .section-label{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#8a9894;font-weight:800;margin:10px 2px 0}
+    .job{background:#fff;border:1px solid var(--line);border-radius:15px;padding:15px;box-shadow:0 4px 16px rgba(25,48,43,.04)}
+    .job-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+    .job-id{font-size:10px;color:#74837f;font-weight:700}
+    .job h3{font:700 15px Manrope;margin:7px 0 2px}
+    .job .plan{font-size:12px;color:var(--muted);margin:0}
+    .badge{display:inline-flex;align-items:center;gap:5px;border-radius:20px;padding:5px 9px;font-size:9px;font-weight:800;white-space:nowrap}
+    .badge:before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor}
+    .b-assigned{background:#f0ebff;color:#7959c7}.b-en-route{background:#eaf1ff;color:#3473d8}.b-on-site{background:#e7f7ef;color:#11825f}.b-in-progress{background:#e8f7f5;color:#168b81}.b-completed{background:#e7f7ef;color:#11825f}.b-pending{background:#fff4e1;color:#b97a16}
+    .prio{font-size:9px;font-weight:800;text-transform:uppercase;color:#d6614e;background:#fff0ed;border-radius:9px;padding:3px 7px;margin-left:6px}
+    .prio.vip{color:#7959c7;background:#f0ebff}
+    .job-meta{margin:12px 0;display:flex;flex-direction:column;gap:6px;font-size:12px;color:#566b66}
+    .job-meta .row{display:flex;gap:8px;align-items:center}
+    .job-meta svg{width:15px;height:15px;color:#90a09b;flex:none}
+    .job-actions{display:flex;gap:8px;border-top:1px solid #eef1ed;padding-top:12px}
+    .act{flex:1;border:1px solid #dfe5df;background:#fff;border-radius:10px;padding:11px;font-weight:700;font-size:12px;color:#127b5d;display:flex;align-items:center;justify-content:center;gap:6px}
+    .act svg{width:15px;height:15px}
+    .act.go{background:var(--green);border-color:var(--green);color:#fff}
+    .act.done{background:var(--deep);border-color:var(--deep);color:#fff}
+    .act.ghost{flex:0 0 auto;color:#52635f}
+    .act:active{transform:translateY(1px)}
+    .empty{text-align:center;color:#9aa6a2;padding:48px 20px;font-size:13px}
+    .empty svg{width:40px;height:40px;color:#c2ccc8;display:block;margin:0 auto 12px}
+
+    .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 18px);transform:translateX(-50%) translateY(80px);background:#102925;color:#fff;padding:12px 18px;border-radius:12px;font-size:13px;font-weight:600;box-shadow:0 12px 30px rgba(12,37,33,.3);opacity:0;transition:.3s;z-index:50;max-width:90%}
+    .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+    .hidden{display:none!important}
+    @media(prefers-reduced-motion:reduce){*{transition-duration:.001ms!important}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="appbar">
+      <div class="mark"><span></span><span></span><span></span></div>
+      <h1>FieldFlow Tech<small id="teamName">Field technician</small></h1>
+      <button class="switch-btn hidden" id="switchBtn">Switch team</button>
+    </div>
+
+    <!-- Login -->
+    <div class="login" id="loginView">
+      <div class="card">
+        <h2>Field sign-in</h2>
+        <p>Select your team to see jobs dispatched to you. This connects to the same operations board as the office dashboard.</p>
+        <label for="teamSelect">Your team</label>
+        <select id="teamSelect"></select>
+        <button class="btn-primary" id="loginBtn">Start shift</button>
+      </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div class="hidden" id="appView">
+      <div class="syncbar syncing" id="syncbar"><span class="sync-dot"></span><span class="sync-text" id="syncText">Connecting…</span><span class="stamp" id="syncStamp"></span></div>
+      <div class="summary">
+        <div class="stat amber"><b id="cToDo">0</b><span>To do</span></div>
+        <div class="stat blue"><b id="cActive">0</b><span>In progress</span></div>
+        <div class="stat green"><b id="cDone">0</b><span>Completed</span></div>
+      </div>
+      <div class="jobs" id="jobsList"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+  (function(){
+    // ---- Same backend + same conventions as the dashboard (ahba-cloud.js) ----
+    const config = {
+      url: 'https://avjzkfxgzeyxtihkofed.supabase.co',
+      anonKey: 'sb_publishable_2JM51zp2r5GUICznc6Nz4Q_B4UFS1da'
+    };
+    const headers = {
+      apikey: config.anonKey,
+      Authorization: `Bearer ${config.anonKey}`,
+      'Content-Type': 'application/json'
+    };
+    // Team names MUST match the dashboard exactly (app.js `names`)
+    const TEAMS = ['North Star','Fiber Force','Signal Pro','Sky Link','Quick Connect','Metro Tech','Cable Crew','Blue Wave','Fast Track','Prime Line','Urban Link','Net Masters','Service One','Tech Titans','Rapid Repair','City Connect','Wire Works','Field Fox','Core Team','Alpha Install'];
+
+    const $ = s => document.querySelector(s);
+    let myTeam = localStorage.getItem('fieldflow_tech_team') || '';
+    let jobs = [];
+    let signature = '';
+
+    const ic = {
+      pin:'<path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2"/>',
+      clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+      truck:'<path d="M10 17h4V5H2v12h3M14 9h4l4 4v4h-3M8 17a3 3 0 1 1-6 0M22 17a3 3 0 1 1-6 0"/>',
+      check:'<path d="m20 6-11 11-5-5"/>',
+      play:'<polygon points="6 4 20 12 6 20 6 4"/>',
+      flag:'<path d="M4 22V4M4 4h13l-2 4 2 4H4"/>',
+      phone:'<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3-8.6A2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z"/>',
+      inbox:'<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.5 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.5A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.5Z"/>'
+    };
+    const svg = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${ic[n]||''}</svg>`;
+
+    function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('show'),2500)}
+    function setSync(state,text){const b=$('#syncbar');b.className='syncbar '+state;$('#syncText').textContent=text;if(state==='live'){$('#syncStamp').textContent='Updated '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}}
+
+    async function api(path, options={}){
+      const res = await fetch(`${config.url}/rest/v1/${path}`, {...options, headers:{...headers, ...(options.headers||{})}});
+      if(!res.ok){let d='';try{d=(await res.text()).slice(0,160)}catch(e){}throw new Error(`HTTP ${res.status} ${d}`)}
+      return res.status===204?null:res.json();
+    }
+    function getMyJobs(){return api(`jobs?select=*&team=eq.${encodeURIComponent(myTeam)}&order=updated_at.desc`)}
+    function patchStatus(id,status){return api(`jobs?id=eq.${encodeURIComponent(id)}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({status, updated_at:new Date().toISOString()})})}
+
+    // Technician status flow: assigned -> en-route -> on-site -> in-progress -> completed
+    const FLOW = {
+      assigned:   {label:'Assigned',     next:'en-route',    action:'Start travel', icon:'truck', cls:'go'},
+      'en-route': {label:'On the way',   next:'on-site',     action:'Arrived',      icon:'pin',   cls:'go'},
+      'on-site':  {label:'On site',      next:'in-progress', action:'Start work',   icon:'play',  cls:'go'},
+      'in-progress':{label:'Working',    next:'completed',   action:'Mark complete',icon:'check', cls:'done'},
+      completed:  {label:'Completed',    next:null,          action:null},
+      pending:    {label:'Awaiting dispatch', next:null,     action:null}
+    };
+    const statusLabel = s => (FLOW[s]?.label) || s;
+
+    function render(){
+      const list = [...jobs].sort((a,b)=>{
+        const order={assigned:0,'en-route':1,'on-site':2,'in-progress':3,pending:4,completed:5};
+        return (order[a.status]??9)-(order[b.status]??9);
+      });
+      $('#cToDo').textContent  = jobs.filter(j=>['assigned','pending'].includes(j.status)).length;
+      $('#cActive').textContent= jobs.filter(j=>['en-route','on-site','in-progress'].includes(j.status)).length;
+      $('#cDone').textContent  = jobs.filter(j=>j.status==='completed').length;
+
+      const el = $('#jobsList');
+      if(!list.length){el.innerHTML=`<div class="empty">${svg('inbox')}No jobs dispatched to ${myTeam} yet.<br>New assignments appear here automatically.</div>`;return}
+      el.innerHTML = list.map(j=>{
+        const f = FLOW[j.status] || {};
+        const prio = j.priority && j.priority!=='Normal' ? `<span class="prio ${j.priority==='VIP'?'vip':''}">${j.priority}</span>` : '';
+        const addr = (j.address||j.area||'').replace(/"/g,'');
+        const action = f.next ? `<button class="act ${f.cls}" data-next="${f.next}" data-id="${j.id}">${svg(f.icon)}${f.action}</button>` : '';
+        return `<div class="job">
+          <div class="job-head">
+            <div><span class="job-id">${j.id}</span><h3>${j.subscriber||'—'}${prio}</h3><p class="plan">${j.service_type||''} · ${j.plan||''}</p></div>
+            <span class="badge b-${j.status}">${statusLabel(j.status)}</span>
+          </div>
+          <div class="job-meta">
+            <div class="row">${svg('pin')}<span>${addr||'—'}</span></div>
+            <div class="row">${svg('clock')}<span>${(j.schedule||'Today').replace('Today, ','Today · ')}</span></div>
+          </div>
+          <div class="job-actions">
+            <a class="act ghost" href="https://maps.google.com/?q=${encodeURIComponent(addr)}" target="_blank" rel="noopener" aria-label="Open map">${svg('pin')}</a>
+            ${action || '<button class="act ghost" disabled style="flex:1;opacity:.5">No action</button>'}
+          </div>
+        </div>`;
+      }).join('');
+      el.querySelectorAll('[data-next]').forEach(b=>b.onclick=()=>advance(b.dataset.id,b.dataset.next));
+    }
+
+    async function advance(id,next){
+      const job = jobs.find(j=>j.id===id); if(!job) return;
+      const prev = job.status; job.status = next; render(); // optimistic
+      setSync('syncing','Saving…');
+      try{
+        await patchStatus(id,next);
+        setSync('live','Synced');
+        toast(`${id} → ${statusLabel(next)}`);
+      }catch(err){
+        job.status = prev; render();
+        setSync('error','Sync error');
+        toast('Could not save: '+err.message);
+      }
+    }
+
+    async function refresh(){
+      try{
+        const rows = await getMyJobs();
+        const sig = JSON.stringify(rows);
+        if(sig!==signature){signature=sig; jobs=rows||[]; render()}
+        setSync('live','Synced');
+      }catch(err){setSync('error','Sync error');console.warn('sync:',err.message)}
+    }
+
+    function startSync(){
+      refresh();
+      if(window.supabase?.createClient){
+        const rt = window.supabase.createClient(config.url, config.anonKey);
+        rt.channel('ahba-tech-'+myTeam)
+          .on('postgres_changes',{event:'*',schema:'public',table:'jobs'},refresh)
+          .subscribe();
+      }
+      setInterval(refresh,15000);
+      document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
+    }
+
+    function enterApp(){
+      $('#teamName').textContent = myTeam;
+      $('#loginView').classList.add('hidden');
+      $('#appView').classList.remove('hidden');
+      $('#switchBtn').classList.remove('hidden');
+      startSync();
+    }
+
+    function init(){
+      $('#teamSelect').innerHTML = '<option value="" disabled selected>Choose your team…</option>' + TEAMS.map(t=>`<option value="${t}">${t}</option>`).join('');
+      if(myTeam){ $('#teamSelect').value = myTeam; }
+      $('#loginBtn').onclick = ()=>{
+        const t = $('#teamSelect').value;
+        if(!t){toast('Please select your team');return}
+        myTeam = t; localStorage.setItem('fieldflow_tech_team', t); enterApp();
+      };
+      $('#switchBtn').onclick = ()=>{
+        localStorage.removeItem('fieldflow_tech_team'); myTeam=''; jobs=[]; signature='';
+        $('#appView').classList.add('hidden'); $('#switchBtn').classList.add('hidden');
+        $('#loginView').classList.remove('hidden'); $('#teamSelect').value='';
+      };
+      if(myTeam) enterApp();
+    }
+    document.addEventListener('DOMContentLoaded', init);
+  })();
+  </script>
+</body>
+</html>

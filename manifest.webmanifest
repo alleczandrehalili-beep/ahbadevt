@@ -1,0 +1,25 @@
+{
+  "name": "FieldFlow Tech",
+  "short_name": "FieldFlow Tech",
+  "description": "Field technician app for FieldFlow Operations — view and update dispatched jobs.",
+  "start_url": "mobile.html",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#082c28",
+  "theme_color": "#082c28",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='40' fill='%23082c28'/%3E%3Cg transform='translate(60 56)' fill='none' stroke='%23c9f36a' stroke-width='12' stroke-linecap='round'%3E%3Cline x1='6' y1='80' x2='6' y2='56'/%3E%3Cline x1='36' y1='80' x2='36' y2='28'/%3E%3Cline x1='66' y1='80' x2='66' y2='44'/%3E%3C/g%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='110' fill='%23082c28'/%3E%3Cg transform='translate(160 150)' fill='none' stroke='%23c9f36a' stroke-width='32' stroke-linecap='round'%3E%3Cline x1='16' y1='212' x2='16' y2='150'/%3E%3Cline x1='96' y1='212' x2='96' y2='74'/%3E%3Cline x1='176' y1='212' x2='176' y2='118'/%3E%3C/g%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
