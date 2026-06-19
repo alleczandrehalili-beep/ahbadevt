@@ -309,7 +309,8 @@ function openGallery(jobId){
   const j=compJobs.find(x=>x.id===jobId)||{}; const paths=compPhotos[jobId]||[];
   $('#photoTitle').textContent=`${jobId} · ${j.subscriber||''}`;
   $('#photoSub').textContent=`${j.team||''} · ${paths.length} photo${paths.length===1?'':'s'}`;
-  $('#photoGrid').innerHTML=paths.length?paths.map(p=>`<a href="${photoBase(p)}" target="_blank" rel="noopener"><img src="${photoBase(p)}" alt="proof" loading="lazy"></a>`).join(''):'<div class="none">No photos uploaded for this job.</div>';
+  $('#photoGrid').innerHTML=paths.length?paths.map((p,i)=>`<a class="ph" href="${photoBase(p)}" target="_blank" rel="noopener" title="Photo ${i+1} — open in new window"><img src="${photoBase(p)}" alt="proof ${i+1}" loading="lazy"></a>`).join(''):'<div class="none">No photos uploaded for this job.</div>';
+  $$('#photoGrid .ph').forEach(a=>a.onclick=e=>{e.preventDefault();window.open(a.href,'_blank','noopener,noreferrer');});
   const vb=$('#validateBtn'); vb.style.display=j.validated?'none':''; vb.onclick=()=>{validateJob(jobId);closeModals();};
   openModal($('#photoModal'));
 }

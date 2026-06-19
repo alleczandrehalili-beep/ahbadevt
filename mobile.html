@@ -283,15 +283,34 @@
       if(error){ job.status=prev; render(); setSync('error','Sync error'); toast('Could not save: '+error.message); }
       else { setSync('live','Synced'); toast(`${id} → ${statusLabel(next)}`); }
     }
+    // Compress/resize a photo so each upload stays small (~120 KB) to save cloud space.
+    function compressImage(file, maxDim=1000, targetKB=120){
+      return new Promise(resolve=>{
+        if(!file || !(file.type||'').startsWith('image/')){ resolve(file); return; }
+        const img=new Image(); const url=URL.createObjectURL(file);
+        img.onload=async ()=>{
+          let w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+          const scale=Math.min(1, maxDim/Math.max(w,h)); w=Math.round(w*scale); h=Math.round(h*scale);
+          const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+          cv.getContext('2d').drawImage(img,0,0,w,h);
+          const toBlob=q=>new Promise(r=>cv.toBlob(b=>r(b),'image/jpeg',q));
+          let q=0.6, blob=await toBlob(q);
+          while(blob && blob.size>targetKB*1024 && q>0.3){ q=Math.round((q-0.1)*10)/10; blob=await toBlob(q); }
+          URL.revokeObjectURL(url); resolve(blob||file);
+        };
+        img.onerror=()=>{ URL.revokeObjectURL(url); resolve(file); };
+        img.src=url;
+      });
+    }
     async function uploadPhotos(jobId, fileList){
       const files=[...fileList]; if(!files.length)return;
-      toast(`Uploading ${files.length} photo${files.length>1?'s':''}…`);
+      toast(`Compressing & uploading ${files.length} photo${files.length>1?'s':''}…`);
       let ok=0;
       for(const f of files){
         try{
-          const ext=(f.name&&f.name.split('.').pop()||'jpg').toLowerCase().slice(0,4);
-          const path=`${jobId}/${Date.now()}_${Math.random().toString(36).slice(2,7)}.${ext}`;
-          const {error}=await sb.storage.from('job-photos').upload(path, f, {contentType:f.type||'image/jpeg', upsert:false});
+          const blob=await compressImage(f);
+          const path=`${jobId}/${Date.now()}_${Math.random().toString(36).slice(2,7)}.jpg`;
+          const {error}=await sb.storage.from('job-photos').upload(path, blob, {contentType:'image/jpeg', upsert:false});
           if(error) throw error;
           await sb.from('job_photos').insert({job_id:jobId, team:myTeam, path});
           (photoData[jobId]=photoData[jobId]||[]).push(path); ok++;
