@@ -99,6 +99,12 @@
     .submitted p{font-size:11px;color:var(--muted);margin:0}
     .submitted .badge{margin-top:6px}
     .b-for_validation{background:#fff4e1;color:#b97a16}.b-rejected{background:#fdecea;color:#c2503a}.b-pending{background:#eef1ff;color:#4456c7}
+    .mexp-back{position:fixed;inset:0;background:rgba(4,24,22,.5);z-index:60}
+    .mexp{position:fixed;left:50%;bottom:0;transform:translateX(-50%);width:100%;max-width:520px;background:#fff;border-radius:18px 18px 0 0;padding:20px 18px calc(env(safe-area-inset-bottom) + 20px);z-index:61;box-shadow:0 -10px 40px rgba(4,24,22,.25)}
+    .mexp h3{font:800 17px Manrope;margin:0 0 2px}
+    .mexp .mexp-sub{font-size:12px;color:var(--muted);margin:0 0 14px}
+    .mexp .field{margin-bottom:12px}
+    .mexp select,.mexp input{width:100%;border:1px solid #dfe5df;border-radius:11px;padding:12px;font-size:16px;background:#fff;outline:0}
     .photos{border-top:1px solid #eef1ed;margin-top:12px;padding-top:12px}
     .photos-head{display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;color:#566b66;margin-bottom:8px}
     .photos-head .count{font-weight:800}
@@ -230,6 +236,17 @@
 
       <div class="sa-pane hidden" id="saMine"><div id="saMineList"></div></div>
     </div>
+  </div>
+
+  <div class="mexp-back hidden" id="mexpBack"></div>
+  <div class="mexp hidden" id="mexpModal">
+    <h3>Add expense</h3>
+    <p class="mexp-sub" id="mexpJob"></p>
+    <div class="field"><label>Category</label><select id="mexp_cat"><option>Fuel</option><option>Materials</option><option>Meals</option><option>Toll &amp; Parking</option><option>Other</option></select></div>
+    <div class="field"><label>Amount (₱)</label><input id="mexp_amount" type="number" inputmode="numeric" placeholder="0.00"></div>
+    <div class="field"><label>Description</label><input id="mexp_desc" placeholder="What is the expense for?"></div>
+    <div class="err" id="mexpErr"></div>
+    <div style="display:flex;gap:8px;margin-top:6px"><button class="btn-ghost" id="mexpCancel" style="flex:1">Cancel</button><button class="btn-primary" id="mexpSave" style="flex:1">Save expense</button></div>
   </div>
 
   <div class="toast" id="toast"></div>
@@ -452,6 +469,25 @@
       toast(ok===files.length?`${ok} photo${ok>1?'s':''} added`:`${ok}/${files.length} uploaded — try the rest again`);
       render();
     }
+
+    // ---------- technician expense ----------
+    function openMobileExpense(jobId){
+      $('#mexpModal').dataset.job=jobId; $('#mexpJob').textContent='For '+jobId;
+      $('#mexp_amount').value=''; $('#mexp_desc').value=''; clearErr('#mexpErr');
+      $('#mexpBack').classList.remove('hidden'); $('#mexpModal').classList.remove('hidden');
+    }
+    function closeMobileExpense(){ $('#mexpBack').classList.add('hidden'); $('#mexpModal').classList.add('hidden'); }
+    async function saveMobileExpense(){
+      const jobId=$('#mexpModal').dataset.job, cat=$('#mexp_cat').value, amt=Number($('#mexp_amount').value), desc=$('#mexp_desc').value.trim();
+      if(!amt||amt<=0){ showErr('#mexpErr','Enter a valid amount.'); return; }
+      const btn=$('#mexpSave'); btn.disabled=true; btn.textContent='Saving…';
+      try{
+        const {error}=await sb.from('expenses').insert({team:myTeam, job_id:jobId, category:cat, description:desc, amount:amt, status:'Pending', work_date:manilaDate()});
+        if(error) throw error;
+        toast('Expense submitted'); closeMobileExpense();
+      }catch(e){ showErr('#mexpErr','Failed: '+e.message); }
+      btn.disabled=false; btn.textContent='Save expense';
+    }
     const sameManilaDay = ts => ts && new Date(ts).toLocaleDateString('en-CA',{timeZone:TZ})===manilaDate();
     function render(){
       const order={assigned:0,'en-route':1,'on-site':2,'in-progress':3,pending:4};
@@ -484,7 +520,7 @@
 
         if(j.status==='in-progress'){
           const canDone=n>=PHOTOS_REQUIRED;
-          extra=`<div class="photos"><div class="photos-head"><span>Proof photos</span><span class="count ${canDone?'ok':'need'}">${n}/${PHOTOS_REQUIRED}</span></div>${n?`<div class="thumbs">${thumbs}</div>`:''}<label class="addphoto">${svg('camera')} Add photos<input type="file" accept="image/*" capture="environment" multiple hidden data-up="${j.id}"></label></div>`;
+          extra=`<div class="photos"><div class="photos-head"><span>Proof photos</span><span class="count ${canDone?'ok':'need'}">${n}/${PHOTOS_REQUIRED}</span></div>${n?`<div class="thumbs">${thumbs}</div>`:''}<div style="display:flex;gap:8px"><label class="addphoto" style="flex:1">${svg('camera')} Camera<input type="file" accept="image/*" capture="environment" multiple hidden data-up="${j.id}"></label><label class="addphoto" style="flex:1">${svg('note')} Album<input type="file" accept="image/*" multiple hidden data-up="${j.id}"></label></div></div>`;
           actions=`<div class="job-actions">${mapLink}<button class="act done" data-next="completed" data-id="${j.id}" ${canDone?'':'disabled'}>${svg('check')}Mark complete${canDone?'':` (${n}/${PHOTOS_REQUIRED})`}</button></div>`;
         } else if(j.status==='completed'){
           extra=n?`<div class="photos"><div class="photos-head"><span>Proof photos</span><span class="count ok">${n}</span></div><div class="thumbs">${thumbs}</div></div>`:'';
@@ -494,14 +530,18 @@
           actions=`<div class="job-actions">${mapLink}${act}</div>`;
         }
         const contact=j.primary_no?`<div class="row">${svg('phone')}<a href="tel:${j.primary_no}" style="color:inherit;text-decoration:none">${j.primary_no}${j.other_contact_no?' / '+j.other_contact_no:''}</a></div>`:'';
-        const acct=(j.job_order_no||j.ibass_acct_no)?`<div class="row">${svg('note')}<span>${[j.job_order_no,j.ibass_acct_no].filter(Boolean).join(' · ')}</span></div>`:'';
+        const acct=(j.job_order_no||j.ibass_acct_no)?`<div class="row">${svg('note')}<span>JO ${j.job_order_no||'—'} · Acct ${j.ibass_acct_no||'—'}</span></div>`:'';
+        const svc=(j.plan||j.play_type)?`<div class="row">${svg('note')}<span>${[j.plan,j.play_type].filter(Boolean).join(' · ')}</span></div>`:'';
+        const src=(j.source_of_sales||j.referral_name)?`<div class="row">${svg('note')}<span>${[j.source_of_sales,j.referral_name&&('Ref: '+j.referral_name)].filter(Boolean).join(' · ')}</span></div>`:'';
         const note=j.special_note?`<div class="row" style="color:#c2503a">${svg('note')}<span>${j.special_note}</span></div>`:'';
+        const expBtn=(j.status!=='completed')?`<button class="addphoto" style="margin-top:10px;color:#a4690f;border-color:#f0d9a8;background:#fff8eb" data-exp="${j.id}">+ Add expense for this job</button>`:'';
         return `<div class="job"><div class="job-head"><div><span class="job-id">${j.id}</span><h3>${j.subscriber||'—'}${prio}</h3><p class="plan">${j.service_type||''} · ${j.plan||''}</p></div><span class="badge b-${j.status}">${statusLabel(j.status)}</span></div>
-        <div class="job-meta"><div class="row">${svg('pin')}<span>${addr||'—'}</span></div><div class="row">${svg('clock')}<span>${(j.schedule||'Today').replace('Today, ','Today · ')}</span></div>${contact}${acct}${note}</div>
-        ${extra}${actions}</div>`;
+        <div class="job-meta"><div class="row">${svg('pin')}<span>${addr||'—'}</span></div><div class="row">${svg('clock')}<span>${(j.schedule||'Today').replace('Today, ','Today · ')}</span></div>${contact}${acct}${svc}${src}${note}</div>
+        ${extra}${actions}${expBtn}</div>`;
       }).join('');
       el.querySelectorAll('[data-next]').forEach(b=>b.onclick=()=>advance(b.dataset.id,b.dataset.next));
       el.querySelectorAll('[data-up]').forEach(inp=>inp.onchange=()=>{const id=inp.dataset.up,files=inp.files;uploadPhotos(id,files);inp.value='';});
+      el.querySelectorAll('[data-exp]').forEach(b=>b.onclick=()=>openMobileExpense(b.dataset.exp));
     }
 
     function startApp(){
@@ -594,6 +634,9 @@
     $('#saTabNew')?.addEventListener('click',()=>saSwitch('new'));
     $('#saTabMine')?.addEventListener('click',()=>saSwitch('mine'));
     $('#saSubmit')?.addEventListener('click',saSubmit);
+    $('#mexpCancel')?.addEventListener('click',closeMobileExpense);
+    $('#mexpSave')?.addEventListener('click',saveMobileExpense);
+    $('#mexpBack')?.addEventListener('click',closeMobileExpense);
     $('#mLogout').onclick=async()=>{
       $('#menuPop').classList.add('hidden');
       await clockOut();                       // record time-out

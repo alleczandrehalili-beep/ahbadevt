@@ -32,6 +32,9 @@
     .doc-sec h4{font:800 10px Manrope;letter-spacing:.08em;text-transform:uppercase;color:#107b5e;margin:10px 0 8px}
     #valModal.modal{width:min(820px,calc(100% - 30px))}
     #valModal{max-height:92vh;overflow:auto}
+    .dispatch-board{grid-template-columns:repeat(5,1fr)}
+    @media(max-width:1200px){.dispatch-board{grid-template-columns:repeat(3,1fr)}}
+    @media(max-width:760px){.dispatch-board{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
@@ -62,8 +65,8 @@
         <small id="shiftTime">8h 24m remaining</small>
       </div>
       <button class="user-card" id="roleSwitcher" aria-haspopup="true" aria-expanded="false">
-        <span class="avatar">AM</span>
-        <span><strong>Alex Mercado</strong><small id="roleLabel">Operations Manager</small></span>
+        <span class="avatar">AZ</span>
+        <span><strong>Allec Zandre A. Halili</strong><small id="roleLabel">General Manager · Superadmin</small></span>
         <i data-icon="chevron"></i>
       </button>
       <div class="role-menu" id="roleMenu" hidden>
@@ -77,7 +80,7 @@
     <main class="main">
       <header class="topbar">
         <button class="icon-btn mobile-only" id="menuBtn" aria-label="Open menu"><i data-icon="menu"></i></button>
-        <div class="title-wrap"><p>OPERATIONS CENTER</p><h1 id="pageTitle">Good morning, Alex</h1></div>
+        <div class="title-wrap"><p>OPERATIONS CENTER</p><h1 id="pageTitle">Good morning, Allec</h1></div>
         <div class="top-actions">
           <div class="date-chip"><i data-icon="calendar"></i><span id="todayLabel"></span></div>
           <div class="notif-wrap">

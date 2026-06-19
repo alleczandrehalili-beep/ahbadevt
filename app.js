@@ -119,8 +119,13 @@ function renderJobs(){
   $('#pendingBadge').textContent=pending.length;
   $('#queueBody').innerHTML=pending.slice(0,4).map(j=>`<tr><td><strong>${j.id}</strong><span>${j.priority}</span></td><td><strong>${j.subscriber}</strong></td><td>${j.type}</td><td>${j.area}</td><td><span class="status pending">${j.wait}</span></td><td><button class="assign-btn" data-assign="${j.id}">Assign</button></td></tr>`).join('')||'<tr><td colspan="6" class="empty-cell">No jobs waiting for dispatch.</td></tr>';
   $('#workOrderBody').innerHTML=jobs.map(j=>`<tr data-type="${j.type.toLowerCase()}" data-status="${j.status}" data-text="${(j.id+' '+j.subscriber+' '+j.area).toLowerCase()}"><td><strong>${j.id}</strong><span>${j.priority}</span></td><td><strong>${j.subscriber}</strong><span>${j.plan}</span></td><td>${j.type}</td><td>${j.area}</td><td>${j.team||'—'}</td><td><span class="status ${j.status}">${statusLabel(j.status)}</span></td><td>${j.schedule}</td></tr>`).join('');
-  const stages=[['pending','Unassigned'],['assigned','Assigned'],['en-route','En route'],['on-site,in-progress','On site']];
-  $('#dispatchBoard').innerHTML=stages.map(([keys,label])=>{const list=jobs.filter(j=>keys.split(',').includes(j.status));return `<div class="board-column"><div class="column-head"><strong>${label}</strong><span>${list.length}</span></div>${list.map(jobCard).join('')||'<div class="job-card empty"><p>No jobs in this stage.</p></div>'}</div>`}).join('');
+  const today=manilaToday();
+  const stages=[['pending','Unassigned'],['assigned','Assigned'],['en-route','En route'],['on-site,in-progress','On site'],['completed','Completed today']];
+  $('#dispatchBoard').innerHTML=stages.map(([keys,label])=>{
+    let list=jobs.filter(j=>keys.split(',').includes(j.status));
+    if(keys==='completed') list=list.filter(j=>j.updatedAt && new Date(j.updatedAt).toLocaleDateString('en-CA',{timeZone:TZ})===today);
+    return `<div class="board-column"><div class="column-head"><strong>${label}</strong><span>${list.length}</span></div>${list.map(jobCard).join('')||'<div class="job-card empty"><p>No jobs in this stage.</p></div>'}</div>`;
+  }).join('');
   const counts=[['Waiting',pending.length],['Assigned',jobs.filter(j=>j.status==='assigned').length],['On the road',jobs.filter(j=>j.status==='en-route').length],['In service',jobs.filter(j=>['on-site','in-progress'].includes(j.status)).length]];
   $('#dispatchStats').innerHTML=counts.map(([l,n])=>`<div class="small-stat"><span>${l}</span><strong>${n}</strong></div>`).join('');
   bindAssignButtons();
@@ -128,16 +133,39 @@ function renderJobs(){
 }
 function jobCard(j){return `<article class="job-card"><div class="job-top"><span class="job-id">${j.id}</span>${j.priority!=='Normal'?`<span class="priority">${j.priority}</span>`:''}</div><h3>${j.subscriber}</h3><p>${j.type} · ${j.plan}</p><div class="job-meta"><span>⌖ ${j.area}</span><span>${j.schedule.replace('Today, ','')}</span></div>${j.status==='pending'?`<div class="job-actions"><button class="assign-btn" data-assign="${j.id}">Assign team</button></div>`:`<div class="job-actions"><span class="status ${j.status}">${j.team||statusLabel(j.status)}</span></div>`}</article>`}
 function renderTeams(filter=''){$('#teamGrid').innerHTML=teams.filter(t=>(t.name+t.area+t.code).toLowerCase().includes(filter.toLowerCase())).map(t=>`<article class="team-card"><div class="team-card-head"><span class="team-avatar" style="background:${t.color}">${t.short}</span><div><h3>${t.name}</h3><p>${t.members} technicians · ${t.area}</p></div></div><span class="status ${t.status}">${statusLabel(t.status)}</span><div class="load-row"><span>Today’s load</span><b>${t.jobs} / 5 jobs</b></div><div class="load-bar"><span style="width:${t.jobs/5*100}%"></span></div><div class="team-info"><span>Current area<strong>${t.area}</strong></span><span>Completed<strong>${t.completed} jobs · ★ ${t.rating}</strong></span></div></article>`).join('')||'<div class="empty-row">No teams match your search.</div>'}
-function renderExpenses(){
-  const total=todayTotal(),pct=Math.round(total/25000*100);$('#todayExpense').textContent=money(total);$('#budgetPercent').textContent=`${pct}% of ₱25,000`;$('#budgetBar').style.width=`${Math.min(pct,100)}%`;$('#donutTotal').textContent=`₱${(total/1000).toFixed(1)}k`;
-  const cats=['Fuel','Materials','Meals','Toll & Parking','Other'], cols=['#18a57b','#ff765f','#e9a93d','#4285f4','#b0bab7'];
-  const values=cats.map(c=>expenses.filter(e=>e.category===c).reduce((a,b)=>a+Number(b.amount),0));
-  let acc=0;const stops=values.map((v,i)=>{const start=acc;acc+=v/total*100;return `${cols[i]} ${start}% ${acc}%`}).join(',');$('#expenseDonut').style.background=`conic-gradient(${stops})`;
-  $('#expenseLegend').innerHTML=cats.map((c,i)=>`<div class="legend-row"><i style="background:${cols[i]}"></i><span>${c}</span><b>${money(values[i])}</b></div>`).join('');
-  $('#categoryList').innerHTML=cats.map((c,i)=>`<div class="category-row"><div class="category-top"><span>${c}</span><b>${money(values[i])}</b></div><div class="category-bar"><span style="width:${values[i]/Math.max(...values)*100}%;background:${cols[i]}"></span></div></div>`).join('');
-  $('#expenseBody').innerHTML=expenses.map(e=>`<tr><td>${e.time}</td><td><strong>${e.team}</strong></td><td>${e.category}</td><td>${e.description}</td><td>${e.workOrder}</td><td><strong>${money(e.amount)}</strong></td><td><span class="status ${e.status==='Approved'?'completed':'pending'}">${e.status}</span></td></tr>`).join('');
-  $('#expenseSummary').innerHTML=[['Today’s spend',money(total)],['Remaining budget',money(Math.max(0,25000-total))],['Cost / completed job',money(Math.round(total/24))],['Pending approval',money(expenses.filter(e=>e.status==='Pending').reduce((a,b)=>a+b.amount,0))]].map(([l,v])=>`<div class="small-stat"><span>${l}</span><strong>${v}</strong></div>`).join('');
-  const week=[14200,19800,17650,22100,15800,20400,total],days=['Thu','Fri','Sat','Sun','Mon','Tue','Today'];$('#weeklyChart').innerHTML=week.map((v,i)=>`<div class="bar-col ${i===6?'today':''}"><span style="height:${v/26000*100}%" title="${money(v)}"></span><b>${days[i]}</b></div>`).join('');
+const DEPLOY_COST=2100;
+async function renderExpenses(){
+  const date=manilaToday(), H={apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`};
+  let cloudExp=[], att=[];
+  try{ const r=await fetch(`${SUPA_URL}/rest/v1/expenses?select=*&work_date=eq.${date}&order=created_at.desc`,{headers:H}); cloudExp=r.ok?await r.json():[]; }catch(e){}
+  try{ const r=await fetch(`${SUPA_URL}/rest/v1/attendance?select=username&work_date=eq.${date}`,{headers:H}); att=r.ok?await r.json():[]; }catch(e){}
+  const techsToday=[...new Set(att.map(a=>a.username).filter(u=>/^AHBA_SLI/i.test(u)))];
+  const deployCost=techsToday.length*DEPLOY_COST;
+  const submitted=cloudExp.reduce((a,b)=>a+Number(b.amount||0),0);
+  const total=deployCost+submitted, BUDGET=50000, pct=Math.round(total/BUDGET*100);
+  const set=(id,v)=>{const el=$(id);if(el)el.textContent=v};
+  set('#todayExpense',money(total)); set('#budgetPercent',`${pct}% of ${money(BUDGET)}`); set('#donutTotal',`₱${(total/1000).toFixed(1)}k`);
+  if($('#budgetBar'))$('#budgetBar').style.width=`${Math.min(pct,100)}%`;
+
+  const cats=['Deployment','Fuel','Materials','Meals','Toll & Parking','Other'];
+  const cols=['#082c28','#18a57b','#ff765f','#e9a93d','#4285f4','#b0bab7'];
+  const values=cats.map(c=> c==='Deployment'? deployCost : cloudExp.filter(e=>e.category===c).reduce((a,b)=>a+Number(b.amount||0),0));
+  const sum=values.reduce((a,b)=>a+b,0)||1; let acc=0;
+  const stops=values.map((v,i)=>{const s=acc;acc+=v/sum*100;return `${cols[i]} ${s}% ${acc}%`}).join(',');
+  if($('#expenseDonut'))$('#expenseDonut').style.background=`conic-gradient(${stops})`;
+  if($('#expenseLegend'))$('#expenseLegend').innerHTML=cats.map((c,i)=>`<div class="legend-row"><i style="background:${cols[i]}"></i><span>${c}</span><b>${money(values[i])}</b></div>`).join('');
+  if($('#categoryList'))$('#categoryList').innerHTML=cats.map((c,i)=>`<div class="category-row"><div class="category-top"><span>${c}</span><b>${money(values[i])}</b></div><div class="category-bar"><span style="width:${values[i]/Math.max(...values,1)*100}%;background:${cols[i]}"></span></div></div>`).join('');
+  if($('#expenseBody')){
+    const deployRow=`<tr><td>—</td><td><strong>${techsToday.length} tech logins</strong></td><td>Deployment</td><td>Daily deployment cost (₱${DEPLOY_COST.toLocaleString('en-PH')} / technician login)</td><td>—</td><td><strong>${money(deployCost)}</strong></td><td><span class="status completed">Auto</span></td></tr>`;
+    const expRows=cloudExp.map(e=>`<tr><td>${e.created_at?fmtTime(e.created_at):''}</td><td><strong>${e.team||'—'}</strong></td><td>${e.category||''}</td><td>${e.description||''}</td><td>${e.job_id||'—'}</td><td><strong>${money(e.amount)}</strong></td><td><span class="status ${e.status==='Approved'?'completed':'pending'}">${e.status||'Pending'}</span></td></tr>`).join('');
+    $('#expenseBody').innerHTML=deployRow+expRows;
+  }
+  if($('#expenseSummary'))$('#expenseSummary').innerHTML=[
+    ['Today’s total',money(total)],['Deployment cost',money(deployCost)],['Field expenses',money(submitted)],
+    ['Pending approval',money(cloudExp.filter(e=>(e.status||'Pending')==='Pending').reduce((a,b)=>a+Number(b.amount||0),0))]
+  ].map(([l,v])=>`<div class="small-stat"><span>${l}</span><strong>${v}</strong></div>`).join('');
+  const week=[14200,19800,17650,22100,15800,20400,total],days=['Thu','Fri','Sat','Sun','Mon','Tue','Today'];
+  if($('#weeklyChart'))$('#weeklyChart').innerHTML=week.map((v,i)=>`<div class="bar-col ${i===6?'today':''}"><span style="height:${v/Math.max(...week,1)*100}%" title="${money(v)}"></span><b>${days[i]}</b></div>`).join('');
 }
 function bindAssignButtons(){$$('[data-assign]').forEach(b=>b.onclick=()=>openAssign(b.dataset.assign))}
 
@@ -206,7 +234,7 @@ function renderNotifPop(){
   injectIcons();
 }
 
-function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>{const on=n.dataset.page===page;n.classList.toggle('active',on);on?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current')});const labels={overview:'Good morning, Alex',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring',accounts:'Technician accounts',attendance:'Attendance · Time records',completed:'Completed jobs',validation:'Validator · New job orders'};$('#pageTitle').textContent=labels[page];if(page==='accounts')renderAccounts();if(page==='attendance')renderAttendance();if(page==='completed')renderCompleted();if(page==='validation')renderValidation();closeSidebar();scrollTo(0,0)}
+function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>{const on=n.dataset.page===page;n.classList.toggle('active',on);on?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current')});const labels={overview:'Good morning, Allec',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring',accounts:'Technician accounts',attendance:'Attendance · Time records',completed:'Completed jobs',validation:'Validator · New job orders'};$('#pageTitle').textContent=labels[page];if(page==='accounts')renderAccounts();if(page==='attendance')renderAttendance();if(page==='completed')renderCompleted();if(page==='validation')renderValidation();closeSidebar();scrollTo(0,0)}
 
 // ---------- Validator (sales-agent job orders awaiting approval) ----------
 let valJobs=[], valDocs={};
@@ -554,7 +582,9 @@ function init(){
     const job={id:`WO-2026-${num}`,subscriber:full||'Subscriber',type:f.type,plan:f.plan,area:f.city||f.brgy||'Quezon City',address:addr,status:f.team?'assigned':'pending',wait:'Just now',priority:f.priority,schedule:`${f.date}, 9:00 AM`,team:f.team||null,load_date:f.date||null};
     SUB_FIELDS.forEach(k=>{ if(f[k]) job[k]=f[k]; });
     jobs.unshift(job);save();if(window.AHBASync)window.AHBASync(job);e.target.reset();$$('input[type=date]').forEach(i=>i.value=manilaToday());closeModals();renderOverview();showToast('Work order created and added to dispatch queue')};
-  $('#expenseForm').onsubmit=e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));expenses.unshift({time:new Date().toLocaleTimeString('en-PH',{hour:'numeric',minute:'2-digit'}),team:f.team,category:f.category,description:f.description,workOrder:f.workOrder||'—',amount:Number(f.amount),status:'Pending'});save();e.target.reset();closeModals();renderExpenses();showToast('Expense recorded for approval')};
+  $('#expenseForm').onsubmit=e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
+    fetch(`${SUPA_URL}/rest/v1/expenses`,{method:'POST',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({team:f.team,category:f.category,description:f.description,amount:Number(f.amount),job_id:f.workOrder||null,status:'Pending',work_date:manilaToday()})}).then(()=>setTimeout(renderExpenses,400)).catch(()=>{});
+    e.target.reset();closeModals();showToast('Expense recorded for approval')};
 
   // Search + filters
   $('#teamSearch').oninput=e=>renderTeams(e.target.value);
