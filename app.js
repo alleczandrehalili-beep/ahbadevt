@@ -9,39 +9,43 @@ const icons = {
 };
 function injectIcons(){ $$('[data-icon]').forEach(el=>{const name=el.dataset.icon;el.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icons[name]||icons.info}</svg>`}) }
 
-const names=['North Star','Fiber Force','Signal Pro','Sky Link','Quick Connect','Metro Tech','Cable Crew','Blue Wave','Fast Track','Prime Line','Urban Link','Net Masters','Service One','Tech Titans','Rapid Repair','City Connect','Wire Works','Field Fox','Core Team','Alpha Install'];
+const names=Array.from({length:20},(_,i)=>`AHBA_SLI${String(i+1).padStart(3,'0')}`);
 const areas=['Quezon City','Manila','Makati','Pasig','Taguig','Caloocan','Parañaque','Mandaluyong','San Juan','Marikina'];
 const statuses=['on-site','en-route','on-site','available','en-route','on-site','en-route','available','on-site','en-route','on-site','offline','en-route','on-site','available','en-route','on-site','offline','available','en-route'];
 const colors=['#1a9d79','#4086e8','#9a6edb','#ee8564','#16a0ad','#e3a23c'];
-const teams=names.map((name,i)=>({id:i+1,name,code:`T-${String(i+1).padStart(2,'0')}`,status:statuses[i],area:areas[i%areas.length],jobs: i%4+1,completed: Math.max(0,(i*3)%7),rating:(4.6+(i%4)*.1).toFixed(1),x:8+((i*37)%84),y:12+((i*29)%72),color:colors[i%colors.length],members:2+(i%2)}));
+const teams=names.map((name,i)=>({id:i+1,name,code:name,short:String(i+1).padStart(3,'0'),status:statuses[i],area:areas[i%areas.length],jobs: i%4+1,completed: Math.max(0,(i*3)%7),rating:(4.6+(i%4)*.1).toFixed(1),x:8+((i*37)%84),y:12+((i*29)%72),color:colors[i%colors.length],members:2+(i%2)}));
+
+// Supabase (read-only here) for the Accounts panel
+const SUPA_URL='https://avjzkfxgzeyxtihkofed.supabase.co';
+const SUPA_KEY='sb_publishable_2JM51zp2r5GUICznc6Nz4Q_B4UFS1da';
 
 let jobs=JSON.parse(localStorage.getItem('fieldflow_jobs')||'null')||[
  {id:'WO-2026-1048',subscriber:'Maria Santos',type:'Installation',plan:'Fiber Unli 400 Mbps',area:'Quezon City',address:'Project 4, Quezon City',status:'pending',wait:'42 min',priority:'Urgent',schedule:'Today, 10:00 AM',team:null},
  {id:'WO-2026-1047',subscriber:'Carlo Reyes',type:'Repair',plan:'Service Repair',area:'Makati',address:'Poblacion, Makati',status:'pending',wait:'35 min',priority:'Normal',schedule:'Today, 10:30 AM',team:null},
- {id:'WO-2026-1046',subscriber:'Anne Lim',type:'Installation',plan:'Fiber Unli 200 Mbps',area:'Manila',address:'Sampaloc, Manila',status:'assigned',wait:'28 min',priority:'Normal',schedule:'Today, 11:00 AM',team:'North Star'},
- {id:'WO-2026-1045',subscriber:'Roberto Cruz',type:'Repair',plan:'Service Repair',area:'Pasig',address:'Kapitolyo, Pasig',status:'en-route',wait:'18 min',priority:'VIP',schedule:'Today, 9:45 AM',team:'Fiber Force'},
- {id:'WO-2026-1044',subscriber:'Liza Mendoza',type:'Installation',plan:'Cable + Internet Bundle',area:'Taguig',address:'Pinagsama, Taguig',status:'on-site',wait:'12 min',priority:'Normal',schedule:'Today, 9:00 AM',team:'Signal Pro'},
- {id:'WO-2026-1043',subscriber:'David Ong',type:'Installation',plan:'Fiber Unli 600 Mbps',area:'Caloocan',address:'Grace Park, Caloocan',status:'completed',wait:'—',priority:'Normal',schedule:'Today, 8:00 AM',team:'Metro Tech'},
- {id:'WO-2026-1042',subscriber:'Grace Tan',type:'Repair',plan:'Service Repair',area:'Marikina',address:'Concepcion, Marikina',status:'in-progress',wait:'—',priority:'Urgent',schedule:'Today, 8:30 AM',team:'Cable Crew'},
- {id:'WO-2026-1041',subscriber:'Marco Diaz',type:'Installation',plan:'Fiber Unli 400 Mbps',area:'Parañaque',address:'BF Homes, Parañaque',status:'completed',wait:'—',priority:'Normal',schedule:'Today, 7:30 AM',team:'Blue Wave'}
+ {id:'WO-2026-1046',subscriber:'Anne Lim',type:'Installation',plan:'Fiber Unli 200 Mbps',area:'Manila',address:'Sampaloc, Manila',status:'assigned',wait:'28 min',priority:'Normal',schedule:'Today, 11:00 AM',team:'AHBA_SLI001'},
+ {id:'WO-2026-1045',subscriber:'Roberto Cruz',type:'Repair',plan:'Service Repair',area:'Pasig',address:'Kapitolyo, Pasig',status:'en-route',wait:'18 min',priority:'VIP',schedule:'Today, 9:45 AM',team:'AHBA_SLI002'},
+ {id:'WO-2026-1044',subscriber:'Liza Mendoza',type:'Installation',plan:'Cable + Internet Bundle',area:'Taguig',address:'Pinagsama, Taguig',status:'on-site',wait:'12 min',priority:'Normal',schedule:'Today, 9:00 AM',team:'AHBA_SLI003'},
+ {id:'WO-2026-1043',subscriber:'David Ong',type:'Installation',plan:'Fiber Unli 600 Mbps',area:'Caloocan',address:'Grace Park, Caloocan',status:'completed',wait:'—',priority:'Normal',schedule:'Today, 8:00 AM',team:'AHBA_SLI006'},
+ {id:'WO-2026-1042',subscriber:'Grace Tan',type:'Repair',plan:'Service Repair',area:'Marikina',address:'Concepcion, Marikina',status:'in-progress',wait:'—',priority:'Urgent',schedule:'Today, 8:30 AM',team:'AHBA_SLI007'},
+ {id:'WO-2026-1041',subscriber:'Marco Diaz',type:'Installation',plan:'Fiber Unli 400 Mbps',area:'Parañaque',address:'BF Homes, Parañaque',status:'completed',wait:'—',priority:'Normal',schedule:'Today, 7:30 AM',team:'AHBA_SLI008'}
 ];
 let expenses=JSON.parse(localStorage.getItem('fieldflow_expenses')||'null')||[
- {time:'9:42 AM',team:'North Star',category:'Fuel',description:'Diesel refill',workOrder:'—',amount:1850,status:'Approved'},
- {time:'9:18 AM',team:'Signal Pro',category:'Materials',description:'Fiber drop cable, 150m',workOrder:'WO-2026-1044',amount:3200,status:'Approved'},
- {time:'8:55 AM',team:'Fiber Force',category:'Toll & Parking',description:'Skyway toll',workOrder:'WO-2026-1045',amount:520,status:'Approved'},
- {time:'8:30 AM',team:'Cable Crew',category:'Materials',description:'Connectors and splitter',workOrder:'WO-2026-1042',amount:1480,status:'Pending'},
- {time:'8:05 AM',team:'Metro Tech',category:'Fuel',description:'Gasoline refill',workOrder:'—',amount:2100,status:'Approved'},
- {time:'7:50 AM',team:'Blue Wave',category:'Meals',description:'Team breakfast allowance',workOrder:'—',amount:600,status:'Approved'},
- {time:'7:32 AM',team:'Quick Connect',category:'Fuel',description:'Diesel refill',workOrder:'—',amount:1750,status:'Approved'},
- {time:'7:18 AM',team:'Prime Line',category:'Other',description:'Emergency tool replacement',workOrder:'—',amount:2950,status:'Pending'},
- {time:'7:05 AM',team:'Urban Link',category:'Materials',description:'Modem replacement stock',workOrder:'WO-2026-1039',amount:4000,status:'Approved'}
+ {time:'9:42 AM',team:'AHBA_SLI001',category:'Fuel',description:'Diesel refill',workOrder:'—',amount:1850,status:'Approved'},
+ {time:'9:18 AM',team:'AHBA_SLI003',category:'Materials',description:'Fiber drop cable, 150m',workOrder:'WO-2026-1044',amount:3200,status:'Approved'},
+ {time:'8:55 AM',team:'AHBA_SLI002',category:'Toll & Parking',description:'Skyway toll',workOrder:'WO-2026-1045',amount:520,status:'Approved'},
+ {time:'8:30 AM',team:'AHBA_SLI007',category:'Materials',description:'Connectors and splitter',workOrder:'WO-2026-1042',amount:1480,status:'Pending'},
+ {time:'8:05 AM',team:'AHBA_SLI006',category:'Fuel',description:'Gasoline refill',workOrder:'—',amount:2100,status:'Approved'},
+ {time:'7:50 AM',team:'AHBA_SLI008',category:'Meals',description:'Team breakfast allowance',workOrder:'—',amount:600,status:'Approved'},
+ {time:'7:32 AM',team:'AHBA_SLI005',category:'Fuel',description:'Diesel refill',workOrder:'—',amount:1750,status:'Approved'},
+ {time:'7:18 AM',team:'AHBA_SLI010',category:'Other',description:'Emergency tool replacement',workOrder:'—',amount:2950,status:'Pending'},
+ {time:'7:05 AM',team:'AHBA_SLI011',category:'Materials',description:'Modem replacement stock',workOrder:'WO-2026-1039',amount:4000,status:'Approved'}
 ];
 const activity=[
- {icon:'check',tone:'',title:'Installation completed',text:'<b>Metro Tech</b> completed WO-2026-1043',time:'2m'},
- {icon:'truck',tone:'blue',title:'Team is en route',text:'<b>Fiber Force</b> heading to Poblacion, Makati',time:'6m'},
- {icon:'wallet',tone:'coral',title:'Expense submitted',text:'<b>Signal Pro</b> logged ₱3,200 materials',time:'12m'},
- {icon:'pin',tone:'',title:'Team arrived on site',text:'<b>Cable Crew</b> checked in at Marikina',time:'18m'},
- {icon:'wrench',tone:'blue',title:'Repair started',text:'<b>North Star</b> began line diagnostics',time:'24m'},
+ {icon:'check',tone:'',title:'Installation completed',text:'<b>AHBA_SLI006</b> completed WO-2026-1043',time:'2m'},
+ {icon:'truck',tone:'blue',title:'Team is en route',text:'<b>AHBA_SLI002</b> heading to Poblacion, Makati',time:'6m'},
+ {icon:'wallet',tone:'coral',title:'Expense submitted',text:'<b>AHBA_SLI003</b> logged ₱3,200 materials',time:'12m'},
+ {icon:'pin',tone:'',title:'Team arrived on site',text:'<b>AHBA_SLI007</b> checked in at Marikina',time:'18m'},
+ {icon:'wrench',tone:'blue',title:'Repair started',text:'<b>AHBA_SLI001</b> began line diagnostics',time:'24m'},
  {icon:'info',tone:'coral',title:'Job needs attention',text:'WO-2026-1048 has been waiting 42 min',time:'31m'}
 ];
 
@@ -59,7 +63,7 @@ function renderOverview(){
   const done=jobs.filter(j=>j.status==='completed').length;
   if($('#completedCount')) $('#completedCount').textContent=done;
   if($('#completedTarget')) $('#completedTarget').textContent=jobs.length;
-  $('#teamAvatars').innerHTML=teams.slice(0,6).map((t,i)=>`<span style="background:${t.color}">${t.code.slice(2)}</span>`).join('');
+  $('#teamAvatars').innerHTML=teams.slice(0,6).map((t,i)=>`<span style="background:${t.color}">${t.short}</span>`).join('');
   $('#completionBars').innerHTML=[16,24,20,31,26,36,29].map(h=>`<span style="height:${h}px"></span>`).join('');
   renderMapPins();
   $('#activityList').innerHTML=activity.map(a=>`<div class="activity-item"><span class="activity-icon ${a.tone}" data-icon="${a.icon}"></span><div class="activity-copy"><strong>${a.title}</strong><p>${a.text}</p></div><time>${a.time}</time></div>`).join('');
@@ -83,7 +87,7 @@ function renderJobs(){
   applyJobTableFilter();
 }
 function jobCard(j){return `<article class="job-card"><div class="job-top"><span class="job-id">${j.id}</span>${j.priority!=='Normal'?`<span class="priority">${j.priority}</span>`:''}</div><h3>${j.subscriber}</h3><p>${j.type} · ${j.plan}</p><div class="job-meta"><span>⌖ ${j.area}</span><span>${j.schedule.replace('Today, ','')}</span></div>${j.status==='pending'?`<div class="job-actions"><button class="assign-btn" data-assign="${j.id}">Assign team</button></div>`:`<div class="job-actions"><span class="status ${j.status}">${j.team||statusLabel(j.status)}</span></div>`}</article>`}
-function renderTeams(filter=''){$('#teamGrid').innerHTML=teams.filter(t=>(t.name+t.area+t.code).toLowerCase().includes(filter.toLowerCase())).map(t=>`<article class="team-card"><div class="team-card-head"><span class="team-avatar" style="background:${t.color}">${t.code.slice(2)}</span><div><h3>${t.name}</h3><p>${t.code} · ${t.members} technicians</p></div></div><span class="status ${t.status}">${statusLabel(t.status)}</span><div class="load-row"><span>Today’s load</span><b>${t.jobs} / 5 jobs</b></div><div class="load-bar"><span style="width:${t.jobs/5*100}%"></span></div><div class="team-info"><span>Current area<strong>${t.area}</strong></span><span>Completed<strong>${t.completed} jobs · ★ ${t.rating}</strong></span></div></article>`).join('')||'<div class="empty-row">No teams match your search.</div>'}
+function renderTeams(filter=''){$('#teamGrid').innerHTML=teams.filter(t=>(t.name+t.area+t.code).toLowerCase().includes(filter.toLowerCase())).map(t=>`<article class="team-card"><div class="team-card-head"><span class="team-avatar" style="background:${t.color}">${t.short}</span><div><h3>${t.name}</h3><p>${t.members} technicians · ${t.area}</p></div></div><span class="status ${t.status}">${statusLabel(t.status)}</span><div class="load-row"><span>Today’s load</span><b>${t.jobs} / 5 jobs</b></div><div class="load-bar"><span style="width:${t.jobs/5*100}%"></span></div><div class="team-info"><span>Current area<strong>${t.area}</strong></span><span>Completed<strong>${t.completed} jobs · ★ ${t.rating}</strong></span></div></article>`).join('')||'<div class="empty-row">No teams match your search.</div>'}
 function renderExpenses(){
   const total=todayTotal(),pct=Math.round(total/25000*100);$('#todayExpense').textContent=money(total);$('#budgetPercent').textContent=`${pct}% of ₱25,000`;$('#budgetBar').style.width=`${Math.min(pct,100)}%`;$('#donutTotal').textContent=`₱${(total/1000).toFixed(1)}k`;
   const cats=['Fuel','Materials','Meals','Toll & Parking','Other'], cols=['#18a57b','#ff765f','#e9a93d','#4285f4','#b0bab7'];
@@ -115,7 +119,7 @@ function applyJobTableFilter(){
 function openAssign(jobId){
   const job=jobs.find(j=>j.id===jobId);$('#assignJobLabel').textContent=`${job.id} · ${job.subscriber} · ${job.area}`;$('#assignModal').dataset.job=jobId;
   const candidates=teams.filter(t=>t.status!=='offline').sort((a,b)=>(a.status==='available'?-2:0)+(a.area===job.area?-1:0)-((b.status==='available'?-2:0)+(b.area===job.area?-1:0))).slice(0,6);
-  $('#assignmentList').innerHTML=candidates.map((t,i)=>`<div class="assignment-item ${i===0?'recommended':''}"><span class="team-avatar" style="background:${t.color}">${t.code.slice(2)}</span><div><strong>${t.name}${i===0?'<span class="recommend">BEST MATCH</span>':''}</strong><p>${t.area} · ${t.jobs}/5 jobs · ${statusLabel(t.status)}</p></div><button class="assign-btn" data-team="${t.name}">Assign</button></div>`).join('');
+  $('#assignmentList').innerHTML=candidates.map((t,i)=>`<div class="assignment-item ${i===0?'recommended':''}"><span class="team-avatar" style="background:${t.color}">${t.short}</span><div><strong>${t.name}${i===0?'<span class="recommend">BEST MATCH</span>':''}</strong><p>${t.area} · ${t.jobs}/5 jobs · ${statusLabel(t.status)}</p></div><button class="assign-btn" data-team="${t.name}">Assign</button></div>`).join('');
   $$('[data-team]').forEach(b=>b.onclick=()=>assignTeam(jobId,b.dataset.team));openModal($('#assignModal'));
 }
 function assignTeam(jobId,team){const j=jobs.find(x=>x.id===jobId);j.team=team;j.status='assigned';save();closeModals();renderJobs();showToast(`${team} assigned to ${jobId}`)}
@@ -141,7 +145,39 @@ function renderNotifPop(){
   injectIcons();
 }
 
-function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>{const on=n.dataset.page===page;n.classList.toggle('active',on);on?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current')});const labels={overview:'Good morning, Alex',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring'};$('#pageTitle').textContent=labels[page];closeSidebar();scrollTo(0,0)}
+function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>{const on=n.dataset.page===page;n.classList.toggle('active',on);on?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current')});const labels={overview:'Good morning, Alex',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring',accounts:'Technician accounts'};$('#pageTitle').textContent=labels[page];if(page==='accounts')renderAccounts();closeSidebar();scrollTo(0,0)}
+
+// ---------- Accounts (technician login accounts) ----------
+async function fetchTechnicians(){
+  try{
+    const r=await fetch(`${SUPA_URL}/rest/v1/technicians?select=*&order=username.asc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    return r.ok?await r.json():[];
+  }catch(e){return[]}
+}
+function fmtWhen(s){if(!s)return'—';const d=new Date(s);return d.toLocaleString('en-PH',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}
+async function renderAccounts(){
+  const body=$('#accountsBody'); if(!body)return;
+  body.innerHTML=`<tr><td colspan="6" class="empty-cell">Loading accounts…</td></tr>`;
+  let rows=await fetchTechnicians();
+  if(!rows.length){
+    // fall back to the 20 known accounts if the table isn't set up yet
+    rows=teams.map(t=>({username:t.name,email:`${t.name.toLowerCase()}@ahbafield.app`,area:t.area,must_change:true,last_login:null,password_changed_at:null}));
+  }
+  $('#accountTotal').textContent=rows.length;
+  $('#accountActive').textContent=rows.filter(r=>!r.must_change).length;
+  $('#accountPending').textContent=rows.filter(r=>r.must_change).length;
+  $('#accountSignedIn').textContent=rows.filter(r=>r.last_login).length;
+  body.innerHTML=rows.map(r=>{
+    const status=r.must_change?'<span class="status pending">Needs setup</span>':'<span class="status completed">Active</span>';
+    return `<tr><td><strong>${r.username}</strong></td><td>${r.email||'—'}</td><td>${r.area||'—'}</td><td>${status}</td><td>${fmtWhen(r.last_login)}</td><td>${r.must_change?'<span style="color:#9aa6a2">default</span>':fmtWhen(r.password_changed_at)}<button class="assign-btn" style="margin-left:8px" data-reset="${r.username}" data-email="${r.email||''}">Reset</button></td></tr>`;
+  }).join('');
+  $$('#accountsBody [data-reset]').forEach(b=>b.onclick=()=>openReset(b.dataset.reset,b.dataset.email));
+}
+function openReset(username,email){
+  $('#resetUser').textContent=username;
+  $('#resetEmail').textContent=email||`${username.toLowerCase()}@ahbafield.app`;
+  openModal($('#resetModal'));
+}
 
 function init(){
   injectIcons();const d=new Date();$('#todayLabel').textContent=d.toLocaleDateString('en-PH',{weekday:'short',month:'short',day:'numeric'});$$('input[type=date]').forEach(i=>i.value=d.toISOString().slice(0,10));

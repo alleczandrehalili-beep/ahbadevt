@@ -25,6 +25,7 @@
         <button class="nav-item" data-page="teams"><i data-icon="users"></i><span>Field Teams</span></button>
         <button class="nav-item" data-page="workorders"><i data-icon="clipboard"></i><span>Work Orders</span></button>
         <button class="nav-item" data-page="expenses"><i data-icon="wallet"></i><span>Expenses</span></button>
+        <button class="nav-item" data-page="accounts"><i data-icon="users"></i><span>Accounts</span></button>
       </nav>
       <div class="sidebar-spacer"></div>
       <div class="shift-card">
@@ -160,6 +161,20 @@
         <div class="expense-page-grid"><article class="panel"><div class="panel-head"><div><h2>Daily spending</h2><p>Last 7 days</p></div><span class="budget-pill">Budget ₱25k/day</span></div><div class="bar-chart" id="weeklyChart"></div></article><article class="panel"><div class="panel-head"><div><h2>Cost by category</h2><p>Today’s expense mix</p></div></div><div class="category-list" id="categoryList"></div></article></div>
         <article class="panel expense-log"><div class="panel-head"><div><h2>Expense log</h2><p>Receipts and team submissions</p></div></div><div class="table-wrap"><table><thead><tr><th>Time</th><th>Team</th><th>Category</th><th>Description</th><th>Work order</th><th>Amount</th><th>Status</th></tr></thead><tbody id="expenseBody"></tbody></table></div></article>
       </section>
+
+      <section id="accountsPage" class="page">
+        <div class="page-toolbar"><div><h2>Technician accounts</h2><p>Login accounts for the 20 field teams (AHBA_SLI001–AHBA_SLI020).</p></div></div>
+        <div class="dispatch-stats">
+          <div class="small-stat"><span>Total accounts</span><strong id="accountTotal">20</strong></div>
+          <div class="small-stat"><span>Active</span><strong id="accountActive">0</strong></div>
+          <div class="small-stat"><span>Needs password setup</span><strong id="accountPending">20</strong></div>
+          <div class="small-stat"><span>Has signed in</span><strong id="accountSignedIn">0</strong></div>
+        </div>
+        <article class="panel full-table">
+          <div class="filter-row"><div><h2 style="font:800 13px Manrope;margin:0">Accounts</h2><p style="font-size:10px;color:#8a9894;margin:4px 0 0">Passwords are encrypted and never shown. Use Reset to issue a new one via Supabase.</p></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Username</th><th>Login email</th><th>Area</th><th>Status</th><th>Last sign-in</th><th>Password changed</th></tr></thead><tbody id="accountsBody"></tbody></table></div>
+        </article>
+      </section>
     </main>
   </div>
 
@@ -199,6 +214,20 @@
   <dialog id="assignModal" class="modal small-modal">
     <div class="modal-head"><div><span class="eyebrow">DISPATCH</span><h2>Assign a field team</h2><p id="assignJobLabel"></p></div><button type="button" class="icon-btn close-modal"><i data-icon="close"></i></button></div>
     <div class="assignment-list" id="assignmentList"></div>
+  </dialog>
+
+  <dialog id="resetModal" class="modal small-modal">
+    <div class="modal-head"><div><span class="eyebrow">ADMIN · PASSWORD RESET</span><h2>Reset password</h2><p>For <strong id="resetUser">AHBA_SLI001</strong> (<span id="resetEmail"></span>)</p></div><button type="button" class="icon-btn close-modal"><i data-icon="close"></i></button></div>
+    <div style="padding:18px 25px 8px;font-size:12px;color:#566b66;line-height:1.6">
+      <p style="margin:0 0 12px">For security, passwords are encrypted and can't be viewed here. To reset this technician's password, do it in Supabase — it takes a few seconds:</p>
+      <ol style="margin:0;padding-left:20px">
+        <li>Open <strong>Supabase → Authentication → Users</strong>.</li>
+        <li>Search for the login email shown above.</li>
+        <li>Open the user → <strong>Reset password</strong> (or set a new one) → tell the technician their temporary password.</li>
+        <li>Optional: in <strong>Table editor → technicians</strong>, set this account's <code>must_change</code> to <code>true</code> so they're prompted to choose a new password on next sign-in.</li>
+      </ol>
+    </div>
+    <div class="modal-actions"><button type="button" class="secondary-btn close-modal">Close</button><a class="primary-btn" href="https://supabase.com/dashboard/project/avjzkfxgzeyxtihkofed/auth/users" target="_blank" rel="noopener">Open Supabase Users</a></div>
   </dialog>
 
   <div class="toast" id="toast"><i data-icon="check"></i><span>Saved successfully</span></div>
