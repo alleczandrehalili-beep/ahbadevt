@@ -86,6 +86,20 @@
     .empty{text-align:center;color:#9aa6a2;padding:48px 20px;font-size:13px}
     .empty svg{width:40px;height:40px;color:#c2ccc8;display:block;margin:0 auto 12px}
 
+    .jobtabs{display:flex;gap:6px;padding:12px 16px 2px}
+    .jt{flex:1;border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px;font-weight:700;font-size:12px;color:#647571}
+    .jt.active{background:var(--deep);border-color:var(--deep);color:#fff}
+    .photos{border-top:1px solid #eef1ed;margin-top:12px;padding-top:12px}
+    .photos-head{display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;color:#566b66;margin-bottom:8px}
+    .photos-head .count{font-weight:800}
+    .photos-head .ok{color:var(--green)}.photos-head .need{color:#c98a1e}
+    .thumbs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+    .thumbs img{width:46px;height:46px;object-fit:cover;border-radius:7px;border:1px solid var(--line)}
+    .thumbs .more{width:46px;height:46px;border-radius:7px;background:#eef1ec;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#647571}
+    .addphoto{display:flex;align-items:center;justify-content:center;gap:6px;border:1px dashed #bcd9cd;background:#f2fbf7;color:#127b5d;border-radius:10px;padding:11px;font-weight:700;font-size:12px;cursor:pointer}
+    .addphoto svg{width:15px;height:15px}
+    .act:disabled{opacity:.5;cursor:not-allowed}
+
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 18px);transform:translateX(-50%) translateY(80px);background:#102925;color:#fff;padding:12px 18px;border-radius:12px;font-size:13px;font-weight:600;box-shadow:0 12px 30px rgba(12,37,33,.3);opacity:0;transition:.3s;z-index:50;max-width:90%}
     .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
     .hidden{display:none!important}
@@ -143,6 +157,10 @@
         <div class="stat blue"><b id="cActive">0</b><span>In progress</span></div>
         <div class="stat green"><b id="cDone">0</b><span>Completed</span></div>
       </div>
+      <div class="jobtabs">
+        <button class="jt active" id="tabActive" data-view="active">Active</button>
+        <button class="jt" id="tabDone" data-view="done">Completed today</button>
+      </div>
       <div class="jobs" id="jobsList"></div>
     </div>
   </div>
@@ -164,6 +182,10 @@
     let realtimeChan = null;
     let attendanceId = null;   // current open time-in record
     let pwForced = false;      // was the password screen a forced first-login?
+    let viewMode = 'active';   // 'active' | 'done'
+    let photoData = {};        // jobId -> [paths]
+    const PHOTOS_REQUIRED = 18;
+    const pubUrl = path => `${SUPA_URL}/storage/v1/object/public/job-photos/${path}`;
 
     const emailFor = u => u.trim().toLowerCase() + '@' + EMAIL_DOMAIN;
     const teamFromEmail = e => (e||'').split('@')[0].toUpperCase();
@@ -176,6 +198,7 @@
       clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
       truck:'<path d="M10 17h4V5H2v12h3M14 9h4l4 4v4h-3M8 17a3 3 0 1 1-6 0M22 17a3 3 0 1 1-6 0"/>',
       check:'<path d="m20 6-11 11-5-5"/>', play:'<polygon points="6 4 20 12 6 20 6 4"/>',
+      camera:'<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
       inbox:'<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.5 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.5A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.5Z"/>'
     };
     const svg = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${ic[n]||''}</svg>`;
@@ -240,35 +263,91 @@
       const {data,error} = await sb.from('jobs').select('*').eq('team',myTeam).order('updated_at',{ascending:false});
       if(error) throw error; return data||[];
     }
+    async function loadPhotos(){
+      const ids=jobs.map(j=>j.id); if(!ids.length){photoData={};return;}
+      try{
+        const {data}=await sb.from('job_photos').select('job_id,path').in('job_id',ids);
+        const m={}; (data||[]).forEach(r=>{(m[r.job_id]=m[r.job_id]||[]).push(r.path)}); photoData=m;
+      }catch(e){ /* keep previous counts */ }
+    }
+    const photoCount = id => (photoData[id]||[]).length;
     async function refresh(){
-      try{ const rows=await loadJobs(); const sig=JSON.stringify(rows); if(sig!==signature){signature=sig;jobs=rows;render()} setSync('live','Synced'); }
+      try{ jobs=await loadJobs(); await loadPhotos(); render(); setSync('live','Synced'); }
       catch(err){ setSync('error','Sync error'); console.warn('sync:',err.message) }
     }
     async function advance(id,next){
       const job=jobs.find(j=>j.id===id); if(!job) return;
+      if(next==='completed' && photoCount(id)<PHOTOS_REQUIRED){ toast(`Attach ${PHOTOS_REQUIRED} photos first (${photoCount(id)}/${PHOTOS_REQUIRED})`); return; }
       const prev=job.status; job.status=next; render(); setSync('syncing','Saving…');
       const {error}=await sb.from('jobs').update({status:next, updated_at:new Date().toISOString()}).eq('id',id);
       if(error){ job.status=prev; render(); setSync('error','Sync error'); toast('Could not save: '+error.message); }
       else { setSync('live','Synced'); toast(`${id} → ${statusLabel(next)}`); }
     }
+    async function uploadPhotos(jobId, fileList){
+      const files=[...fileList]; if(!files.length)return;
+      toast(`Uploading ${files.length} photo${files.length>1?'s':''}…`);
+      let ok=0;
+      for(const f of files){
+        try{
+          const ext=(f.name&&f.name.split('.').pop()||'jpg').toLowerCase().slice(0,4);
+          const path=`${jobId}/${Date.now()}_${Math.random().toString(36).slice(2,7)}.${ext}`;
+          const {error}=await sb.storage.from('job-photos').upload(path, f, {contentType:f.type||'image/jpeg', upsert:false});
+          if(error) throw error;
+          await sb.from('job_photos').insert({job_id:jobId, team:myTeam, path});
+          (photoData[jobId]=photoData[jobId]||[]).push(path); ok++;
+          render();
+        }catch(e){ console.warn('upload',e.message); }
+      }
+      toast(ok===files.length?`${ok} photo${ok>1?'s':''} added`:`${ok}/${files.length} uploaded — try the rest again`);
+      render();
+    }
+    const sameManilaDay = ts => ts && new Date(ts).toLocaleDateString('en-CA',{timeZone:TZ})===manilaDate();
     function render(){
-      const order={assigned:0,'en-route':1,'on-site':2,'in-progress':3,pending:4,completed:5};
-      const list=[...jobs].sort((a,b)=>(order[a.status]??9)-(order[b.status]??9));
+      const order={assigned:0,'en-route':1,'on-site':2,'in-progress':3,pending:4};
       $('#cToDo').textContent=jobs.filter(j=>['assigned','pending'].includes(j.status)).length;
       $('#cActive').textContent=jobs.filter(j=>['en-route','on-site','in-progress'].includes(j.status)).length;
-      $('#cDone').textContent=jobs.filter(j=>j.status==='completed').length;
+      const doneToday=jobs.filter(j=>j.status==='completed'&&sameManilaDay(j.updated_at));
+      $('#cDone').textContent=doneToday.length;
+      $('#tabActive').classList.toggle('active',viewMode==='active');
+      $('#tabDone').classList.toggle('active',viewMode==='done');
+
+      let list;
+      if(viewMode==='done'){ list=doneToday.slice().sort((a,b)=>new Date(b.updated_at)-new Date(a.updated_at)); }
+      else { list=jobs.filter(j=>j.status!=='completed').sort((a,b)=>(order[a.status]??9)-(order[b.status]??9)); }
+
       const el=$('#jobsList');
-      if(!list.length){el.innerHTML=`<div class="empty">${svg('inbox')}No jobs dispatched to ${myTeam} yet.<br>New assignments appear here automatically.</div>`;return}
+      if(!list.length){
+        const msg=viewMode==='done'?'No completed jobs yet today.':`No active jobs for ${myTeam}.<br>New assignments appear here automatically.`;
+        el.innerHTML=`<div class="empty">${svg('inbox')}${msg}</div>`;return;
+      }
       el.innerHTML=list.map(j=>{
         const f=FLOW[j.status]||{};
         const prio=j.priority&&j.priority!=='Normal'?`<span class="prio ${j.priority==='VIP'?'vip':''}">${j.priority}</span>`:'';
         const addr=(j.address||j.area||'').replace(/"/g,'');
-        const action=f.next?`<button class="act ${f.cls}" data-next="${f.next}" data-id="${j.id}">${svg(f.icon)}${f.action}</button>`:'<button class="act ghost" disabled style="flex:1;opacity:.5">No action</button>';
+        const n=photoCount(j.id);
+        const thumbsArr=(photoData[j.id]||[]);
+        const thumbs=thumbsArr.slice(0,6).map(p=>`<img src="${pubUrl(p)}" alt="proof">`).join('')+(n>6?`<span class="more">+${n-6}</span>`:'');
+
+        let extra='', actions='';
+        const mapLink=`<a class="act ghost" href="https://maps.google.com/?q=${encodeURIComponent(addr)}" target="_blank" rel="noopener" aria-label="Map">${svg('pin')}</a>`;
+
+        if(j.status==='in-progress'){
+          const canDone=n>=PHOTOS_REQUIRED;
+          extra=`<div class="photos"><div class="photos-head"><span>Proof photos</span><span class="count ${canDone?'ok':'need'}">${n}/${PHOTOS_REQUIRED}</span></div>${n?`<div class="thumbs">${thumbs}</div>`:''}<label class="addphoto">${svg('camera')} Add photos<input type="file" accept="image/*" capture="environment" multiple hidden data-up="${j.id}"></label></div>`;
+          actions=`<div class="job-actions">${mapLink}<button class="act done" data-next="completed" data-id="${j.id}" ${canDone?'':'disabled'}>${svg('check')}Mark complete${canDone?'':` (${n}/${PHOTOS_REQUIRED})`}</button></div>`;
+        } else if(j.status==='completed'){
+          extra=n?`<div class="photos"><div class="photos-head"><span>Proof photos</span><span class="count ok">${n}</span></div><div class="thumbs">${thumbs}</div></div>`:'';
+          actions=`<div class="job-actions">${mapLink}<span class="act ghost" style="flex:1;justify-content:center">Completed ${j.updated_at?manilaTime(j.updated_at):''}</span></div>`;
+        } else {
+          const act=f.next?`<button class="act ${f.cls}" data-next="${f.next}" data-id="${j.id}">${svg(f.icon)}${f.action}</button>`:'<button class="act ghost" disabled style="flex:1;opacity:.5">No action</button>';
+          actions=`<div class="job-actions">${mapLink}${act}</div>`;
+        }
         return `<div class="job"><div class="job-head"><div><span class="job-id">${j.id}</span><h3>${j.subscriber||'—'}${prio}</h3><p class="plan">${j.service_type||''} · ${j.plan||''}</p></div><span class="badge b-${j.status}">${statusLabel(j.status)}</span></div>
         <div class="job-meta"><div class="row">${svg('pin')}<span>${addr||'—'}</span></div><div class="row">${svg('clock')}<span>${(j.schedule||'Today').replace('Today, ','Today · ')}</span></div></div>
-        <div class="job-actions"><a class="act ghost" href="https://maps.google.com/?q=${encodeURIComponent(addr)}" target="_blank" rel="noopener" aria-label="Map">${svg('pin')}</a>${action}</div></div>`;
+        ${extra}${actions}</div>`;
       }).join('');
       el.querySelectorAll('[data-next]').forEach(b=>b.onclick=()=>advance(b.dataset.id,b.dataset.next));
+      el.querySelectorAll('[data-up]').forEach(inp=>inp.onchange=()=>{const id=inp.dataset.up,files=inp.files;uploadPhotos(id,files);inp.value='';});
     }
 
     function startApp(){
@@ -278,7 +357,7 @@
       if(realtimeChan) sb.removeChannel(realtimeChan);
       realtimeChan = sb.channel('ahba-tech-'+myTeam).on('postgres_changes',{event:'*',schema:'public',table:'jobs'},refresh).subscribe();
       clearInterval(startApp._t); startApp._t=setInterval(refresh,15000);
-      clearInterval(startApp._loc); startApp._loc=setInterval(()=>captureLocation(false),180000); // refresh GPS every 3 min
+      clearInterval(startApp._loc); startApp._loc=setInterval(()=>captureLocation(false),600000); // refresh GPS every 10 min
     }
 
     // ---------- auth ----------
@@ -343,6 +422,8 @@
     $('#menuPop').onclick=e=>e.stopPropagation();
     $('#mChangePw').onclick=()=>{$('#menuPop').classList.add('hidden');openPw(false)};
     $('#mLocate').onclick=()=>{$('#menuPop').classList.add('hidden');captureLocation(true)};
+    $('#tabActive').onclick=()=>{viewMode='active';render()};
+    $('#tabDone').onclick=()=>{viewMode='done';render()};
     $('#mLogout').onclick=async()=>{
       $('#menuPop').classList.add('hidden');
       await clockOut();                       // record time-out
