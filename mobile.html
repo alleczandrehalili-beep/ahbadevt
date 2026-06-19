@@ -86,9 +86,19 @@
     .empty{text-align:center;color:#9aa6a2;padding:48px 20px;font-size:13px}
     .empty svg{width:40px;height:40px;color:#c2ccc8;display:block;margin:0 auto 12px}
 
-    .jobtabs{display:flex;gap:6px;padding:12px 16px 2px}
+    .jobtabs,.sa-tabs{display:flex;gap:6px;padding:12px 16px 2px}
     .jt{flex:1;border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px;font-weight:700;font-size:12px;color:#647571}
     .jt.active{background:var(--deep);border-color:var(--deep);color:#fff}
+    .sa-pane{padding:6px 16px calc(env(safe-area-inset-bottom) + 28px)}
+    .sa-card{background:#fff;border:1px solid var(--line);border-radius:15px;padding:16px;margin-top:11px;box-shadow:0 4px 16px rgba(25,48,43,.04)}
+    .sa-card .form-sec{font:800 10px Manrope;letter-spacing:.1em;text-transform:uppercase;color:#107b5e;border-bottom:1px solid var(--line);padding-bottom:6px;margin:6px 0 10px}
+    .docblock{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+    .docblock .photos-head{display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;color:#566b66;margin-bottom:8px}
+    .submitted{background:#fff;border:1px solid var(--line);border-radius:13px;padding:13px;margin-top:10px}
+    .submitted h4{font:700 13px Manrope;margin:0 0 3px}
+    .submitted p{font-size:11px;color:var(--muted);margin:0}
+    .submitted .badge{margin-top:6px}
+    .b-for_validation{background:#fff4e1;color:#b97a16}.b-rejected{background:#fdecea;color:#c2503a}.b-pending{background:#eef1ff;color:#4456c7}
     .photos{border-top:1px solid #eef1ed;margin-top:12px;padding-top:12px}
     .photos-head{display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;color:#566b66;margin-bottom:8px}
     .photos-head .count{font-weight:800}
@@ -114,6 +124,7 @@
       <button class="menu-btn hidden" id="menuBtn" aria-label="Menu">⋯</button>
     </div>
     <div class="menu-pop hidden" id="menuPop">
+      <button id="mName">Edit my name</button>
       <button id="mLocate">Update my location</button>
       <button id="mChangePw">Change password</button>
       <button id="mLogout" class="danger">Time out &amp; sign out</button>
@@ -163,6 +174,62 @@
       </div>
       <div class="jobs" id="jobsList"></div>
     </div>
+
+    <!-- SALES AGENT -->
+    <div class="hidden" id="saView">
+      <div class="syncbar live" id="saSync"><span class="sync-dot"></span><span>Sales intake</span><span class="stamp" id="saStamp"></span></div>
+      <div class="sa-tabs">
+        <button class="jt active" id="saTabNew" data-saview="new">New job order</button>
+        <button class="jt" id="saTabMine" data-saview="mine">My submissions</button>
+      </div>
+
+      <div class="sa-pane" id="saNew">
+        <div class="sa-card">
+          <div class="form-sec">Subscriber</div>
+          <div class="field"><label>First name *</label><input id="sa_first_name" autocapitalize="characters" placeholder="CONCHITA"></div>
+          <div class="field"><label>Middle name</label><input id="sa_middle_name" autocapitalize="characters"></div>
+          <div class="field"><label>Last name *</label><input id="sa_last_name" autocapitalize="characters" placeholder="TOLEDO"></div>
+          <div class="field"><label>Primary no. *</label><input id="sa_primary_no" inputmode="tel" placeholder="09XXXXXXXXX"></div>
+          <div class="field"><label>Other contact no.</label><input id="sa_other_contact_no" inputmode="tel"></div>
+
+          <div class="form-sec">Address</div>
+          <div class="field"><label>House no.</label><input id="sa_house_no"></div>
+          <div class="field"><label>Street name</label><input id="sa_street_name"></div>
+          <div class="field"><label>Village / Subdivision</label><input id="sa_village"></div>
+          <div class="field"><label>Barangay *</label><input id="sa_brgy"></div>
+          <div class="field"><label>City *</label><input id="sa_city" value="QUEZON CITY"></div>
+
+          <div class="form-sec">Service</div>
+          <div class="field"><label>Plan / Ref no.</label><input id="sa_plan" placeholder="SKY-XXXXXXX-XXXXXXX"></div>
+          <div class="field"><label>1P / 2P</label><select id="sa_play_type"><option>1-PLAY</option><option>2-PLAY</option></select></div>
+          <div class="field"><label>Source of sales</label><input id="sa_source_of_sales" placeholder="REFERRAL"></div>
+          <div class="field"><label>Referral name</label><input id="sa_referral_name"></div>
+          <div class="field"><label>Special note</label><textarea id="sa_special_note" rows="2" placeholder="Landmark / access notes"></textarea></div>
+
+          <div class="form-sec">Documents (required)</div>
+          <div class="docblock" data-cat="id">
+            <div class="photos-head"><span>Valid ID</span><span class="count need" data-cnt="id">0</span></div>
+            <div class="thumbs" data-thumbs="id"></div>
+            <label class="addphoto"><input type="file" accept="image/*" capture="environment" multiple hidden data-doc="id">Add ID photo</label>
+          </div>
+          <div class="docblock" data-cat="billing">
+            <div class="photos-head"><span>Proof of Billing</span><span class="count need" data-cnt="billing">0</span></div>
+            <div class="thumbs" data-thumbs="billing"></div>
+            <label class="addphoto"><input type="file" accept="image/*" capture="environment" multiple hidden data-doc="billing">Add billing photo</label>
+          </div>
+          <div class="docblock" data-cat="premise">
+            <div class="photos-head"><span>Subscriber Premise</span><span class="count need" data-cnt="premise">0</span></div>
+            <div class="thumbs" data-thumbs="premise"></div>
+            <label class="addphoto"><input type="file" accept="image/*" capture="environment" multiple hidden data-doc="premise">Add premise photo</label>
+          </div>
+
+          <div class="err" id="saErr"></div>
+          <button class="btn-primary" id="saSubmit">Submit for validation</button>
+        </div>
+      </div>
+
+      <div class="sa-pane hidden" id="saMine"><div id="saMineList"></div></div>
+    </div>
   </div>
 
   <div class="toast" id="toast"></div>
@@ -184,6 +251,10 @@
     let pwForced = false;      // was the password screen a forced first-login?
     let viewMode = 'active';   // 'active' | 'done'
     let photoData = {};        // jobId -> [paths]
+    let myRole = 'technician'; // 'technician' | 'sales_agent'
+    let myName = '';           // display name
+    let saDocs = {id:[], billing:[], premise:[]};
+    const headerName = () => myRole==='sales_agent' ? (myTeam+' · '+(myName||'Sales')) : (myName?(myTeam+' · '+myName):myTeam);
     const PHOTOS_REQUIRED = 18;
     const pubUrl = path => `${SUPA_URL}/storage/v1/object/public/job-photos/${path}`;
 
@@ -258,7 +329,66 @@
     const statusLabel = s => (FLOW[s]?.label)||s;
 
     // ---------- views ----------
-    function show(view){['loginView','pwView','appView'].forEach(v=>$('#'+v).classList.toggle('hidden', v!==view));$('#menuBtn').classList.toggle('hidden', view!=='appView');$('#menuPop').classList.add('hidden')}
+    function show(view){['loginView','pwView','appView','saView'].forEach(v=>$('#'+v).classList.toggle('hidden', v!==view));$('#menuBtn').classList.toggle('hidden', view!=='appView'&&view!=='saView');$('#menuPop').classList.add('hidden')}
+
+    // ---------- sales agent ----------
+    function startSA(){ $('#teamName').textContent=headerName(); show('saView'); saSwitch('new'); saRenderDocs(); }
+    const saStatusLabel = s => ({for_validation:'For validation',pending:'Approved · for dispatch',rejected:'Rejected',assigned:'Assigned','en-route':'In progress','on-site':'In progress','in-progress':'In progress',completed:'Completed'}[s]||s);
+    function saSwitch(view){
+      $('#saTabNew').classList.toggle('active',view==='new'); $('#saTabMine').classList.toggle('active',view==='mine');
+      $('#saNew').classList.toggle('hidden',view!=='new'); $('#saMine').classList.toggle('hidden',view!=='mine');
+      if(view==='mine') saRenderMine();
+    }
+    function saRenderDocs(){
+      ['id','billing','premise'].forEach(cat=>{
+        const arr=saDocs[cat];
+        const c=document.querySelector(`[data-cnt="${cat}"]`); if(c){c.textContent=arr.length;c.className='count '+(arr.length?'ok':'need');}
+        const t=document.querySelector(`[data-thumbs="${cat}"]`); if(t){t.innerHTML=arr.map(f=>`<img src="${f._url||(f._url=URL.createObjectURL(f))}" alt="">`).join('');}
+      });
+    }
+    function saReset(){
+      ['first_name','middle_name','last_name','primary_no','other_contact_no','house_no','street_name','village','brgy','plan','source_of_sales','referral_name','special_note'].forEach(k=>{const el=$('#sa_'+k);if(el)el.value='';});
+      if($('#sa_city')) $('#sa_city').value='QUEZON CITY';
+      saDocs={id:[],billing:[],premise:[]}; saRenderDocs();
+    }
+    async function saRenderMine(){
+      const el=$('#saMineList'); el.innerHTML=`<div class="empty">Loading…</div>`;
+      try{
+        const {data}=await sb.from('jobs').select('id,subscriber,status,area,team,updated_at').eq('created_by',myTeam).order('updated_at',{ascending:false});
+        const rows=data||[];
+        if(!rows.length){ el.innerHTML=`<div class="empty">${svg('inbox')}No submissions yet.<br>Encode a new job order to get started.</div>`; return; }
+        el.innerHTML=rows.map(j=>`<div class="submitted"><h4>${j.subscriber||'—'}</h4><p>${j.id} · ${j.area||''}${j.team?' · '+j.team:''}</p><span class="badge b-${j.status}">${saStatusLabel(j.status)}</span></div>`).join('');
+      }catch(e){ el.innerHTML=`<div class="empty">Could not load submissions.</div>`; }
+    }
+    async function saSubmit(){
+      clearErr('#saErr');
+      const v=id=>($('#'+id)?$('#'+id).value.trim():'');
+      const fn=v('sa_first_name'), ln=v('sa_last_name'), brgy=v('sa_brgy'), city=v('sa_city'), pno=v('sa_primary_no');
+      if(!fn||!ln||!pno||!brgy||!city){ showErr('#saErr','Please fill: first & last name, primary no., barangay, and city.'); return; }
+      if(!saDocs.id.length||!saDocs.billing.length||!saDocs.premise.length){ showErr('#saErr','Attach at least 1 photo each: ID, Proof of Billing, and Premise.'); return; }
+      const btn=$('#saSubmit'); btn.disabled=true; btn.textContent='Submitting…';
+      const full=[fn,v('sa_middle_name'),ln].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
+      const addr=[v('sa_house_no'),v('sa_street_name'),v('sa_village'),brgy,city].filter(Boolean).join(', ');
+      const jobId='WO-'+new Date().getFullYear()+'-'+Date.now().toString().slice(-6);
+      const job={id:jobId,subscriber:full,service_type:'Installation',plan:v('sa_plan'),area:city,address:addr,status:'for_validation',wait_time:'Just now',priority:'Normal',schedule:manilaDate()+', 9:00 AM',team:null,created_by:myTeam,
+        first_name:fn,middle_name:v('sa_middle_name'),last_name:ln,primary_no:pno,other_contact_no:v('sa_other_contact_no'),
+        house_no:v('sa_house_no'),street_name:v('sa_street_name'),village:v('sa_village'),brgy:brgy,city:city,
+        play_type:v('sa_play_type'),source_of_sales:v('sa_source_of_sales'),referral_name:v('sa_referral_name'),
+        special_note:v('sa_special_note'),updated_at:new Date().toISOString()};
+      try{
+        const {error}=await sb.from('jobs').insert(job); if(error) throw error;
+        for(const cat of ['id','billing','premise']){
+          for(let i=0;i<saDocs[cat].length;i++){
+            const blob=await compressImage(saDocs[cat][i],1400,250);
+            const path=`${jobId}/docs/${cat}_${Date.now()}_${i}.jpg`;
+            const {error:e2}=await sb.storage.from('job-photos').upload(path,blob,{contentType:'image/jpeg',upsert:false}); if(e2) throw e2;
+            await sb.from('job_docs').insert({job_id:jobId, category:cat, path});
+          }
+        }
+        toast('Job order submitted for validation'); saReset(); saSwitch('mine');
+      }catch(e){ showErr('#saErr','Submit failed: '+e.message); }
+      btn.disabled=false; btn.textContent='Submit for validation';
+    }
 
     // ---------- data ----------
     async function loadJobs(){
@@ -375,7 +505,7 @@
     }
 
     function startApp(){
-      $('#teamName').textContent=myTeam;
+      $('#teamName').textContent=headerName();
       show('appView'); setSync('syncing','Connecting…'); signature='';
       refresh();
       if(realtimeChan) sb.removeChannel(realtimeChan);
@@ -391,19 +521,21 @@
       myTeam = teamFromEmail(email);
       let must=false;
       try{
-        const {data}=await sb.from('technicians').select('must_change').eq('username',myTeam).maybeSingle();
+        const {data}=await sb.from('technicians').select('must_change,role,display_name').eq('username',myTeam).maybeSingle();
         must = !!(data && data.must_change);
+        myRole = (data && data.role) || 'technician';
+        myName = (data && data.display_name) || '';
         sb.from('technicians').update({last_login:new Date().toISOString(), updated_at:new Date().toISOString()}).eq('username',myTeam).then(()=>{});
       }catch(e){}
       if(must){ pwForced = true; openPw(true); return; }
       await enterFlow(fresh);
     }
 
-    // Clock in (fresh sign-in) or re-attach to an open time-in (resume), then open the app.
+    // Clock in (fresh sign-in) or re-attach to an open time-in (resume), then open the right home.
     async function enterFlow(fresh){
       if(fresh){ await clockIn(); } else { await findOpenAttendance(); }
       captureLocation(false);   // grab GPS on entry (prompts for permission first time)
-      startApp();
+      if(myRole==='sales_agent') startSA(); else startApp();
     }
 
     function openPw(forced){
@@ -445,9 +577,23 @@
     document.addEventListener('click',()=>$('#menuPop').classList.add('hidden'));
     $('#menuPop').onclick=e=>e.stopPropagation();
     $('#mChangePw').onclick=()=>{$('#menuPop').classList.add('hidden');openPw(false)};
+    $('#mName').onclick=async()=>{
+      $('#menuPop').classList.add('hidden');
+      const n=prompt('Your full name (as it should appear on records):', myName||'');
+      if(n===null)return;
+      myName=n.trim();
+      try{ await sb.from('technicians').update({display_name:myName, updated_at:new Date().toISOString()}).eq('username',myTeam); toast('Name updated'); }
+      catch(e){ toast('Could not save name'); }
+      $('#teamName').textContent=headerName();
+    };
     $('#mLocate').onclick=()=>{$('#menuPop').classList.add('hidden');captureLocation(true)};
     $('#tabActive').onclick=()=>{viewMode='active';render()};
     $('#tabDone').onclick=()=>{viewMode='done';render()};
+    // sales agent bindings
+    document.querySelectorAll('[data-doc]').forEach(inp=>inp.onchange=()=>{const cat=inp.dataset.doc;[...inp.files].forEach(f=>saDocs[cat].push(f));inp.value='';saRenderDocs();});
+    $('#saTabNew')?.addEventListener('click',()=>saSwitch('new'));
+    $('#saTabMine')?.addEventListener('click',()=>saSwitch('mine'));
+    $('#saSubmit')?.addEventListener('click',saSubmit);
     $('#mLogout').onclick=async()=>{
       $('#menuPop').classList.add('hidden');
       await clockOut();                       // record time-out

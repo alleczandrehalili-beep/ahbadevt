@@ -206,7 +206,84 @@ function renderNotifPop(){
   injectIcons();
 }
 
-function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>{const on=n.dataset.page===page;n.classList.toggle('active',on);on?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current')});const labels={overview:'Good morning, Alex',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring',accounts:'Technician accounts',attendance:'Attendance · Time records',completed:'Completed jobs'};$('#pageTitle').textContent=labels[page];if(page==='accounts')renderAccounts();if(page==='attendance')renderAttendance();if(page==='completed')renderCompleted();closeSidebar();scrollTo(0,0)}
+function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>{const on=n.dataset.page===page;n.classList.toggle('active',on);on?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current')});const labels={overview:'Good morning, Alex',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring',accounts:'Technician accounts',attendance:'Attendance · Time records',completed:'Completed jobs',validation:'Validator · New job orders'};$('#pageTitle').textContent=labels[page];if(page==='accounts')renderAccounts();if(page==='attendance')renderAttendance();if(page==='completed')renderCompleted();if(page==='validation')renderValidation();closeSidebar();scrollTo(0,0)}
+
+// ---------- Validator (sales-agent job orders awaiting approval) ----------
+let valJobs=[], valDocs={};
+async function refreshValBadge(){
+  try{
+    const r=await fetch(`${SUPA_URL}/rest/v1/jobs?select=id&status=eq.for_validation`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const n=r.ok?(await r.json()).length:0; const b=$('#valBadge');
+    if(b){ b.textContent=n; b.style.display=n?'':'none'; }
+  }catch(e){}
+}
+async function renderValidation(){
+  const body=$('#validationBody'); if(!body)return;
+  body.innerHTML=`<tr><td colspan="7" class="empty-cell">Loading…</td></tr>`;
+  try{
+    const r=await fetch(`${SUPA_URL}/rest/v1/jobs?status=eq.for_validation&select=*&order=updated_at.asc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    valJobs=r.ok?await r.json():[];
+  }catch(e){valJobs=[]}
+  valDocs=await fetchDocsFor(valJobs.map(j=>j.id));
+  await loadAgentNames();
+  $('#valPending').textContent=valJobs.length;
+  $('#valAgents').textContent=new Set(valJobs.map(j=>j.created_by).filter(Boolean)).size||'—';
+  // approved/rejected today
+  try{
+    const today=manilaToday();
+    const r2=await fetch(`${SUPA_URL}/rest/v1/jobs?select=status,validated_at,updated_at&or=(status.eq.pending,status.eq.rejected)`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const rows=r2.ok?await r2.json():[];
+    $('#valApproved').textContent=rows.filter(x=>x.status==='pending'&&x.validated_at&&new Date(x.validated_at).toLocaleDateString('en-CA',{timeZone:TZ})===today).length;
+    $('#valRejected').textContent=rows.filter(x=>x.status==='rejected'&&x.updated_at&&new Date(x.updated_at).toLocaleDateString('en-CA',{timeZone:TZ})===today).length;
+  }catch(e){}
+  if(!valJobs.length){body.innerHTML=`<tr><td colspan="7" class="empty-cell">No job orders awaiting validation.</td></tr>`;refreshValBadge();return}
+  body.innerHTML=valJobs.map(j=>{
+    const docs=valDocs[j.id]||[];
+    return `<tr><td><strong>${j.id}</strong></td><td>${agentLabel(j.created_by)}</td><td><strong>${j.subscriber||'—'}</strong></td><td>${j.primary_no||'—'}</td><td>${j.area||j.city||'—'}</td><td>${fmtWhen(j.updated_at)}</td><td><button class="assign-btn" data-review="${j.id}">Review (${docs.length} docs)</button></td></tr>`;
+  }).join('');
+  $$('#validationBody [data-review]').forEach(b=>b.onclick=()=>openValidate(b.dataset.review));
+  refreshValBadge();
+}
+async function fetchDocsFor(ids){
+  if(!ids.length)return{};
+  try{
+    const q=ids.map(encodeURIComponent).join(',');
+    const r=await fetch(`${SUPA_URL}/rest/v1/job_docs?select=job_id,category,path&job_id=in.(${q})`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const rows=r.ok?await r.json():[]; const m={}; rows.forEach(x=>{(m[x.job_id]=m[x.job_id]||[]).push(x)}); return m;
+  }catch(e){return{}}
+}
+function openValidate(jobId){
+  const j=valJobs.find(x=>x.id===jobId)||{}; const docs=valDocs[jobId]||[];
+  $('#valTitle').textContent=`${jobId} · ${j.subscriber||''}`;
+  $('#valSub').textContent=`Submitted by ${agentLabel(j.created_by)} · ${fmtWhen(j.updated_at)}`;
+  const F=(label,val)=>`<div><b>${label}</b>${val||'—'}</div>`;
+  $('#valInfo').innerHTML=[
+    F('Subscriber',j.subscriber),F('Primary no.',j.primary_no),F('Other contact',j.other_contact_no),
+    F('Plan / Ref',j.plan),F('1P/2P',j.play_type),F('Source of sales',j.source_of_sales),
+    F('Referral',j.referral_name),F('Address',j.address),F('Barangay',j.brgy),F('City',j.city||j.area),
+    F('Special note',j.special_note)
+  ].join('');
+  const cats=[['id','Valid ID'],['billing','Proof of Billing'],['premise','Subscriber Premise']];
+  $('#valDocs').innerHTML=cats.map(([c,label])=>{
+    const list=docs.filter(d=>d.category===c);
+    const imgs=list.length?`<div class="photo-grid" style="max-height:none;padding:0">${list.map(d=>`<a class="ph" href="${photoBase(d.path)}" target="_blank" rel="noopener"><img src="${photoBase(d.path)}" alt="${label}" loading="lazy"></a>`).join('')}</div>`:'<div class="none" style="padding:12px;color:#c2503a;font-size:12px">⚠ No photo submitted</div>';
+    return `<div class="doc-sec"><h4>${label} (${list.length})</h4>${imgs}</div>`;
+  }).join('');
+  $$('#valDocs .ph').forEach(a=>a.onclick=e=>{e.preventDefault();window.open(a.href,'_blank','noopener,noreferrer');});
+  $('#valReason').value='';
+  $('#valApprove').onclick=()=>decideValidation(jobId,true);
+  $('#valReject').onclick=()=>decideValidation(jobId,false);
+  openModal($('#valModal'));
+}
+async function decideValidation(jobId,approve){
+  const body=approve
+    ? {status:'pending', validated:true, validated_at:new Date().toISOString(), updated_at:new Date().toISOString()}
+    : {status:'rejected', updated_at:new Date().toISOString(), special_note:(($('#valReason').value||'').trim()?('REJECTED: '+$('#valReason').value.trim()):'REJECTED')};
+  try{
+    await fetch(`${SUPA_URL}/rest/v1/jobs?id=eq.${encodeURIComponent(jobId)}`,{method:'PATCH',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify(body)});
+    closeModals(); showToast(approve?`${jobId} approved → sent to dispatch`:`${jobId} rejected`); renderValidation();
+  }catch(e){showToast('Action failed: '+e.message)}
+}
 
 // ---------- Accounts (technician login accounts) ----------
 async function fetchTechnicians(){
@@ -215,6 +292,9 @@ async function fetchTechnicians(){
     return r.ok?await r.json():[];
   }catch(e){return[]}
 }
+let agentNames={};
+async function loadAgentNames(){ try{ const ts=await fetchTechnicians(); agentNames={}; ts.forEach(t=>agentNames[t.username]=t.display_name||''); }catch(e){} return agentNames; }
+const agentLabel=u=>u?(u+(agentNames[u]?(' · '+agentNames[u]):'')):'—';
 const TZ='Asia/Manila';
 const manilaToday=()=>new Date().toLocaleDateString('en-CA',{timeZone:TZ});
 function fmtWhen(s){if(!s)return'—';return new Date(s).toLocaleString('en-PH',{timeZone:TZ,month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}
@@ -241,7 +321,28 @@ async function renderAccounts(){
 function openReset(username,email){
   $('#resetUser').textContent=username;
   $('#resetEmail').textContent=email||`${username.toLowerCase()}@ahbafield.app`;
+  if($('#resetNewPw'))$('#resetNewPw').value='';
+  if($('#resetSecret'))$('#resetSecret').value=localStorage.getItem('ahba_admin_secret')||'';
   openModal($('#resetModal'));
+}
+async function resetNow(){
+  const username=$('#resetUser').textContent.trim();
+  const np=($('#resetNewPw').value||'').trim(), sec=($('#resetSecret').value||'').trim();
+  if(np.length<8){showToast('Temporary password must be at least 8 characters');return}
+  if(!sec){showToast('Enter the admin secret');return}
+  const btn=$('#resetNow'); btn.disabled=true; btn.textContent='Resetting…';
+  try{
+    const r=await fetch(`${SUPA_URL}/functions/v1/admin-reset`,{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`},body:JSON.stringify({username,new_password:np,admin_secret:sec})});
+    let out={}; try{out=await r.json()}catch(e){}
+    if(!r.ok||out.error) throw new Error(out.error||('HTTP '+r.status));
+    localStorage.setItem('ahba_admin_secret',sec);
+    closeModals(); showToast(`${username} reset. They must set a new password on next login.`);
+    if($('#accountsPage')?.classList.contains('active')) renderAccounts();
+  }catch(e){
+    const m=/Failed to fetch|NetworkError/i.test(e.message)?'Reset service not reachable — is the admin-reset function deployed?':e.message;
+    showToast('Reset failed: '+m);
+  }
+  btn.disabled=false; btn.textContent='Reset now';
 }
 
 // ---------- Attendance (time-in / time-out) ----------
@@ -328,6 +429,7 @@ async function exportZip(){
   if(!compJobs.length){showToast('Nothing to export for this day');return}
   const date=$('#compDate').value||manilaToday();
   showToast('Building archive (Excel + photos)…');
+  await loadAgentNames();
   const zip=new JSZip();
 
   // --- Excel with all subscriber info (matches the NEW LOADS layout) ---
@@ -357,6 +459,7 @@ async function exportZip(){
     'VILLAGE / SUBDIVISION': j.village||'',
     'BRGY': j.brgy||'',
     'CITY': j.city||j.area||'',
+    'SALES AGENT': agentLabel(j.created_by),
     'IN-CHARGE': j.in_charge||'',
     'SOURCE OF SALES': j.source_of_sales||'',
     'REFERRAL NAME': j.referral_name||'',
@@ -463,5 +566,11 @@ function init(){
   // Completed view: export + clear
   $('#exportBtn')?.addEventListener('click',exportZip);
   $('#clearBtn')?.addEventListener('click',clearCloud);
+
+  // Validator badge (count of pending sales-agent submissions)
+  refreshValBadge(); setInterval(refreshValBadge,30000);
+
+  // Superadmin password reset
+  $('#resetNow')?.addEventListener('click',resetNow);
 }
 document.addEventListener('DOMContentLoaded',init);

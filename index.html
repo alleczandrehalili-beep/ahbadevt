@@ -25,6 +25,13 @@
     .vbadge.yes{background:#e7f7ef;color:#11825f}.vbadge.no{background:#fff4e1;color:#b97a16}
     .form-sec{font:800 10px Manrope;letter-spacing:.1em;text-transform:uppercase;color:#107b5e;border-bottom:1px solid var(--line,#e3e8e2);padding-bottom:6px;margin-top:6px}
     #orderModal.modal{width:min(760px,calc(100% - 30px))}
+    .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 18px}
+    .info-grid div{font-size:11px;color:#586965;border-bottom:1px dashed #eef1ed;padding-bottom:5px}
+    .info-grid div b{display:block;color:#9aa6a2;font-size:8px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:2px}
+    .doc-sec{padding:8px 25px}
+    .doc-sec h4{font:800 10px Manrope;letter-spacing:.08em;text-transform:uppercase;color:#107b5e;margin:10px 0 8px}
+    #valModal.modal{width:min(820px,calc(100% - 30px))}
+    #valModal{max-height:92vh;overflow:auto}
   </style>
 </head>
 <body>
@@ -38,6 +45,7 @@
       </div>
       <nav class="nav-list" aria-label="Main navigation">
         <button class="nav-item active" data-page="overview" aria-current="page"><i data-icon="grid"></i><span>Overview</span></button>
+        <button class="nav-item" data-page="validation"><i data-icon="clipboard"></i><span>Validator</span><b id="valBadge" style="display:none">0</b></button>
         <button class="nav-item" data-page="dispatch"><i data-icon="route"></i><span>Dispatch Board</span><b id="pendingBadge">6</b></button>
         <button class="nav-item" data-page="teams"><i data-icon="users"></i><span>Field Teams</span></button>
         <button class="nav-item" data-page="workorders"><i data-icon="clipboard"></i><span>Work Orders</span></button>
@@ -212,6 +220,20 @@
           <div class="table-wrap"><table><thead><tr><th>Work order</th><th>Team</th><th>Subscriber</th><th>Area</th><th>Completed</th><th>Photos</th><th>Validation</th></tr></thead><tbody id="completedBody"></tbody></table></div>
         </article>
       </section>
+
+      <section id="validationPage" class="page">
+        <div class="page-toolbar"><div><h2>Validator · New job orders</h2><p>Review subscriber info and documents from sales agents. Approve legit orders to send them to dispatch.</p></div></div>
+        <div class="dispatch-stats">
+          <div class="small-stat"><span>Awaiting validation</span><strong id="valPending">0</strong></div>
+          <div class="small-stat"><span>Approved today</span><strong id="valApproved">0</strong></div>
+          <div class="small-stat"><span>Rejected today</span><strong id="valRejected">0</strong></div>
+          <div class="small-stat"><span>Sales agents</span><strong id="valAgents">—</strong></div>
+        </div>
+        <article class="panel full-table">
+          <div class="filter-row"><div><h2 style="font:800 13px Manrope;margin:0">For validation</h2><p style="font-size:10px;color:#8a9894;margin:4px 0 0">Check the ID, Proof of Billing, and Premise photos before approving.</p></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Work order</th><th>Sales agent</th><th>Subscriber</th><th>Contact</th><th>Area</th><th>Submitted</th><th>Action</th></tr></thead><tbody id="validationBody"></tbody></table></div>
+        </article>
+      </section>
     </main>
   </div>
 
@@ -286,22 +308,26 @@
 
   <dialog id="resetModal" class="modal small-modal">
     <div class="modal-head"><div><span class="eyebrow">ADMIN · PASSWORD RESET</span><h2>Reset password</h2><p>For <strong id="resetUser">AHBA_SLI001</strong> (<span id="resetEmail"></span>)</p></div><button type="button" class="icon-btn close-modal"><i data-icon="close"></i></button></div>
-    <div style="padding:18px 25px 8px;font-size:12px;color:#566b66;line-height:1.6">
-      <p style="margin:0 0 12px">For security, passwords are encrypted and can't be viewed here. To reset this technician's password, do it in Supabase — it takes a few seconds:</p>
-      <ol style="margin:0;padding-left:20px">
-        <li>Open <strong>Supabase → Authentication → Users</strong>.</li>
-        <li>Search for the login email shown above.</li>
-        <li>Open the user → <strong>Reset password</strong> (or set a new one) → tell the technician their temporary password.</li>
-        <li>Optional: in <strong>Table editor → technicians</strong>, set this account's <code>must_change</code> to <code>true</code> so they're prompted to choose a new password on next sign-in.</li>
-      </ol>
+    <div class="form-grid" style="grid-template-columns:1fr">
+      <label class="field"><span>Temporary password (min 8 chars)</span><input id="resetNewPw" placeholder="e.g. Ahba@2026"></label>
+      <label class="field"><span>Admin secret</span><input id="resetSecret" type="password" placeholder="Superadmin reset secret"></label>
+      <p style="font-size:11px;color:#7c8a87;margin:0">The user will be asked to choose their own new password on next login. Tell them this temporary password.</p>
     </div>
-    <div class="modal-actions"><button type="button" class="secondary-btn close-modal">Close</button><a class="primary-btn" href="https://supabase.com/dashboard/project/avjzkfxgzeyxtihkofed/auth/users" target="_blank" rel="noopener">Open Supabase Users</a></div>
+    <div class="modal-actions"><button type="button" class="secondary-btn close-modal">Close</button><a class="text-btn" href="https://supabase.com/dashboard/project/avjzkfxgzeyxtihkofed/auth/users" target="_blank" rel="noopener" style="align-self:center">Or reset in Supabase</a><button type="button" class="primary-btn" id="resetNow">Reset now</button></div>
   </dialog>
 
   <dialog id="photoModal" class="modal">
     <div class="modal-head"><div><span class="eyebrow">PROOF PHOTOS</span><h2 id="photoTitle">Job photos</h2><p id="photoSub"></p></div><button type="button" class="icon-btn close-modal"><i data-icon="close"></i></button></div>
     <div class="photo-grid" id="photoGrid"></div>
     <div class="modal-actions"><button type="button" class="secondary-btn close-modal">Close</button><button type="button" class="primary-btn" id="validateBtn">Mark as validated</button></div>
+  </dialog>
+
+  <dialog id="valModal" class="modal">
+    <div class="modal-head"><div><span class="eyebrow">VALIDATOR · REVIEW</span><h2 id="valTitle">Job order review</h2><p id="valSub"></p></div><button type="button" class="icon-btn close-modal"><i data-icon="close"></i></button></div>
+    <div style="padding:18px 25px 4px"><div class="info-grid" id="valInfo"></div></div>
+    <div id="valDocs"></div>
+    <div style="padding:6px 25px 14px"><label class="field"><span>Rejection reason (if rejecting)</span><input id="valReason" placeholder="e.g. Blurry ID / details don't match billing"></label></div>
+    <div class="modal-actions"><button type="button" class="secondary-btn close-modal">Close</button><button type="button" class="secondary-btn" id="valReject" style="color:#c2503a;border-color:#f0c4b9">Reject</button><button type="button" class="primary-btn" id="valApprove">Approve → Dispatch</button></div>
   </dialog>
 
   <div class="toast" id="toast"><i data-icon="check"></i><span>Saved successfully</span></div>
