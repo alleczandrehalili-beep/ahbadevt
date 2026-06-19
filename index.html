@@ -17,6 +17,12 @@
     .map-panel.expanded{position:fixed;inset:16px;z-index:65;margin:0;background:#fff;border-radius:15px;box-shadow:0 30px 80px rgba(4,24,22,.4)}
     .map-panel.expanded #mapCanvas{height:calc(100vh - 130px)}
     .leaflet-container{font-family:'DM Sans',sans-serif}
+    .photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;padding:18px 25px;max-height:60vh;overflow:auto}
+    .photo-grid a{display:block;aspect-ratio:1;border-radius:9px;overflow:hidden;border:1px solid var(--line)}
+    .photo-grid img{width:100%;height:100%;object-fit:cover;display:block}
+    .photo-grid .none{grid-column:1/-1;text-align:center;color:#9aa6a2;padding:30px;font-size:13px}
+    .vbadge{display:inline-flex;align-items:center;gap:5px;border-radius:20px;padding:4px 8px;font-size:8px;font-weight:700}
+    .vbadge.yes{background:#e7f7ef;color:#11825f}.vbadge.no{background:#fff4e1;color:#b97a16}
   </style>
 </head>
 <body>
@@ -36,6 +42,7 @@
         <button class="nav-item" data-page="expenses"><i data-icon="wallet"></i><span>Expenses</span></button>
         <button class="nav-item" data-page="accounts"><i data-icon="users"></i><span>Accounts</span></button>
         <button class="nav-item" data-page="attendance"><i data-icon="clock"></i><span>Attendance</span></button>
+        <button class="nav-item" data-page="completed"><i data-icon="check"></i><span>Completed</span></button>
       </nav>
       <div class="sidebar-spacer"></div>
       <div class="shift-card">
@@ -182,6 +189,27 @@
           <div class="table-wrap"><table><thead><tr><th>Technician</th><th>Date</th><th>Time in</th><th>Time out</th><th>Hours</th><th>Status</th></tr></thead><tbody id="attendanceBody"></tbody></table></div>
         </article>
       </section>
+
+      <section id="completedPage" class="page">
+        <div class="page-toolbar">
+          <div><h2>Completed jobs</h2><p>Review and validate finished jobs and their proof photos.</p></div>
+          <div class="toolbar-actions">
+            <div class="search-box" style="min-width:auto"><i data-icon="calendar"></i><input id="compDate" type="date"></div>
+            <button class="secondary-btn" id="exportBtn"><i data-icon="arrow"></i>Download ZIP</button>
+            <button class="secondary-btn" id="clearBtn" style="color:#c2503a;border-color:#f0c4b9"><i data-icon="close"></i>Clear photos</button>
+          </div>
+        </div>
+        <div class="dispatch-stats">
+          <div class="small-stat"><span>Completed (this day)</span><strong id="compTotal">0</strong></div>
+          <div class="small-stat"><span>Validated</span><strong id="compValidated">0</strong></div>
+          <div class="small-stat"><span>Pending validation</span><strong id="compPending">0</strong></div>
+          <div class="small-stat"><span>Proof photos</span><strong id="compPhotos">0</strong></div>
+        </div>
+        <article class="panel full-table">
+          <div class="filter-row"><div><h2 style="font:800 13px Manrope;margin:0">Daily completed log</h2><p style="font-size:10px;color:#8a9894;margin:4px 0 0">Tip: Download the ZIP archive first, then Clear photos to free up cloud storage. Job records are kept.</p></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Work order</th><th>Team</th><th>Subscriber</th><th>Area</th><th>Completed</th><th>Photos</th><th>Validation</th></tr></thead><tbody id="completedBody"></tbody></table></div>
+        </article>
+      </section>
     </main>
   </div>
 
@@ -237,8 +265,15 @@
     <div class="modal-actions"><button type="button" class="secondary-btn close-modal">Close</button><a class="primary-btn" href="https://supabase.com/dashboard/project/avjzkfxgzeyxtihkofed/auth/users" target="_blank" rel="noopener">Open Supabase Users</a></div>
   </dialog>
 
+  <dialog id="photoModal" class="modal">
+    <div class="modal-head"><div><span class="eyebrow">PROOF PHOTOS</span><h2 id="photoTitle">Job photos</h2><p id="photoSub"></p></div><button type="button" class="icon-btn close-modal"><i data-icon="close"></i></button></div>
+    <div class="photo-grid" id="photoGrid"></div>
+    <div class="modal-actions"><button type="button" class="secondary-btn close-modal">Close</button><button type="button" class="primary-btn" id="validateBtn">Mark as validated</button></div>
+  </dialog>
+
   <div class="toast" id="toast"><i data-icon="check"></i><span>Saved successfully</span></div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="app.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="ahba-cloud.js"></script>
