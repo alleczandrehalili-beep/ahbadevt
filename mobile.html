@@ -100,6 +100,7 @@
       <button class="menu-btn hidden" id="menuBtn" aria-label="Menu">⋯</button>
     </div>
     <div class="menu-pop hidden" id="menuPop">
+      <button id="mLocate">Update my location</button>
       <button id="mChangePw">Change password</button>
       <button id="mLogout" class="danger">Time out &amp; sign out</button>
     </div>
@@ -203,6 +204,21 @@
       catch(e){ console.warn('clockOut',e.message); }
       attendanceId=null;
     }
+
+    // ---------- GPS location ----------
+    function captureLocation(announce){
+      if(!navigator.geolocation){ if(announce)toast('GPS not available on this device'); return; }
+      navigator.geolocation.getCurrentPosition(async pos=>{
+        const {latitude, longitude} = pos.coords;
+        try{
+          await sb.from('technicians').update({lat:latitude, lng:longitude, location_at:new Date().toISOString(), updated_at:new Date().toISOString()}).eq('username',myTeam);
+          if(announce) toast('Location updated');
+        }catch(e){ console.warn('loc',e.message); }
+      }, err=>{
+        console.warn('geo', err.message);
+        if(announce || err.code===1) toast('Turn on Location so dispatch can find you');
+      }, {enableHighAccuracy:true, timeout:15000, maximumAge:60000});
+    }
     function showErr(id,msg){const e=$(id);e.textContent=msg;e.classList.add('show')}
     function clearErr(id){$(id).classList.remove('show')}
 
@@ -262,6 +278,7 @@
       if(realtimeChan) sb.removeChannel(realtimeChan);
       realtimeChan = sb.channel('ahba-tech-'+myTeam).on('postgres_changes',{event:'*',schema:'public',table:'jobs'},refresh).subscribe();
       clearInterval(startApp._t); startApp._t=setInterval(refresh,15000);
+      clearInterval(startApp._loc); startApp._loc=setInterval(()=>captureLocation(false),180000); // refresh GPS every 3 min
     }
 
     // ---------- auth ----------
@@ -282,6 +299,7 @@
     // Clock in (fresh sign-in) or re-attach to an open time-in (resume), then open the app.
     async function enterFlow(fresh){
       if(fresh){ await clockIn(); } else { await findOpenAttendance(); }
+      captureLocation(false);   // grab GPS on entry (prompts for permission first time)
       startApp();
     }
 
@@ -324,11 +342,12 @@
     document.addEventListener('click',()=>$('#menuPop').classList.add('hidden'));
     $('#menuPop').onclick=e=>e.stopPropagation();
     $('#mChangePw').onclick=()=>{$('#menuPop').classList.add('hidden');openPw(false)};
+    $('#mLocate').onclick=()=>{$('#menuPop').classList.add('hidden');captureLocation(true)};
     $('#mLogout').onclick=async()=>{
       $('#menuPop').classList.add('hidden');
       await clockOut();                       // record time-out
       if(realtimeChan)sb.removeChannel(realtimeChan);
-      clearInterval(startApp._t);
+      clearInterval(startApp._t); clearInterval(startApp._loc);
       await sb.auth.signOut();
       myTeam=''; jobs=[]; $('#uName').value=''; $('#uPass').value='';
       toast('Timed out — signed off');

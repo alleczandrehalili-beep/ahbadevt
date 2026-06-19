@@ -65,14 +65,51 @@ function renderOverview(){
   if($('#completedTarget')) $('#completedTarget').textContent=jobs.length;
   $('#teamAvatars').innerHTML=teams.slice(0,6).map((t,i)=>`<span style="background:${t.color}">${t.short}</span>`).join('');
   $('#completionBars').innerHTML=[16,24,20,31,26,36,29].map(h=>`<span style="height:${h}px"></span>`).join('');
-  renderMapPins();
+  renderTeamLocations();
   $('#activityList').innerHTML=activity.map(a=>`<div class="activity-item"><span class="activity-icon ${a.tone}" data-icon="${a.icon}"></span><div class="activity-copy"><strong>${a.title}</strong><p>${a.text}</p></div><time>${a.time}</time></div>`).join('');
   injectIcons();
   renderExpenses();renderJobs();
 }
-function renderMapPins(){
-  const list=teams.filter(t=>t.status!=='offline').filter(t=>mapFilter==='all'||t.status!=='available');
-  $('#mapPins').innerHTML=list.map(t=>`<button class="team-pin ${t.status}" style="left:${t.x}%;top:${t.y}%" aria-label="${t.name}, ${statusLabel(t.status)}"><span class="pin-tooltip"><b>${t.name}</b> · ${t.area}</span><span class="pin-dot"><span>${t.id}</span></span></button>`).join('');
+// ---------- Live GPS map (Leaflet) ----------
+const AREA_COORDS={'Quezon City':[14.676,121.043],'Manila':[14.599,120.984],'Makati':[14.554,121.024],'Pasig':[14.576,121.085],'Taguig':[14.520,121.053],'Caloocan':[14.651,120.972],'Parañaque':[14.479,121.019],'Mandaluyong':[14.577,121.037],'San Juan':[14.601,121.030],'Marikina':[14.650,121.102]};
+let leafMap=null, teamMarkers={}, techIndex={};
+function haversineKm(a,b,c,d){const R=6371,toR=x=>x*Math.PI/180;const dLat=toR(c-a),dLng=toR(d-b);const s=Math.sin(dLat/2)**2+Math.cos(toR(a))*Math.cos(toR(c))*Math.sin(dLng/2)**2;return 2*R*Math.asin(Math.sqrt(s))}
+function isOnline(loc){return loc && loc.location_at && (Date.now()-new Date(loc.location_at))<15*60*1000}
+function initMap(){
+  if(leafMap||typeof L==='undefined'||!document.getElementById('leafletMap'))return;
+  leafMap=L.map('leafletMap',{zoomControl:true,attributionControl:false}).setView([14.5995,120.9842],11);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(leafMap);
+  setTimeout(()=>leafMap.invalidateSize(),200);
+}
+async function fetchTechLocations(){
+  try{
+    const r=await fetch(`${SUPA_URL}/rest/v1/technicians?select=username,area,lat,lng,location_at`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const rows=r.ok?await r.json():[];
+    techIndex={}; rows.forEach(t=>{techIndex[t.username]=t}); return rows;
+  }catch(e){return Object.values(techIndex)}
+}
+async function renderTeamLocations(){
+  initMap(); if(!leafMap)return;
+  const rows=await fetchTechLocations();
+  const seen={};
+  rows.forEach(t=>{
+    if(t.lat==null||t.lng==null)return;
+    const online=isOnline(t);
+    if(mapFilter==='active'&&!online)return;
+    seen[t.username]=1;
+    const color=online?'#18a57b':'#e9a93d';
+    const popup=`<b>${t.username}</b><br>${t.area||''}<br>${t.location_at?'Updated '+fmtWhen(t.location_at):'—'}`;
+    if(teamMarkers[t.username]){
+      teamMarkers[t.username].setLatLng([t.lat,t.lng]).setStyle({fillColor:color,color:color}).bindPopup(popup);
+    }else{
+      teamMarkers[t.username]=L.circleMarker([t.lat,t.lng],{radius:8,weight:2,color,fillColor:color,fillOpacity:.85}).addTo(leafMap).bindPopup(popup);
+    }
+  });
+  // remove markers no longer shown
+  Object.keys(teamMarkers).forEach(u=>{if(!seen[u]){leafMap.removeLayer(teamMarkers[u]);delete teamMarkers[u]}});
+  const withGps=rows.filter(t=>t.lat!=null).length;
+  const onlineN=rows.filter(isOnline).length;
+  const at=$('#availableTeamText'); if(at) at.textContent=`${onlineN} online · ${withGps} sharing GPS`;
 }
 function renderJobs(){
   const pending=jobs.filter(j=>j.status==='pending');
@@ -116,11 +153,32 @@ function applyJobTableFilter(){
   const empty=$('#workOrderEmpty'); if(empty) empty.hidden=shown!==0;
 }
 
-function openAssign(jobId){
+async function openAssign(jobId){
   const job=jobs.find(j=>j.id===jobId);$('#assignJobLabel').textContent=`${job.id} · ${job.subscriber} · ${job.area}`;$('#assignModal').dataset.job=jobId;
-  const candidates=teams.filter(t=>t.status!=='offline').sort((a,b)=>(a.status==='available'?-2:0)+(a.area===job.area?-1:0)-((b.status==='available'?-2:0)+(b.area===job.area?-1:0))).slice(0,6);
-  $('#assignmentList').innerHTML=candidates.map((t,i)=>`<div class="assignment-item ${i===0?'recommended':''}"><span class="team-avatar" style="background:${t.color}">${t.short}</span><div><strong>${t.name}${i===0?'<span class="recommend">BEST MATCH</span>':''}</strong><p>${t.area} · ${t.jobs}/5 jobs · ${statusLabel(t.status)}</p></div><button class="assign-btn" data-team="${t.name}">Assign</button></div>`).join('');
-  $$('[data-team]').forEach(b=>b.onclick=()=>assignTeam(jobId,b.dataset.team));openModal($('#assignModal'));
+  openModal($('#assignModal'));
+  $('#assignmentList').innerHTML='<div class="empty-row">Finding nearest teams by GPS…</div>';
+  await fetchTechLocations();
+  const dest=AREA_COORDS[job.area];
+  const enriched=teams.map(t=>{
+    const loc=techIndex[t.name];
+    let dist=null;
+    if(loc&&loc.lat!=null&&loc.lng!=null&&dest) dist=haversineKm(loc.lat,loc.lng,dest[0],dest[1]);
+    return {t,loc,dist,online:isOnline(loc)};
+  }).sort((a,b)=>{
+    if(a.dist!=null&&b.dist!=null)return a.dist-b.dist;
+    if(a.dist!=null)return -1;
+    if(b.dist!=null)return 1;
+    return (b.t.area===job.area?1:0)-(a.t.area===job.area?1:0);
+  });
+  const top=enriched.slice(0,6);
+  $('#assignmentList').innerHTML=top.map((e,i)=>{
+    const t=e.t, best=(i===0&&e.dist!=null);
+    const sub=e.dist!=null
+      ? `${e.dist.toFixed(1)} km away · ${e.online?'online now':'last seen '+(e.loc.location_at?fmtWhen(e.loc.location_at):'—')}`
+      : (e.loc&&e.loc.area?`${e.loc.area} · no GPS yet`:'No GPS yet');
+    return `<div class="assignment-item ${best?'recommended':''}"><span class="team-avatar" style="background:${t.color}">${t.short}</span><div><strong>${t.name}${best?'<span class="recommend">NEAREST</span>':''}</strong><p>${sub}</p></div><button class="assign-btn" data-team="${t.name}">Assign</button></div>`;
+  }).join('');
+  $$('[data-team]').forEach(b=>b.onclick=()=>assignTeam(jobId,b.dataset.team));
 }
 function assignTeam(jobId,team){const j=jobs.find(x=>x.id===jobId);j.team=team;j.status='assigned';save();closeModals();renderJobs();showToast(`${team} assigned to ${jobId}`)}
 function openModal(modal){$('#modalBackdrop').classList.add('show');modal.showModal()}
@@ -238,12 +296,9 @@ function init(){
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){closePopovers();closeSidebar()}});
 
   // Map controls
-  $$('.map-actions [data-seg]').forEach(b=>b.onclick=()=>{$$('.map-actions [data-seg]').forEach(x=>x.classList.remove('active'));b.classList.add('active');mapFilter=b.dataset.seg;renderMapPins()});
-  let mapScale=1;const canvas=$('#mapCanvas'),art=$('#mapPins');
-  const applyScale=()=>{const s=Math.max(1,Math.min(2,mapScale));$('.map-art').style.transform=`scale(${s})`;art.style.transform=`scale(${s})`};
-  $('#mapZoomIn').onclick=()=>{mapScale=Math.min(2,mapScale+.2);applyScale()};
-  $('#mapZoomOut').onclick=()=>{mapScale=Math.max(1,mapScale-.2);applyScale()};
-  $('#mapExpandBtn').onclick=()=>$('.map-panel').classList.toggle('expanded');
+  $$('.map-actions [data-seg]').forEach(b=>b.onclick=()=>{$$('.map-actions [data-seg]').forEach(x=>x.classList.remove('active'));b.classList.add('active');mapFilter=b.dataset.seg;renderTeamLocations()});
+  $('#mapExpandBtn')?.addEventListener('click',()=>{$('.map-panel').classList.toggle('expanded');setTimeout(()=>{if(leafMap)leafMap.invalidateSize()},250)});
+  setInterval(()=>{ if($('#overviewPage')?.classList.contains('active')) renderTeamLocations(); }, 30000);
 
   // Forms
   $('#orderForm').onsubmit=e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));const num=1050+jobs.length;jobs.unshift({id:`WO-2026-${num}`,subscriber:f.subscriber,type:f.type,plan:f.plan,area:f.area,address:f.address,status:'pending',wait:'Just now',priority:f.priority,schedule:`${f.date}, 9:00 AM`,team:null});save();e.target.reset();$$('input[type=date]').forEach(i=>i.value=new Date().toISOString().slice(0,10));closeModals();renderOverview();showToast('Work order created and added to dispatch queue')};
