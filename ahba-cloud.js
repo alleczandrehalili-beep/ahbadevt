@@ -27,8 +27,14 @@
     return response.status === 204 ? null : response.json();
   }
 
+  // Extra subscriber / job-order fields (DB snake_case keys, carried as-is on the job object)
+  var EXTRA = ['load_date','dispatch_status','driver','tech1','mapping_team','mapping_remarks',
+    'dispatched_remarks','ibass_acct_no','job_order_no','vas_no','play_type','special_note',
+    'ref_no','new_ref','primary_no','other_contact_no','first_name','middle_name','last_name',
+    'house_no','street_name','village','brgy','city','in_charge','source_of_sales','referral_name'];
+
   function normalizeJob(row) {
-    return {
+    var j = {
       id: row.id,
       subscriber: row.subscriber,
       type: row.service_type,
@@ -40,12 +46,16 @@
       priority: row.priority || 'Normal',
       schedule: row.schedule || 'Today',
       team: row.team,
-      updatedAt: row.updated_at || null
+      updatedAt: row.updated_at || null,
+      validated: row.validated || false,
+      validated_at: row.validated_at || null
     };
+    EXTRA.forEach(function (k) { j[k] = row[k]; });
+    return j;
   }
 
   function serializeJob(job) {
-    return {
+    var out = {
       id: job.id,
       subscriber: job.subscriber,
       service_type: job.type,
@@ -59,6 +69,9 @@
       team: job.team || null,
       updated_at: new Date().toISOString()
     };
+    // pass through any subscriber fields that are set (never touch `validated` here)
+    EXTRA.forEach(function (k) { if (job[k] !== undefined && job[k] !== '') out[k] = job[k]; });
+    return out;
   }
 
   async function getJobs() {

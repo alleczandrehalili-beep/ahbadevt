@@ -72,6 +72,9 @@ function renderOverview(){
 }
 // ---------- Live GPS map (Leaflet) ----------
 const AREA_COORDS={'Quezon City':[14.676,121.043],'Manila':[14.599,120.984],'Makati':[14.554,121.024],'Pasig':[14.576,121.085],'Taguig':[14.520,121.053],'Caloocan':[14.651,120.972],'Parañaque':[14.479,121.019],'Mandaluyong':[14.577,121.037],'San Juan':[14.601,121.030],'Marikina':[14.650,121.102]};
+function areaCoord(a){if(!a)return null;if(AREA_COORDS[a])return AREA_COORDS[a];const k=Object.keys(AREA_COORDS).find(x=>x.toLowerCase()===String(a).toLowerCase());return k?AREA_COORDS[k]:null;}
+const SUB_FIELDS=['dispatch_status','driver','tech1','mapping_team','mapping_remarks','dispatched_remarks','ibass_acct_no','job_order_no','vas_no','play_type','special_note','ref_no','new_ref','primary_no','other_contact_no','first_name','middle_name','last_name','house_no','street_name','village','brgy','city','in_charge','source_of_sales','referral_name'];
+const safeName=s=>(s||'subscriber').replace(/[\\/:*?"<>|]+/g,'').replace(/\s+/g,' ').trim()||'subscriber';
 let leafMap=null, teamMarkers={}, techIndex={};
 function haversineKm(a,b,c,d){const R=6371,toR=x=>x*Math.PI/180;const dLat=toR(c-a),dLng=toR(d-b);const s=Math.sin(dLat/2)**2+Math.cos(toR(a))*Math.cos(toR(c))*Math.sin(dLng/2)**2;return 2*R*Math.asin(Math.sqrt(s))}
 function isOnline(loc){return loc && loc.location_at && (Date.now()-new Date(loc.location_at))<15*60*1000}
@@ -158,7 +161,7 @@ async function openAssign(jobId){
   openModal($('#assignModal'));
   $('#assignmentList').innerHTML='<div class="empty-row">Finding nearest teams by GPS…</div>';
   await fetchTechLocations();
-  const dest=AREA_COORDS[job.area];
+  const dest=areaCoord(job.area);
   const enriched=teams.map(t=>{
     const loc=techIndex[t.name];
     let dist=null;
@@ -308,7 +311,7 @@ async function renderCompleted(){
 function openGallery(jobId){
   const j=compJobs.find(x=>x.id===jobId)||{}; const paths=compPhotos[jobId]||[];
   $('#photoTitle').textContent=`${jobId} · ${j.subscriber||''}`;
-  $('#photoSub').textContent=`${j.team||''} · ${paths.length} photo${paths.length===1?'':'s'}`;
+  $('#photoSub').textContent=`${j.team||''} · ${j.area||''}${j.primary_no?' · '+j.primary_no:''}${j.job_order_no?' · JO '+j.job_order_no:''} · ${paths.length} photo${paths.length===1?'':'s'}`;
   $('#photoGrid').innerHTML=paths.length?paths.map((p,i)=>`<a class="ph" href="${photoBase(p)}" target="_blank" rel="noopener" title="Photo ${i+1} — open in new window"><img src="${photoBase(p)}" alt="proof ${i+1}" loading="lazy"></a>`).join(''):'<div class="none">No photos uploaded for this job.</div>';
   $$('#photoGrid .ph').forEach(a=>a.onclick=e=>{e.preventDefault();window.open(a.href,'_blank','noopener,noreferrer');});
   const vb=$('#validateBtn'); vb.style.display=j.validated?'none':''; vb.onclick=()=>{validateJob(jobId);closeModals();};
@@ -321,26 +324,70 @@ async function validateJob(jobId){
   }catch(e){showToast('Could not validate')}
 }
 async function exportZip(){
-  if(typeof JSZip==='undefined'){showToast('ZIP library still loading — try again');return}
+  if(typeof JSZip==='undefined'||typeof XLSX==='undefined'){showToast('Libraries still loading — try again');return}
   if(!compJobs.length){showToast('Nothing to export for this day');return}
   const date=$('#compDate').value||manilaToday();
-  showToast('Building ZIP… please wait');
-  const zip=new JSZip(), root=zip.folder(`completed_${date}`);
-  let csv='work_order,team,subscriber,area,completed_at,validated,photo_count\n';
+  showToast('Building archive (Excel + photos)…');
+  const zip=new JSZip();
+
+  // --- Excel with all subscriber info (matches the NEW LOADS layout) ---
+  const rows=compJobs.map(j=>({
+    'DATE': j.load_date||(j.updated_at?j.updated_at.slice(0,10):''),
+    'DISPATCH STATUS': j.dispatch_status||'',
+    'TEAM ASSIGNED': j.team||'',
+    'DRIVER': j.driver||'',
+    'TECH1': j.tech1||'',
+    'MAPPING TEAM': j.mapping_team||'',
+    'MAPPING REMARKS': j.mapping_remarks||'',
+    'DISPATCHED REMARKS': j.dispatched_remarks||'',
+    'IBASS ACCT NO.': j.ibass_acct_no||'',
+    'JOB ORDER NO.': j.job_order_no||'',
+    'VAS NO': j.vas_no||'',
+    '1P OR 2P': j.play_type||'',
+    'SPECIAL NOTE': j.special_note||'',
+    'REF NO.': j.ref_no||'',
+    'NEW REF #': j.new_ref||'',
+    'PRIMARY NO.': j.primary_no||'',
+    'OTHER CONTACT NO.': j.other_contact_no||'',
+    'FIRST NAME': j.first_name||'',
+    'MIDDLE NAME': j.middle_name||'',
+    'LAST NAME': j.last_name||'',
+    'HOUSE NO.': j.house_no||'',
+    'STREET NAME': j.street_name||'',
+    'VILLAGE / SUBDIVISION': j.village||'',
+    'BRGY': j.brgy||'',
+    'CITY': j.city||j.area||'',
+    'IN-CHARGE': j.in_charge||'',
+    'SOURCE OF SALES': j.source_of_sales||'',
+    'REFERRAL NAME': j.referral_name||'',
+    'PLAN': j.plan||'',
+    'PRIORITY': j.priority||'',
+    'COMPLETED AT': j.updated_at?fmtWhen(j.updated_at):'',
+    'VALIDATED': j.validated?'YES':'NO',
+    'PHOTOS': (compPhotos[j.id]||[]).length,
+    'WO ID': j.id
+  }));
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Completed');
+  zip.file(`AHBA_completed_${date}.xlsx`, XLSX.write(wb,{type:'array',bookType:'xlsx'}));
+
+  // --- Photos: one folder per subscriber, files named with the subscriber name ---
+  const photosRoot=zip.folder('photos'); const used={};
   for(const j of compJobs){
-    const paths=compPhotos[j.id]||[];
-    csv+=`${j.id},${j.team||''},"${(j.subscriber||'').replace(/"/g,'""')}",${j.area||''},${j.updated_at||''},${j.validated?'yes':'no'},${paths.length}\n`;
-    const folder=root.folder(j.id);
+    const paths=compPhotos[j.id]||[]; if(!paths.length)continue;
+    let name=safeName(j.subscriber || [j.first_name,j.last_name].filter(Boolean).join(' '));
+    if(used[name]){ used[name]++; name=`${name} (${used[name]})`; } else used[name]=1;
+    const folder=photosRoot.folder(`${name} - ${j.id}`);
     for(let i=0;i<paths.length;i++){
-      try{ const blob=await (await fetch(photoBase(paths[i]))).blob(); const ext=(paths[i].split('.').pop()||'jpg'); folder.file(`${String(i+1).padStart(2,'0')}.${ext}`, blob); }
+      try{ const blob=await (await fetch(photoBase(paths[i]))).blob(); folder.file(`${name}_${String(i+1).padStart(2,'0')}.jpg`, blob); }
       catch(e){ console.warn('zip fetch',e.message); }
     }
   }
-  root.file('manifest.csv', csv);
+
   const out=await zip.generateAsync({type:'blob'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(out); a.download=`AHBA_completed_${date}.zip`; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href),15000);
-  showToast('ZIP downloaded');
+  showToast('Archive downloaded (Excel + photos)');
 }
 async function clearCloud(){
   const date=$('#compDate').value||manilaToday();
@@ -361,7 +408,9 @@ async function clearCloud(){
 
 function init(){
   injectIcons();const d=new Date();$('#todayLabel').textContent=d.toLocaleDateString('en-PH',{timeZone:TZ,weekday:'short',month:'short',day:'numeric'});$$('input[type=date]').forEach(i=>i.value=manilaToday());
-  $('#expenseTeam').innerHTML=teams.map(t=>`<option>${t.name}</option>`).join('');renderOverview();renderTeams();renderNotifPop();
+  $('#expenseTeam').innerHTML=teams.map(t=>`<option>${t.name}</option>`).join('');
+  if($('#orderTeam'))$('#orderTeam').innerHTML='<option value="">— Unassigned —</option>'+teams.map(t=>`<option>${t.name}</option>`).join('');
+  renderOverview();renderTeams();renderNotifPop();
 
   $$('.nav-item').forEach(b=>b.onclick=()=>switchPage(b.dataset.page));
   $$('[data-page-link]').forEach(b=>b.onclick=()=>switchPage(b.dataset.pageLink));
@@ -395,7 +444,13 @@ function init(){
   setInterval(()=>{ if($('#overviewPage')?.classList.contains('active')) renderTeamLocations(); }, 30000);
 
   // Forms
-  $('#orderForm').onsubmit=e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));const num=1050+jobs.length;jobs.unshift({id:`WO-2026-${num}`,subscriber:f.subscriber,type:f.type,plan:f.plan,area:f.area,address:f.address,status:'pending',wait:'Just now',priority:f.priority,schedule:`${f.date}, 9:00 AM`,team:null});save();e.target.reset();$$('input[type=date]').forEach(i=>i.value=new Date().toISOString().slice(0,10));closeModals();renderOverview();showToast('Work order created and added to dispatch queue')};
+  $('#orderForm').onsubmit=e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
+    const full=[f.first_name,f.middle_name,f.last_name].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
+    const addr=[f.house_no,f.street_name,f.village,f.brgy,f.city].filter(Boolean).join(', ');
+    const num=2050+jobs.length;
+    const job={id:`WO-2026-${num}`,subscriber:full||'Subscriber',type:f.type,plan:f.plan,area:f.city||f.brgy||'Quezon City',address:addr,status:f.team?'assigned':'pending',wait:'Just now',priority:f.priority,schedule:`${f.date}, 9:00 AM`,team:f.team||null,load_date:f.date||null};
+    SUB_FIELDS.forEach(k=>{ if(f[k]) job[k]=f[k]; });
+    jobs.unshift(job);save();e.target.reset();$$('input[type=date]').forEach(i=>i.value=manilaToday());closeModals();renderOverview();showToast('Work order created and added to dispatch queue')};
   $('#expenseForm').onsubmit=e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));expenses.unshift({time:new Date().toLocaleTimeString('en-PH',{hour:'numeric',minute:'2-digit'}),team:f.team,category:f.category,description:f.description,workOrder:f.workOrder||'—',amount:Number(f.amount),status:'Pending'});save();e.target.reset();closeModals();renderExpenses();showToast('Expense recorded for approval')};
 
   // Search + filters

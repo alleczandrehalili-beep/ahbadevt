@@ -23,6 +23,8 @@
     .photo-grid .none{grid-column:1/-1;text-align:center;color:#9aa6a2;padding:30px;font-size:13px}
     .vbadge{display:inline-flex;align-items:center;gap:5px;border-radius:20px;padding:4px 8px;font-size:8px;font-weight:700}
     .vbadge.yes{background:#e7f7ef;color:#11825f}.vbadge.no{background:#fff4e1;color:#b97a16}
+    .form-sec{font:800 10px Manrope;letter-spacing:.1em;text-transform:uppercase;color:#107b5e;border-bottom:1px solid var(--line,#e3e8e2);padding-bottom:6px;margin-top:6px}
+    #orderModal.modal{width:min(760px,calc(100% - 30px))}
   </style>
 </head>
 <body>
@@ -218,15 +220,46 @@
     <form method="dialog" id="orderForm">
       <div class="modal-head"><div><span class="eyebrow">SALES INTAKE</span><h2>Create work order</h2><p>Encode the subscriber and requested service.</p></div><button type="button" class="icon-btn close-modal"><i data-icon="close"></i></button></div>
       <div class="form-grid">
-        <label class="field full"><span>Subscriber name</span><input name="subscriber" required placeholder="e.g. Juan Dela Cruz"></label>
-        <label class="field"><span>Mobile number</span><input name="mobile" required placeholder="09XX XXX XXXX"></label>
+        <div class="field full form-sec">Subscriber</div>
+        <label class="field"><span>First name *</span><input name="first_name" required placeholder="CONCHITA"></label>
+        <label class="field"><span>Middle name</span><input name="middle_name" placeholder="SAMPAGA"></label>
+        <label class="field"><span>Last name *</span><input name="last_name" required placeholder="TOLEDO"></label>
+        <label class="field"><span>Primary no.</span><input name="primary_no" placeholder="09XXXXXXXXX"></label>
+        <label class="field"><span>Other contact no.</span><input name="other_contact_no" placeholder="09XXXXXXXXX"></label>
+
+        <div class="field full form-sec">Address</div>
+        <label class="field"><span>House no.</span><input name="house_no" placeholder="23"></label>
+        <label class="field"><span>Street name</span><input name="street_name" placeholder="LEGAL"></label>
+        <label class="field"><span>Village / Subdivision</span><input name="village" placeholder=""></label>
+        <label class="field"><span>Barangay</span><input name="brgy" placeholder="SANGANDAAN"></label>
+        <label class="field"><span>City</span><input name="city" value="QUEZON CITY"></label>
+
+        <div class="field full form-sec">Account &amp; service</div>
+        <label class="field"><span>IBASS Acct no.</span><input name="ibass_acct_no" placeholder="1878702256026"></label>
+        <label class="field"><span>Job order no.</span><input name="job_order_no" placeholder="R3393914"></label>
+        <label class="field"><span>VAS no.</span><input name="vas_no" placeholder=""></label>
+        <label class="field"><span>1P / 2P</span><select name="play_type"><option>1-PLAY</option><option>2-PLAY</option></select></label>
+        <label class="field"><span>Plan / Ref no.</span><input name="plan" placeholder="SKY-N72A0M6-VQ55PDT"></label>
+        <label class="field"><span>Ref no.</span><input name="ref_no" placeholder=""></label>
+        <label class="field"><span>New ref #</span><input name="new_ref" placeholder=""></label>
         <label class="field"><span>Service type</span><select name="type"><option>Installation</option><option>Repair</option><option>Site Survey</option></select></label>
-        <label class="field"><span>Plan / product</span><select name="plan"><option>Fiber Unli 200 Mbps</option><option>Fiber Unli 400 Mbps</option><option>Fiber Unli 600 Mbps</option><option>Cable + Internet Bundle</option><option>Service Repair</option></select></label>
-        <label class="field"><span>Preferred date</span><input name="date" type="date" required></label>
-        <label class="field full"><span>Complete address</span><input name="address" required placeholder="House/Unit, Street, Barangay, City"></label>
-        <label class="field"><span>City / area</span><select name="area"><option>Quezon City</option><option>Manila</option><option>Makati</option><option>Pasig</option><option>Taguig</option><option>Caloocan</option><option>Parañaque</option></select></label>
+
+        <div class="field full form-sec">Dispatch</div>
+        <label class="field"><span>Team assigned</span><select name="team" id="orderTeam"><option value="">— Unassigned —</option></select></label>
+        <label class="field"><span>Driver</span><input name="driver" placeholder="DANNIE IGOT"></label>
+        <label class="field"><span>Tech 1</span><input name="tech1" placeholder="JEMAR TAGALOG"></label>
+        <label class="field"><span>Mapping team</span><input name="mapping_team" placeholder=""></label>
+        <label class="field"><span>Dispatch status</span><input name="dispatch_status" placeholder="DISPATCHED" list="dispatchStatuses"></label>
+        <datalist id="dispatchStatuses"><option>DISPATCHED</option><option>FOR MAPPING</option><option>FIBERLAYING</option><option>ACTIVATED - CLOSED</option><option>ACTIVATED - NO BROWSING</option><option>ACTIVATED NOT CLOSED</option><option>RESCHED - SUBS NOT AVAILABLE</option><option>RS BY SUBS</option><option>CANCEL BY CLIENT</option><option>CANCEL BY HOA</option></datalist>
         <label class="field"><span>Priority</span><select name="priority"><option>Normal</option><option>Urgent</option><option>VIP</option></select></label>
-        <label class="field full"><span>Instructions</span><textarea name="notes" rows="3" placeholder="Landmark, access notes, or reported issue"></textarea></label>
+        <label class="field"><span>Preferred date</span><input name="date" type="date" required></label>
+        <label class="field"><span>In-charge</span><input name="in_charge" placeholder="ABBY SIOCO"></label>
+        <label class="field"><span>Source of sales</span><input name="source_of_sales" placeholder="REFERRAL" list="salesSources"></label>
+        <datalist id="salesSources"><option>REFERRAL</option><option>SALARIED AGENT</option><option>FIELD TECHNICIAN</option><option>WALK-IN</option></datalist>
+        <label class="field"><span>Referral name</span><input name="referral_name" placeholder="JDC"></label>
+        <label class="field full"><span>Mapping remarks</span><input name="mapping_remarks" placeholder=""></label>
+        <label class="field full"><span>Dispatched remarks</span><input name="dispatched_remarks" placeholder=""></label>
+        <label class="field full"><span>Special note</span><textarea name="special_note" rows="2" placeholder="1ST LOAD PLS / PRIO PLEASE / landmark"></textarea></label>
       </div>
       <div class="modal-actions"><button type="button" class="secondary-btn close-modal">Cancel</button><button type="submit" class="primary-btn">Create & queue job</button></div>
     </form>
@@ -274,6 +307,7 @@
   <div class="toast" id="toast"><i data-icon="check"></i><span>Saved successfully</span></div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="app.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="ahba-cloud.js"></script>
