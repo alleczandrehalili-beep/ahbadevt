@@ -36,6 +36,10 @@
     @media(max-width:1200px){.dispatch-board{grid-template-columns:repeat(3,1fr)}}
     @media(max-width:760px){.dispatch-board{grid-template-columns:1fr}}
     .status.negative{background:#fdecea;color:#c2503a}
+    .job-card[draggable]{cursor:grab}
+    .job-card[draggable]:active{cursor:grabbing}
+    .board-column.drop-hover{outline:2px dashed var(--green,#18a57b);outline-offset:-2px;background:#e7f4ed}
+    .board-column[data-drop="pending"] .column-head strong:after{content:" ⤺";color:#9aa6a2;font-weight:400}
   </style>
 </head>
 <body>

@@ -120,18 +120,35 @@ function renderJobs(){
   $('#queueBody').innerHTML=pending.slice(0,4).map(j=>`<tr><td><strong>${j.id}</strong><span>${j.priority}</span></td><td><strong>${j.subscriber}</strong></td><td>${j.type}</td><td>${j.area}</td><td><span class="status pending">${j.wait}</span></td><td><button class="assign-btn" data-assign="${j.id}">Assign</button></td></tr>`).join('')||'<tr><td colspan="6" class="empty-cell">No jobs waiting for dispatch.</td></tr>';
   $('#workOrderBody').innerHTML=jobs.map(j=>`<tr data-type="${j.type.toLowerCase()}" data-status="${j.status}" data-text="${(j.id+' '+j.subscriber+' '+j.area).toLowerCase()}"><td><strong>${j.id}</strong><span>${j.priority}</span></td><td><strong>${j.subscriber}</strong><span>${j.plan}</span></td><td>${j.type}</td><td>${j.area}</td><td>${j.team||'—'}</td><td><span class="status ${j.status}">${statusLabel(j.status)}</span></td><td>${j.schedule}</td></tr>`).join('');
   const today=manilaToday();
-  const stages=[['pending','Unassigned'],['assigned','Assigned'],['en-route','En route'],['on-site,in-progress','On site'],['negative','Negative'],['completed','Completed today']];
+  const stages=[['pending','For Dispatch'],['assigned','Dispatched'],['en-route','Travel'],['on-site,in-progress','On Site'],['negative','Negative'],['completed','Completed']];
   $('#dispatchBoard').innerHTML=stages.map(([keys,label])=>{
     let list=jobs.filter(j=>keys.split(',').includes(j.status));
     if(keys==='completed'||keys==='negative') list=list.filter(j=>j.updatedAt && new Date(j.updatedAt).toLocaleDateString('en-CA',{timeZone:TZ})===today);
-    return `<div class="board-column"><div class="column-head"><strong>${label}</strong><span>${list.length}</span></div>${list.map(jobCard).join('')||'<div class="job-card empty"><p>No jobs in this stage.</p></div>'}</div>`;
+    return `<div class="board-column" data-drop="${keys}"><div class="column-head"><strong>${label}</strong><span>${list.length}</span></div>${list.map(jobCard).join('')||'<div class="job-card empty"><p>No jobs in this stage.</p></div>'}</div>`;
   }).join('');
   const counts=[['Waiting',pending.length],['Assigned',jobs.filter(j=>j.status==='assigned').length],['On the road',jobs.filter(j=>j.status==='en-route').length],['In service',jobs.filter(j=>['on-site','in-progress'].includes(j.status)).length]];
   $('#dispatchStats').innerHTML=counts.map(([l,n])=>`<div class="small-stat"><span>${l}</span><strong>${n}</strong></div>`).join('');
   bindAssignButtons();
+  wireDispatchDnD();
   applyJobTableFilter();
 }
-function jobCard(j){return `<article class="job-card"><div class="job-top"><span class="job-id">${j.id}</span>${j.priority!=='Normal'?`<span class="priority">${j.priority}</span>`:''}</div><h3>${j.subscriber}</h3><p>${j.type} · ${j.plan}</p><div class="job-meta"><span>⌖ ${j.area}</span><span>${(j.schedule||'').replace('Today, ','')}</span></div>${j.status==='negative'&&j.negative_remark?`<p style="font-size:8px;color:#c2503a;font-weight:700;margin:6px 0 0">⚠ ${j.negative_remark}</p>`:''}${j.status==='pending'?`<div class="job-actions"><button class="assign-btn" data-assign="${j.id}">Assign team</button></div>`:`<div class="job-actions"><span class="status ${j.status}">${j.team||statusLabel(j.status)}</span></div>`}</article>`}
+function unassignJob(jobId){
+  const j=jobs.find(x=>x.id===jobId); if(!j||j.status!=='assigned')return;
+  j.status='pending'; j.team=null; save(); renderJobs(); showToast(`${jobId} moved back to For Dispatch`);
+  if(window.AHBASync) window.AHBASync(j);
+}
+function wireDispatchDnD(){
+  $$('#dispatchBoard [data-jobid]').forEach(card=>{
+    card.ondragstart=e=>{e.dataTransfer.setData('text/plain',card.dataset.jobid);e.dataTransfer.effectAllowed='move';card.style.opacity='.45'};
+    card.ondragend=()=>{card.style.opacity=''};
+  });
+  $$('#dispatchBoard [data-drop="pending"]').forEach(col=>{
+    col.ondragover=e=>{e.preventDefault();col.classList.add('drop-hover')};
+    col.ondragleave=()=>col.classList.remove('drop-hover');
+    col.ondrop=e=>{e.preventDefault();col.classList.remove('drop-hover');const id=e.dataTransfer.getData('text/plain');if(id)unassignJob(id)};
+  });
+}
+function jobCard(j){const drag=j.status==='assigned'?` draggable="true" data-jobid="${j.id}"`:'';return `<article class="job-card"${drag}><div class="job-top"><span class="job-id">${j.id}</span>${j.priority!=='Normal'?`<span class="priority">${j.priority}</span>`:''}</div><h3>${j.subscriber}</h3><p>${j.type} · ${j.plan}</p><div class="job-meta"><span>⌖ ${j.area}</span><span>${(j.schedule||'').replace('Today, ','')}</span></div>${j.status==='negative'&&j.negative_remark?`<p style="font-size:8px;color:#c2503a;font-weight:700;margin:6px 0 0">⚠ ${j.negative_remark}</p>`:''}${j.status==='pending'?`<div class="job-actions"><button class="assign-btn" data-assign="${j.id}">Assign team</button></div>`:`<div class="job-actions"><span class="status ${j.status}">${j.team||statusLabel(j.status)}</span></div>`}</article>`}
 function renderTeams(filter=''){$('#teamGrid').innerHTML=teams.filter(t=>(t.name+t.area+t.code).toLowerCase().includes(filter.toLowerCase())).map(t=>`<article class="team-card"><div class="team-card-head"><span class="team-avatar" style="background:${t.color}">${t.short}</span><div><h3>${t.name}</h3><p>${t.members} technicians · ${t.area}</p></div></div><span class="status ${t.status}">${statusLabel(t.status)}</span><div class="load-row"><span>Today’s load</span><b>${t.jobs} / 5 jobs</b></div><div class="load-bar"><span style="width:${t.jobs/5*100}%"></span></div><div class="team-info"><span>Current area<strong>${t.area}</strong></span><span>Completed<strong>${t.completed} jobs · ★ ${t.rating}</strong></span></div></article>`).join('')||'<div class="empty-row">No teams match your search.</div>'}
 const DEPLOY_COST=2100;
 async function renderExpenses(){
