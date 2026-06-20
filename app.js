@@ -84,14 +84,37 @@ let shiftByTeam={};   // { AHBA_SLI001: {account,driver,tech1,tech2,online,time_
 async function loadTeamShifts(){
   const date=manilaToday();
   try{
-    const r=await fetch(`${SUPA_URL}/rest/v1/attendance?select=username,time_in,time_out,work_account,crew_driver,crew_tech1,crew_tech2&work_date=eq.${date}&order=time_in.desc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const r=await fetch(`${SUPA_URL}/rest/v1/attendance?select=username,time_in,time_out,work_account,crew_driver,crew_tech1,crew_tech2,deployed_verified&work_date=eq.${date}&order=time_in.desc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
     const rows=r.ok?await r.json():[];
     const m={};
-    rows.forEach(a=>{ if(!m[a.username]) m[a.username]={account:a.work_account||'',driver:a.crew_driver||'',tech1:a.crew_tech1||'',tech2:a.crew_tech2||'',online:!!(a.time_in&&!a.time_out),time_in:a.time_in}; });
+    rows.forEach(a=>{ if(!m[a.username]) m[a.username]={account:a.work_account||'',driver:a.crew_driver||'',tech1:a.crew_tech1||'',tech2:a.crew_tech2||'',online:!!(a.time_in&&!a.time_out),time_in:a.time_in,verified:a.deployed_verified===true}; });
     shiftByTeam=m;
   }catch(e){}
 }
 function teamCrew(code){const s=shiftByTeam[code]||{};return [s.driver,s.tech1,s.tech2].filter(Boolean).join(', ');}
+// A team "moved" a load today → real deployment (not just a login test)
+function teamHasActivity(code){
+  const today=manilaToday();
+  return jobs.some(j=>{
+    if(j.team!==code) return false;
+    if(!['en-route','on-site','in-progress','completed','negative'].includes(j.status)) return false;
+    const d=j.load_date?String(j.load_date).slice(0,10):(j.updatedAt?new Date(j.updatedAt).toLocaleDateString('en-CA',{timeZone:TZ}):'');
+    return !d || d===today;
+  });
+}
+function teamCounted(code){const s=shiftByTeam[code]||{};return s.verified===true||teamHasActivity(code);}
+// Dispatcher confirms (or unconfirms) that a signed-in team is really deployed
+async function verifyTeamDeployed(code,val){
+  const date=manilaToday();
+  try{
+    await fetch(`${SUPA_URL}/rest/v1/attendance?username=eq.${code}&work_date=eq.${date}`,{method:'PATCH',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({deployed_verified:val})});
+    await loadTeamShifts();
+    renderTeams($('#teamSearch')?.value||'');
+    if($('#expensesPage')?.classList.contains('active')) renderExpenses();
+    if($('#teamDetailModal')?.open) openTeamDetail(code);
+    showToast(val?`${code} verified as deployed`:`${code} verification removed`);
+  }catch(e){ showToast('Could not update verification'); }
+}
 
 // ---- Live real-time clock (Manila / Philippine Standard Time) ----
 function updateShiftClock(){
@@ -265,7 +288,8 @@ function renderTeams(filter=''){
     const crew=teamCrew(t.code);
     const todayJobs=jobs.filter(j=>j.team===t.code).length;
     const cardStyle=online?'style="cursor:pointer;background:#e9f9f0;border:1px solid #a8e6c9"':'style="cursor:pointer"';
-    const badge=online?'<span class="status en-route">● Online</span>':'<span class="status offline">Offline</span>';
+    const vchip=teamCounted(t.code)?' <span class="status completed">✓ Deployed</span>':(online?' <span class="status pending">Pending</span>':'');
+    const badge=(online?'<span class="status en-route">● Online</span>':'<span class="status offline">Offline</span>')+vchip;
     const acctLine=online&&s.account?`<div class="team-info"><span>Account<strong>${s.account}</strong></span><span>Crew<strong>${crew||'—'}</strong></span></div>`:'';
     return `<article class="team-card" data-team="${t.code}" ${cardStyle}><div class="team-card-head"><span class="team-avatar" style="background:${online?'#18a57b':t.color}">${t.short}</span><div><h3>${t.name}</h3><p>${online?'On shift':'Not signed in'} · ${t.area}</p></div></div>${badge}<div class="load-row"><span>Today’s load</span><b>${todayJobs} jobs</b></div><div class="load-bar"><span style="width:${Math.min(todayJobs/5*100,100)}%"></span></div>${acctLine}</article>`;
   }).join('')||'<div class="empty-row">No teams match your search.</div>';
@@ -286,8 +310,18 @@ function openTeamDetail(code){
     F('Technician 2',s.tech2),
     F('Jobs today',teamJobs.length+''),
     F('Active now',teamJobs.filter(j=>['assigned','en-route','on-site','in-progress'].includes(j.status)).map(j=>j.id).join(', ')),
-    F('Completed today',teamJobs.filter(j=>j.status==='completed').length+'')
+    F('Completed today',teamJobs.filter(j=>j.status==='completed').length+''),
+    F('Load activity',teamHasActivity(code)?'Has updated a load ✓':'No load update yet'),
+    F('Dispatcher verification',s.verified?'Verified deployed ✓':'Not verified'),
+    F('Counted in expenses',teamCounted(code)?'Yes':'Not yet')
   ].join('');
+  const vb=$('#tdVerify');
+  if(vb){
+    const signedIn=!!shiftByTeam[code];
+    vb.style.display=signedIn?'':'none';
+    vb.textContent=s.verified?'✓ Verified — tap to remove':'Verify as deployed';
+    vb.onclick=()=>verifyTeamDeployed(code,!s.verified);
+  }
   openModal($('#teamDetailModal'));
 }
 const PER_HEAD=955;       // bawat driver / technician na naka-declare sa Start shift
@@ -299,8 +333,13 @@ async function renderExpenses(){
   try{ const r=await fetch(`${SUPA_URL}/rest/v1/attendance?select=username,crew_driver,crew_tech1,crew_tech2,time_in&work_date=eq.${date}&order=time_in.desc`,{headers:H}); att=r.ok?await r.json():[]; }catch(e){}
   // one shift row per team; cost from the crew they declared at Start shift
   const byTeam={}; att.forEach(a=>{ if(/^AHBA_SLI/i.test(a.username)&&!byTeam[a.username]) byTeam[a.username]=a; });
-  let heads=0, deployedTeams=0;
-  Object.values(byTeam).forEach(a=>{ const c=[a.crew_driver,a.crew_tech1,a.crew_tech2].filter(Boolean).length; if(c>0){ heads+=c; deployedTeams++; } });
+  let heads=0, deployedTeams=0, loggedInTeams=0, pendingTeams=0;
+  Object.values(byTeam).forEach(a=>{
+    loggedInTeams++;
+    const c=[a.crew_driver,a.crew_tech1,a.crew_tech2].filter(Boolean).length;
+    const counted = (a.deployed_verified===true) || teamHasActivity(a.username);   // moved a load OR dispatcher-verified
+    if(counted && c>0){ heads+=c; deployedTeams++; } else { pendingTeams++; }
+  });
   const manpowerCost=heads*PER_HEAD;
   const gasCost=deployedTeams*GAS_PER_TEAM;
   const deployCost=manpowerCost+gasCost;
@@ -321,11 +360,12 @@ async function renderExpenses(){
   if($('#expenseBody')){
     const manpowerRow=`<tr><td>—</td><td><strong>${deployedTeams} teams · ${heads} crew</strong></td><td>Deployment</td><td>Manpower — ${heads} declared crew × ₱${PER_HEAD.toLocaleString('en-PH')} (driver/technician)</td><td>—</td><td><strong>${money(manpowerCost)}</strong></td><td><span class="status completed">Auto</span></td></tr>`;
     const gasRow=`<tr><td>—</td><td><strong>${deployedTeams} teams deployed</strong></td><td>Gas</td><td>Gasoline — ${deployedTeams} deployed teams × ₱${GAS_PER_TEAM.toLocaleString('en-PH')}</td><td>—</td><td><strong>${money(gasCost)}</strong></td><td><span class="status completed">Auto</span></td></tr>`;
+    const pendingRow=pendingTeams?`<tr style="opacity:.7"><td>—</td><td><strong>${pendingTeams} team(s)</strong></td><td>Deployment</td><td>Logged in but not yet counted — no load activity / awaiting dispatcher verification</td><td>—</td><td><strong>${money(0)}</strong></td><td><span class="status pending">Pending</span></td></tr>`:'';
     const expRows=cloudExp.map(e=>`<tr><td>${e.created_at?fmtTime(e.created_at):''}</td><td><strong>${e.team||'—'}</strong></td><td>${e.category||''}</td><td>${e.description||''}</td><td>${e.job_id||'—'}</td><td><strong>${money(e.amount)}</strong></td><td><span class="status ${e.status==='Approved'?'completed':'pending'}">${e.status||'Pending'}</span></td></tr>`).join('');
-    $('#expenseBody').innerHTML=manpowerRow+gasRow+expRows;
+    $('#expenseBody').innerHTML=manpowerRow+gasRow+pendingRow+expRows;
   }
   if($('#expenseSummary'))$('#expenseSummary').innerHTML=[
-    ['Today’s total',money(total)],['Manpower (crew × ₱955)',money(manpowerCost)],['Gasoline (teams × ₱400)',money(gasCost)],['Field expenses',money(submitted)]
+    ['Today’s total',money(total)],['Deployed / logged in',`${deployedTeams} / ${loggedInTeams}`],['Manpower (crew × ₱955)',money(manpowerCost)],['Gasoline (teams × ₱400)',money(gasCost)]
   ].map(([l,v])=>`<div class="small-stat"><span>${l}</span><strong>${v}</strong></div>`).join('');
   const week=[14200,19800,17650,22100,15800,20400,total],days=['Thu','Fri','Sat','Sun','Mon','Tue','Today'];
   if($('#weeklyChart'))$('#weeklyChart').innerHTML=week.map((v,i)=>`<div class="bar-col ${i===6?'today':''}"><span style="height:${v/Math.max(...week,1)*100}%" title="${money(v)}"></span><b>${days[i]}</b></div>`).join('');
