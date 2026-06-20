@@ -290,14 +290,20 @@ function openTeamDetail(code){
   ].join('');
   openModal($('#teamDetailModal'));
 }
-const DEPLOY_COST=2100;
+const PER_HEAD=955;       // bawat driver / technician na naka-declare sa Start shift
+const GAS_PER_TEAM=400;   // gasolina kada na-deploy na team
 async function renderExpenses(){
   const date=manilaToday(), H={apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`};
   let cloudExp=[], att=[];
   try{ const r=await fetch(`${SUPA_URL}/rest/v1/expenses?select=*&work_date=eq.${date}&order=created_at.desc`,{headers:H}); cloudExp=r.ok?await r.json():[]; }catch(e){}
-  try{ const r=await fetch(`${SUPA_URL}/rest/v1/attendance?select=username&work_date=eq.${date}`,{headers:H}); att=r.ok?await r.json():[]; }catch(e){}
-  const techsToday=[...new Set(att.map(a=>a.username).filter(u=>/^AHBA_SLI/i.test(u)))];
-  const deployCost=techsToday.length*DEPLOY_COST;
+  try{ const r=await fetch(`${SUPA_URL}/rest/v1/attendance?select=username,crew_driver,crew_tech1,crew_tech2,time_in&work_date=eq.${date}&order=time_in.desc`,{headers:H}); att=r.ok?await r.json():[]; }catch(e){}
+  // one shift row per team; cost from the crew they declared at Start shift
+  const byTeam={}; att.forEach(a=>{ if(/^AHBA_SLI/i.test(a.username)&&!byTeam[a.username]) byTeam[a.username]=a; });
+  let heads=0, deployedTeams=0;
+  Object.values(byTeam).forEach(a=>{ const c=[a.crew_driver,a.crew_tech1,a.crew_tech2].filter(Boolean).length; if(c>0){ heads+=c; deployedTeams++; } });
+  const manpowerCost=heads*PER_HEAD;
+  const gasCost=deployedTeams*GAS_PER_TEAM;
+  const deployCost=manpowerCost+gasCost;
   const submitted=cloudExp.reduce((a,b)=>a+Number(b.amount||0),0);
   const total=deployCost+submitted, BUDGET=50000, pct=Math.round(total/BUDGET*100);
   const set=(id,v)=>{const el=$(id);if(el)el.textContent=v};
@@ -313,13 +319,13 @@ async function renderExpenses(){
   if($('#expenseLegend'))$('#expenseLegend').innerHTML=cats.map((c,i)=>`<div class="legend-row"><i style="background:${cols[i]}"></i><span>${c}</span><b>${money(values[i])}</b></div>`).join('');
   if($('#categoryList'))$('#categoryList').innerHTML=cats.map((c,i)=>`<div class="category-row"><div class="category-top"><span>${c}</span><b>${money(values[i])}</b></div><div class="category-bar"><span style="width:${values[i]/Math.max(...values,1)*100}%;background:${cols[i]}"></span></div></div>`).join('');
   if($('#expenseBody')){
-    const deployRow=`<tr><td>—</td><td><strong>${techsToday.length} tech logins</strong></td><td>Deployment</td><td>Daily deployment cost (₱${DEPLOY_COST.toLocaleString('en-PH')} / technician login)</td><td>—</td><td><strong>${money(deployCost)}</strong></td><td><span class="status completed">Auto</span></td></tr>`;
+    const manpowerRow=`<tr><td>—</td><td><strong>${deployedTeams} teams · ${heads} crew</strong></td><td>Deployment</td><td>Manpower — ${heads} declared crew × ₱${PER_HEAD.toLocaleString('en-PH')} (driver/technician)</td><td>—</td><td><strong>${money(manpowerCost)}</strong></td><td><span class="status completed">Auto</span></td></tr>`;
+    const gasRow=`<tr><td>—</td><td><strong>${deployedTeams} teams deployed</strong></td><td>Gas</td><td>Gasoline — ${deployedTeams} deployed teams × ₱${GAS_PER_TEAM.toLocaleString('en-PH')}</td><td>—</td><td><strong>${money(gasCost)}</strong></td><td><span class="status completed">Auto</span></td></tr>`;
     const expRows=cloudExp.map(e=>`<tr><td>${e.created_at?fmtTime(e.created_at):''}</td><td><strong>${e.team||'—'}</strong></td><td>${e.category||''}</td><td>${e.description||''}</td><td>${e.job_id||'—'}</td><td><strong>${money(e.amount)}</strong></td><td><span class="status ${e.status==='Approved'?'completed':'pending'}">${e.status||'Pending'}</span></td></tr>`).join('');
-    $('#expenseBody').innerHTML=deployRow+expRows;
+    $('#expenseBody').innerHTML=manpowerRow+gasRow+expRows;
   }
   if($('#expenseSummary'))$('#expenseSummary').innerHTML=[
-    ['Today’s total',money(total)],['Deployment cost',money(deployCost)],['Field expenses',money(submitted)],
-    ['Pending approval',money(cloudExp.filter(e=>(e.status||'Pending')==='Pending').reduce((a,b)=>a+Number(b.amount||0),0))]
+    ['Today’s total',money(total)],['Manpower (crew × ₱955)',money(manpowerCost)],['Gasoline (teams × ₱400)',money(gasCost)],['Field expenses',money(submitted)]
   ].map(([l,v])=>`<div class="small-stat"><span>${l}</span><strong>${v}</strong></div>`).join('');
   const week=[14200,19800,17650,22100,15800,20400,total],days=['Thu','Fri','Sat','Sun','Mon','Tue','Today'];
   if($('#weeklyChart'))$('#weeklyChart').innerHTML=week.map((v,i)=>`<div class="bar-col ${i===6?'today':''}"><span style="height:${v/Math.max(...week,1)*100}%" title="${money(v)}"></span><b>${days[i]}</b></div>`).join('');
