@@ -32,7 +32,8 @@
     'dispatched_remarks','ibass_acct_no','job_order_no','vas_no','play_type','special_note',
     'ref_no','new_ref','primary_no','other_contact_no','first_name','middle_name','last_name',
     'house_no','street_name','village','brgy','city','in_charge','source_of_sales','referral_name',
-    'negative_remark','negative_at','dispatch_count','history','created_at'];
+    'negative_remark','negative_at','dispatch_count','history','created_at',
+    'payment_mode','payment_amount','ar_no','work_account','crew_driver','crew_tech1','crew_tech2'];
 
   function normalizeJob(row) {
     var j = {

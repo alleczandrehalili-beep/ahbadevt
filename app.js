@@ -171,6 +171,9 @@ function openJobDetail(jobId){
     F('Address',j.address),F('Barangay',j.brgy),F('City',j.city||j.area),
     F('Team',j.team),F('Status',statusLabel(j.status||'')),F('Priority',j.priority),
     F('Source / Referral',[j.source_of_sales,j.referral_name].filter(Boolean).join(' · ')),
+    F('Account',j.work_account),
+    F('Crew (Driver / T1 / T2)',[j.crew_driver,j.crew_tech1,j.crew_tech2].filter(Boolean).join(' · ')),
+    F('Payment',[j.payment_mode, j.payment_amount!=null?('₱'+j.payment_amount):null, j.ar_no?('AR '+j.ar_no):null].filter(Boolean).join(' · ')),
     F('Schedule',j.schedule),F('Negative remark',j.negative_remark)
   ].join('');
   $('#jdHistory').textContent=j.history||'No history yet.';
@@ -591,6 +594,13 @@ async function exportZip(){
     'REFERRAL NAME': j.referral_name||'',
     'PLAN': j.plan||'',
     'PRIORITY': j.priority||'',
+    'ACCOUNT': j.work_account||'',
+    'DRIVER (CREW)': j.crew_driver||'',
+    'TECH 1 (CREW)': j.crew_tech1||'',
+    'TECH 2 (CREW)': j.crew_tech2||'',
+    'MODE OF PAYMENT': j.payment_mode||'',
+    'AMOUNT': (j.payment_amount!=null?j.payment_amount:''),
+    'AR NO.': j.ar_no||'',
     'COMPLETED AT': j.updated_at?fmtWhen(j.updated_at):'',
     'VALIDATED': j.validated?'YES':'NO',
     'PHOTOS': (compPhotos[j.id]||[]).length,
@@ -652,6 +662,8 @@ function jobToRow(j,nPhotos){
     'BRGY': j.brgy||'', 'CITY': j.city||j.area||'',
     'SALES AGENT': agentLabel(j.created_by), 'IN-CHARGE': j.in_charge||'', 'SOURCE OF SALES': j.source_of_sales||'', 'REFERRAL NAME': j.referral_name||'',
     'PLAN': j.plan||'', 'PRIORITY': j.priority||'', 'DISPATCH COUNT': j.dispatch_count||0,
+    'ACCOUNT': j.work_account||'', 'DRIVER (CREW)': j.crew_driver||'', 'TECH 1 (CREW)': j.crew_tech1||'', 'TECH 2 (CREW)': j.crew_tech2||'',
+    'MODE OF PAYMENT': j.payment_mode||'', 'AMOUNT': (j.payment_amount!=null?j.payment_amount:''), 'AR NO.': j.ar_no||'',
     'NEGATIVE REMARK': j.negative_remark||'', 'LAST UPDATE': j.updated_at?fmtWhen(j.updated_at):'',
     'VALIDATED': j.validated?'YES':'NO', 'WO ID': j.id
   };

@@ -308,7 +308,7 @@
         <label class="field"><span>Mapping team</span><input name="mapping_team" placeholder=""></label>
         <label class="field"><span>Dispatch status</span><input name="dispatch_status" placeholder="DISPATCHED" list="dispatchStatuses"></label>
         <datalist id="dispatchStatuses"><option>DISPATCHED</option><option>FOR MAPPING</option><option>FIBERLAYING</option><option>ACTIVATED - CLOSED</option><option>ACTIVATED - NO BROWSING</option><option>ACTIVATED NOT CLOSED</option><option>RESCHED - SUBS NOT AVAILABLE</option><option>RS BY SUBS</option><option>CANCEL BY CLIENT</option><option>CANCEL BY HOA</option></datalist>
-        <label class="field"><span>Priority</span><select name="priority"><option>Normal</option><option>Urgent</option><option>VIP</option></select></label>
+        <label class="field"><span>Load priority</span><select name="priority"><option>1st Load</option><option>2nd Load</option><option>3rd Load</option><option>4th Load</option><option>5th Load</option></select></label>
         <label class="field"><span>Preferred date</span><input name="date" type="date" required></label>
         <label class="field"><span>In-charge</span><input name="in_charge" placeholder="ABBY SIOCO"></label>
         <label class="field"><span>Source of sales</span><input name="source_of_sales" placeholder="REFERRAL" list="salesSources"></label>
@@ -356,7 +356,7 @@
   <dialog id="jobDetailModal" class="modal">
     <div class="modal-head"><div><span class="eyebrow">JOB ORDER</span><h2 id="jdTitle">Job order</h2><p id="jdSub"></p></div><button type="button" class="icon-btn close-modal"><i data-icon="close"></i></button></div>
     <div style="padding:18px 25px 4px"><div class="info-grid" id="jdInfo"></div></div>
-    <div style="padding:8px 25px 0"><label class="field"><span>Load priority</span><select id="jdPriority"><option>Normal</option><option>Urgent</option><option>VIP</option></select></label></div>
+    <div style="padding:8px 25px 0"><label class="field"><span>Load priority</span><select id="jdPriority"><option>1st Load</option><option>2nd Load</option><option>3rd Load</option><option>4th Load</option><option>5th Load</option></select></label></div>
     <div style="padding:8px 25px 0"><div class="form-sec" style="font:800 10px Manrope;letter-spacing:.08em;text-transform:uppercase;color:#107b5e;margin:8px 0 4px">Status history</div><pre id="jdHistory"></pre></div>
     <div style="padding:4px 25px 0"><label class="field"><span>Dispatcher status update</span><select id="jdStatus"><option value="">— Select status —</option><option value="completed">Completed</option><option value="incomplete">Incomplete → For Dispatch</option><option value="redispatch">Re-dispatch → For Dispatch</option><option value="cancelled">Cancelled</option></select></label></div>
     <div class="modal-actions"><button type="button" class="secondary-btn close-modal">Close</button><button type="button" class="primary-btn" id="jdApply">Apply update</button></div>
