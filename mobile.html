@@ -166,6 +166,22 @@
       </div>
     </div>
 
+    <!-- SHIFT SETUP (account + crew) -->
+    <div class="auth hidden" id="shiftView">
+      <div class="card">
+        <h2>Today's deployment</h2>
+        <p>Select the account to use and enter your crew before you start.</p>
+        <div class="err" id="shiftErr"></div>
+        <form id="shiftForm">
+          <div class="field"><label for="sf_account">Account *</label><select id="sf_account" required><option value="">— Select account —</option></select></div>
+          <div class="field"><label for="sf_driver">Driver *</label><input id="sf_driver" autocapitalize="words" placeholder="Full name" required></div>
+          <div class="field"><label for="sf_tech1">Technician 1 *</label><input id="sf_tech1" autocapitalize="words" placeholder="Full name" required></div>
+          <div class="field"><label for="sf_tech2">Technician 2 (optional)</label><input id="sf_tech2" autocapitalize="words" placeholder="Full name"></div>
+          <button class="btn-primary" id="shiftBtn" type="submit">Start shift</button>
+        </form>
+      </div>
+    </div>
+
     <!-- APP -->
     <div class="hidden" id="appView">
       <div class="syncbar syncing" id="syncbar"><span class="sync-dot"></span><span class="sync-text" id="syncText">Connecting…</span><span class="stamp" id="syncStamp"></span></div>
@@ -238,6 +254,17 @@
 
       <div class="sa-pane hidden" id="saMine"><div id="saMineList"></div></div>
     </div>
+  </div>
+
+  <div class="mexp-back hidden" id="payBack"></div>
+  <div class="mexp hidden" id="payModal">
+    <h3>Complete load — Payment</h3>
+    <p class="mexp-sub" id="payJob"></p>
+    <div class="field"><label>Mode of payment</label><select id="pay_mode"><option>Gcash</option><option>Cash Remittance</option></select></div>
+    <div class="field"><label>Amount (₱)</label><input id="pay_amount" type="number" inputmode="numeric" placeholder="0.00"></div>
+    <div class="field"><label>AR No. (Acknowledgement Receipt)</label><input id="pay_ar" placeholder="AR-XXXXXX"></div>
+    <div class="err" id="payErr"></div>
+    <div style="display:flex;gap:8px;margin-top:6px"><button class="btn-ghost" id="payCancel" style="flex:1">Cancel</button><button class="btn-primary" id="paySave" style="flex:1">Complete job</button></div>
   </div>
 
   <div class="mexp-back hidden" id="negBack"></div>
@@ -366,7 +393,22 @@
     const statusLabel = s => (FLOW[s]?.label)||s;
 
     // ---------- views ----------
-    function show(view){['loginView','pwView','appView','saView'].forEach(v=>$('#'+v).classList.toggle('hidden', v!==view));$('#menuBtn').classList.toggle('hidden', view!=='appView'&&view!=='saView');$('#menuPop').classList.add('hidden')}
+    function show(view){['loginView','pwView','shiftView','appView','saView'].forEach(v=>$('#'+v).classList.toggle('hidden', v!==view));$('#menuBtn').classList.toggle('hidden', view!=='appView'&&view!=='saView');$('#menuPop').classList.add('hidden')}
+
+    // ---------- shift setup (account + crew) ----------
+    // Work accounts (msp- display names). Update by re-uploading mobile.html if the list changes.
+    const ACCOUNTS=["msp-vince.abrasaldo","msp-ronnel.agno","msp-joshua.ampuan","msp-arijim.astarani","msp-dave.bolivar","msp-mark.bulan","msp-leo.caroscos","msp-prince.cas","msp-fidel.casica","msp-alfredo.celoso","msp-dionisio.chua","msp-arvin.copada","msp-marc.david","msp-ronie.delosreyes","msp-daniel.dorado","msp-elijah.emilia","msp-john.feniquito","msp-steven.halim","msp-dannie.igot","msp-isagan.lizarondo","msp-reyna.magallanes","msp-dante.martinez","msp-noel.mendoza","msp-johai.pangonotan","msp-joshua.paraiso","msp-marjun.peralta","msp-joshua.regalario","msp-junrasir.sahir","msp-chrisman.samson","msp-clark.tagalog","msp-edzel.tugonon","msp-markjay.alapan","msp-jayrex.ascano"];
+    let shiftAccount='', shiftDriver='', shiftTech1='', shiftTech2='';
+    function shiftKey(){ return 'ahba_shift_'+myTeam; }
+    function openShift(){
+      const sel=$('#sf_account');
+      if(sel.options.length<=1) ACCOUNTS.forEach(a=>{const o=document.createElement('option');o.value=a;o.textContent=a;sel.appendChild(o);});
+      // prefill from last saved shift for this team (today only)
+      try{ const s=JSON.parse(localStorage.getItem(shiftKey())||'null');
+        if(s && s.date===manilaDate()){ sel.value=s.account||''; $('#sf_driver').value=s.driver||''; $('#sf_tech1').value=s.tech1||''; $('#sf_tech2').value=s.tech2||''; }
+      }catch(e){}
+      clearErr('#shiftErr'); show('shiftView');
+    }
 
     // ---------- sales agent ----------
     function startSA(){ $('#teamName').textContent=headerName(); show('saView'); saSwitch('new'); saRenderDocs(); }
@@ -448,7 +490,10 @@
     }
     async function advance(id,next){
       const job=jobs.find(j=>j.id===id); if(!job) return;
-      if(next==='completed' && photoCount(id)<PHOTOS_REQUIRED){ toast(`Attach ${PHOTOS_REQUIRED} photos first (${photoCount(id)}/${PHOTOS_REQUIRED})`); return; }
+      if(next==='completed'){
+        if(photoCount(id)<PHOTOS_REQUIRED){ toast(`Attach ${PHOTOS_REQUIRED} photos first (${photoCount(id)}/${PHOTOS_REQUIRED})`); return; }
+        openComplete(id); return;   // capture payment before completing
+      }
       const prev=job.status; job.status=next; render(); setSync('syncing','Saving…');
       const hist=appendHist(job.history, `→ ${statusLabel(next)} (by ${myTeam})`);
       const {error}=await sb.from('jobs').update({status:next, history:hist, updated_at:new Date().toISOString()}).eq('id',id);
@@ -527,13 +572,39 @@
       try{
         const now=new Date().toISOString();
         const j=jobs.find(x=>x.id===jobId);
-        const hist=appendHist(j&&j.history,'Negative: '+remark+' (by '+myTeam+')');
-        const {error}=await sb.from('jobs').update({status:'negative', negative_remark:remark, negative_at:now, updated_at:now, history:hist}).eq('id',jobId);
+        const hist=appendHist(j&&j.history,'Negative: '+remark+' (by '+myTeam+' / '+shiftAccount+')');
+        const patch={status:'negative', negative_remark:remark, negative_at:now, updated_at:now, history:hist,
+          work_account:shiftAccount, crew_driver:shiftDriver, crew_tech1:shiftTech1, crew_tech2:shiftTech2};
+        const {error}=await sb.from('jobs').update(patch).eq('id',jobId);
         if(error) throw error;
-        if(j){ j.status='negative'; j.negative_remark=remark; j.negative_at=now; j.history=hist; }
+        if(j){ Object.assign(j, patch); }
         toast('Marked as Negative — auto-returns to dispatch 5AM'); closeNegative(); viewMode='negative'; render();
       }catch(e){ showErr('#negErr','Failed: '+e.message); }
       btn.disabled=false; btn.textContent='Save as Negative';
+    }
+
+    // ---------- complete with payment ----------
+    function openComplete(jobId){
+      $('#payModal').dataset.job=jobId; $('#payJob').textContent='For '+jobId;
+      $('#pay_amount').value=''; $('#pay_ar').value=''; clearErr('#payErr');
+      $('#payBack').classList.remove('hidden'); $('#payModal').classList.remove('hidden');
+    }
+    function closeComplete(){ $('#payBack').classList.add('hidden'); $('#payModal').classList.add('hidden'); }
+    async function confirmComplete(){
+      const id=$('#payModal').dataset.job, mode=$('#pay_mode').value, amt=Number($('#pay_amount').value), ar=$('#pay_ar').value.trim();
+      if(isNaN(amt)||amt<0){ showErr('#payErr','Enter a valid amount.'); return; }
+      if(!ar){ showErr('#payErr','Enter the AR No.'); return; }
+      const job=jobs.find(j=>j.id===id); if(!job)return;
+      const btn=$('#paySave'); btn.disabled=true; btn.textContent='Saving…';
+      const now=new Date().toISOString();
+      const hist=appendHist(job.history, `→ Completed (by ${myTeam} / ${shiftAccount}) · ${mode} ₱${amt} · AR ${ar}`);
+      const patch={status:'completed', payment_mode:mode, payment_amount:amt, ar_no:ar, history:hist, updated_at:now,
+        work_account:shiftAccount, crew_driver:shiftDriver, crew_tech1:shiftTech1, crew_tech2:shiftTech2};
+      const {error}=await sb.from('jobs').update(patch).eq('id',id);
+      btn.disabled=false; btn.textContent='Complete job';
+      if(error){ showErr('#payErr','Failed: '+error.message); return; }
+      Object.assign(job, patch);
+      closeComplete(); toast('Job completed'); setSync('live','Synced'); render();
     }
     const sameManilaDay = ts => ts && new Date(ts).toLocaleDateString('en-CA',{timeZone:TZ})===manilaDate();
     function render(){
@@ -559,7 +630,7 @@
       }
       el.innerHTML=list.map(j=>{
         const f=FLOW[j.status]||{};
-        const prio=j.priority&&j.priority!=='Normal'?`<span class="prio ${j.priority==='VIP'?'vip':''}">${j.priority}</span>`:'';
+        const prio=j.priority?`<span class="prio" style="${j.priority!=='1st Load'?'color:#687974;background:#f1f3f1':''}">${j.priority}</span>`:'';
         const addr=(j.address||j.area||'').replace(/"/g,'');
         const n=photoCount(j.id);
         const thumbsArr=(photoData[j.id]||[]);
@@ -632,8 +703,20 @@
     async function enterFlow(fresh){
       if(fresh){ await clockIn(); } else { await findOpenAttendance(); }
       captureLocation(false);   // grab GPS on entry (prompts for permission first time)
-      if(myRole==='sales_agent') startSA(); else startApp();
+      if(myRole==='sales_agent'){ startSA(); return; }
+      openShift();              // technicians must set account + crew before starting
     }
+
+    $('#shiftForm').addEventListener('submit', e=>{
+      e.preventDefault(); clearErr('#shiftErr');
+      const acc=$('#sf_account').value, drv=$('#sf_driver').value.trim(), t1=$('#sf_tech1').value.trim(), t2=$('#sf_tech2').value.trim();
+      if(!acc){ showErr('#shiftErr','Select an account.'); return; }
+      if(!drv){ showErr('#shiftErr','Driver is required.'); return; }
+      if(!t1){ showErr('#shiftErr','Technician 1 is required.'); return; }
+      shiftAccount=acc; shiftDriver=drv; shiftTech1=t1; shiftTech2=t2;
+      try{ localStorage.setItem(shiftKey(), JSON.stringify({date:manilaDate(),account:acc,driver:drv,tech1:t1,tech2:t2})); }catch(e){}
+      startApp();
+    });
 
     function openPw(forced){
       $('#pwForceHint').classList.toggle('hidden', !forced);
@@ -698,6 +781,9 @@
     $('#mexpCancel')?.addEventListener('click',closeMobileExpense);
     $('#mexpSave')?.addEventListener('click',saveMobileExpense);
     $('#mexpBack')?.addEventListener('click',closeMobileExpense);
+    $('#payCancel')?.addEventListener('click',closeComplete);
+    $('#paySave')?.addEventListener('click',confirmComplete);
+    $('#payBack')?.addEventListener('click',closeComplete);
     $('#mLogout').onclick=async()=>{
       $('#menuPop').classList.add('hidden');
       await clockOut();                       // record time-out
