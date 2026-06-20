@@ -299,6 +299,7 @@
     const TZ = 'Asia/Manila';
     const manilaDate = () => new Date().toLocaleDateString('en-CA', {timeZone: TZ}); // YYYY-MM-DD
     const manilaTime = d => new Date(d).toLocaleTimeString('en-PH', {timeZone: TZ, hour:'numeric', minute:'2-digit'});
+    const appendHist = (h,line) => {const t=new Date().toLocaleString('en-PH',{timeZone:TZ,month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); return ((h||'')+`\n[${t}] ${line}`).trim();};
 
     const ic = {
       pin:'<path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2"/>',
@@ -523,10 +524,13 @@
       const remark=sel==='OTHERS'?('OTHERS: '+other):sel;
       const btn=$('#negSave'); btn.disabled=true; btn.textContent='Saving…';
       try{
-        const {error}=await sb.from('jobs').update({status:'negative', negative_remark:remark, negative_at:new Date().toISOString(), updated_at:new Date().toISOString()}).eq('id',jobId);
+        const now=new Date().toISOString();
+        const j=jobs.find(x=>x.id===jobId);
+        const hist=appendHist(j&&j.history,'Negative: '+remark+' (by '+myTeam+')');
+        const {error}=await sb.from('jobs').update({status:'negative', negative_remark:remark, negative_at:now, updated_at:now, history:hist}).eq('id',jobId);
         if(error) throw error;
-        const j=jobs.find(x=>x.id===jobId); if(j){ j.status='negative'; j.negative_remark=remark; j.negative_at=new Date().toISOString(); }
-        toast('Marked as Negative'); closeNegative(); viewMode='negative'; render();
+        if(j){ j.status='negative'; j.negative_remark=remark; j.negative_at=now; j.history=hist; }
+        toast('Marked as Negative — auto-returns to dispatch 5AM'); closeNegative(); viewMode='negative'; render();
       }catch(e){ showErr('#negErr','Failed: '+e.message); }
       btn.disabled=false; btn.textContent='Save as Negative';
     }
