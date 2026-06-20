@@ -160,25 +160,25 @@
 
       <section id="overviewPage" class="page active">
         <div class="summary-grid">
-          <article class="metric-card accent-green">
-            <div class="metric-top"><span>Jobs completed</span><i data-icon="check"></i></div>
-            <div class="metric-value"><strong id="completedCount">24</strong><span>/ <span id="completedTarget">38</span></span></div>
-            <div class="metric-foot positive"><b>↑ 12%</b><span>vs. yesterday</span></div>
+          <article class="metric-card accent-green" data-go="completed" style="cursor:pointer">
+            <div class="metric-top"><span>Jobs completed today</span><i data-icon="check"></i></div>
+            <div class="metric-value"><strong id="completedCount">0</strong><span>/ <span id="completedTarget">0</span> today</span></div>
+            <div class="metric-foot positive"><b id="completedFoot">—</b><span>tap to view completed</span></div>
             <div class="mini-bars" id="completionBars"></div>
           </article>
-          <article class="metric-card">
+          <article class="metric-card" data-go="teams" style="cursor:pointer">
             <div class="metric-top"><span>Teams on the road</span><i data-icon="truck"></i></div>
-            <div class="metric-value"><strong id="activeTeamCount">14</strong><span>/ 20 teams</span></div>
-            <div class="metric-foot"><b class="amber-dot"></b><span id="availableTeamText">4 available · 2 offline</span></div>
+            <div class="metric-value"><strong id="activeTeamCount">0</strong><span>online now</span></div>
+            <div class="metric-foot"><b class="amber-dot"></b><span id="availableTeamText">0 online</span></div>
             <div class="avatar-stack" id="teamAvatars"></div>
           </article>
-          <article class="metric-card">
+          <article class="metric-card" data-go="completed" style="cursor:pointer">
             <div class="metric-top"><span>Avg. completion time</span><i data-icon="clock"></i></div>
-            <div class="metric-value"><strong>2h 18m</strong></div>
-            <div class="metric-foot positive"><b>↓ 8 min</b><span>faster today</span></div>
+            <div class="metric-value"><strong id="avgTime">—</strong></div>
+            <div class="metric-foot positive"><b class="amber-dot"></b><span id="avgSub">no completed jobs yet today</span></div>
             <div class="sparkline"><svg viewBox="0 0 220 44" preserveAspectRatio="none"><path class="spark-fill" d="M0,33 C24,33 28,14 52,22 S82,37 104,23 S140,8 158,18 S194,35 220,10 L220,44 L0,44Z"/><path d="M0,33 C24,33 28,14 52,22 S82,37 104,23 S140,8 158,18 S194,35 220,10"/></svg></div>
           </article>
-          <article class="metric-card accent-coral">
+          <article class="metric-card accent-coral" data-go="expenses" style="cursor:pointer">
             <div class="metric-top"><span>Today’s expenses</span><i data-icon="wallet"></i></div>
             <div class="metric-value"><strong id="todayExpense">₱18,450</strong></div>
             <div class="metric-foot warning"><b id="budgetPercent">73% of ₱25,000</b><span>daily budget</span></div>

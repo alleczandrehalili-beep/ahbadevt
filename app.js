@@ -57,16 +57,41 @@ function statusLabel(s){return s.split('-').map(x=>x[0].toUpperCase()+x.slice(1)
 function todayTotal(){return expenses.reduce((a,b)=>a+Number(b.amount),0)}
 function showToast(msg){$('#toast span').textContent=msg;$('#toast').classList.add('show');clearTimeout(showToast._t);showToast._t=setTimeout(()=>$('#toast').classList.remove('show'),2600)}
 
+function dayStr(d){return new Date(d).toLocaleDateString('en-CA',{timeZone:TZ});}
+function timeAgo(ts){ if(!ts)return''; const s=(Date.now()-new Date(ts))/1000; if(s<60)return Math.max(1,Math.round(s))+'s'; if(s<3600)return Math.round(s/60)+'m'; if(s<86400)return Math.round(s/3600)+'h'; return Math.round(s/86400)+'d'; }
+function renderLiveActivity(){
+  const el=$('#activityList'); if(!el)return;
+  const map={completed:['check','','Job completed'],'en-route':['truck','blue','Team en route'],'on-site':['pin','','Arrived on site'],'in-progress':['wrench','blue','Work in progress'],negative:['info','coral','Marked negative'],assigned:['truck','blue','Dispatched'],cancelled:['info','coral','Cancelled'],for_validation:['clipboard','','For validation'],pending:['info','','For dispatch'],rejected:['info','coral','Rejected']};
+  const items=jobs.filter(j=>j.updatedAt).slice().sort((a,b)=>new Date(b.updatedAt)-new Date(a.updatedAt)).slice(0,8);
+  if(!items.length){ el.innerHTML='<div style="padding:24px;text-align:center;color:#9aa6a2;font-size:11px">No field activity yet.</div>'; return; }
+  el.innerHTML=items.map(j=>{ const m=map[j.status]||['info','','Updated']; const who=j.team?`<b>${j.team}</b> · `:''; return `<div class="activity-item" data-detail="${j.id}" style="cursor:pointer"><span class="activity-icon ${m[1]}" data-icon="${m[0]}"></span><div class="activity-copy"><strong>${m[2]}</strong><p>${who}${j.subscriber||j.id}</p></div><time>${timeAgo(j.updatedAt)}</time></div>`; }).join('');
+  injectIcons();
+  $$('#activityList [data-detail]').forEach(r=>r.onclick=()=>openJobDetail(r.dataset.detail));
+}
 function renderOverview(){
-  $('#activeTeamCount').textContent=teams.filter(t=>!['available','offline'].includes(t.status)).length;
-  $('#availableTeamText').textContent=`${teams.filter(t=>t.status==='available').length} available · ${teams.filter(t=>t.status==='offline').length} offline`;
-  const done=jobs.filter(j=>j.status==='completed').length;
-  if($('#completedCount')) $('#completedCount').textContent=done;
-  if($('#completedTarget')) $('#completedTarget').textContent=jobs.length;
-  $('#teamAvatars').innerHTML=teams.slice(0,6).map((t,i)=>`<span style="background:${t.color}">${t.short}</span>`).join('');
-  $('#completionBars').innerHTML=[16,24,20,31,26,36,29].map(h=>`<span style="height:${h}px"></span>`).join('');
+  const today=manilaToday();
+  const isToday=d=>d && dayStr(d)===today;
+  const loadToday=d=>!d||String(d).slice(0,10)===today;
+  // Jobs completed today (resets to 0 each new day)
+  const doneJobs=jobs.filter(j=>j.status==='completed' && isToday(j.updatedAt));
+  const todaySet=jobs.filter(j=> (['completed','cancelled'].includes(j.status)? isToday(j.updatedAt) : loadToday(j.load_date)) );
+  if($('#completedCount')) $('#completedCount').textContent=doneJobs.length;
+  if($('#completedTarget')) $('#completedTarget').textContent=Math.max(todaySet.length,doneJobs.length);
+  if($('#completedFoot')) $('#completedFoot').textContent=`${doneJobs.length} done`;
+  // Teams on the road = online (timed-in) teams only
+  const online=Object.entries(shiftByTeam).filter(([k,s])=>s.online);
+  if($('#activeTeamCount')) $('#activeTeamCount').textContent=online.length;
+  if($('#availableTeamText')) $('#availableTeamText').textContent=`${online.length} online now`;
+  if($('#teamAvatars')) $('#teamAvatars').innerHTML=online.slice(0,6).map(([k])=>{const t=teams.find(x=>x.code===k);return `<span style="background:#18a57b">${t?t.short:k.slice(-3)}</span>`}).join('');
+  // Avg completion time today (encode → completion, same-day)
+  const mins=[]; doneJobs.forEach(j=>{ if(j.created_at&&j.updatedAt){const d=(new Date(j.updatedAt)-new Date(j.created_at))/60000; if(d>0&&d<24*60) mins.push(d);} });
+  if(mins.length){ const avg=Math.round(mins.reduce((a,b)=>a+b,0)/mins.length); if($('#avgTime'))$('#avgTime').textContent=`${Math.floor(avg/60)}h ${String(avg%60).padStart(2,'0')}m`; if($('#avgSub'))$('#avgSub').textContent=`avg of ${mins.length} completed today`; }
+  else { if($('#avgTime'))$('#avgTime').textContent='—'; if($('#avgSub'))$('#avgSub').textContent='no completed jobs yet today'; }
+  // 7-day completed mini-bars (real)
+  const bars=[]; for(let i=6;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i); const ds=dayStr(d); bars.push(jobs.filter(j=>j.status==='completed'&&j.updatedAt&&dayStr(j.updatedAt)===ds).length); }
+  const mx=Math.max(...bars,1); if($('#completionBars')) $('#completionBars').innerHTML=bars.map(n=>`<span style="height:${6+Math.round(n/mx*34)}px"></span>`).join('');
   renderTeamLocations();
-  $('#activityList').innerHTML=activity.map(a=>`<div class="activity-item"><span class="activity-icon ${a.tone}" data-icon="${a.icon}"></span><div class="activity-copy"><strong>${a.title}</strong><p>${a.text}</p></div><time>${a.time}</time></div>`).join('');
+  renderLiveActivity();
   injectIcons();
   renderExpenses();renderJobs();
 }
@@ -443,7 +468,7 @@ function renderNotifPop(){
   injectIcons();
 }
 
-function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>{const on=n.dataset.page===page;n.classList.toggle('active',on);on?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current')});const labels={overview:'Good morning, Allec',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring',accounts:'Technician accounts',attendance:'Attendance · Time records',completed:'Completed jobs',validation:'Validator · New job orders',history:'Load history',remittance:'Remittance · Daily collection',access:'Access control'};$('#pageTitle').textContent=labels[page]||'';if(page==='accounts')renderAccounts();if(page==='attendance')renderAttendance();if(page==='completed')renderCompleted();if(page==='validation')renderValidation();if(page==='history')renderHistory();if(page==='remittance')renderRemittance();if(page==='access')renderAccess();closeSidebar();scrollTo(0,0)}
+function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>{const on=n.dataset.page===page;n.classList.toggle('active',on);on?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current')});const labels={overview:'Good morning, Allec',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring',accounts:'Technician accounts',attendance:'Attendance · Time records',completed:'Completed jobs',validation:'Validator · New job orders',history:'Load history',remittance:'Remittance · Daily collection',access:'Access control'};$('#pageTitle').textContent=labels[page]||'';if(page==='overview'){const u=window.dashUser;const nm=u?String(u.display_name||u.username).split(/\s+/)[0]:'there';$('#pageTitle').textContent='Good Day, '+nm;}if(page==='accounts')renderAccounts();if(page==='attendance')renderAttendance();if(page==='completed')renderCompleted();if(page==='validation')renderValidation();if(page==='history')renderHistory();if(page==='remittance')renderRemittance();if(page==='access')renderAccess();closeSidebar();scrollTo(0,0)}
 
 // ---------- Validator (sales-agent job orders awaiting approval) ----------
 let valJobs=[], valDocs={};
@@ -1067,8 +1092,11 @@ function init(){
   renderOverview();renderTeams();renderNotifPop();
 
   // Live team shifts (account + crew, online status) — load now, then refresh every 20s
-  const refreshShifts=()=>loadTeamShifts().then(()=>{ renderTeams($('#teamSearch')?.value||''); if($('#dispatchPage')?.classList.contains('active')||$('#dispatch')?.classList.contains('active')) renderJobs(); });
+  const refreshShifts=()=>loadTeamShifts().then(()=>{ renderTeams($('#teamSearch')?.value||''); if($('#dispatchPage')?.classList.contains('active')) renderJobs(); if($('#overviewPage')?.classList.contains('active')) renderOverview(); });
   refreshShifts(); setInterval(refreshShifts, 20000);
+
+  // Metric cards → clickable shortcuts
+  $$('[data-go]').forEach(b=>b.onclick=()=>switchPage(b.dataset.go));
 
   // Live shift clock (updates every second)
   updateShiftClock(); setInterval(updateShiftClock, 1000);
