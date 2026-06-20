@@ -92,6 +92,20 @@ async function loadTeamShifts(){
   }catch(e){}
 }
 function teamCrew(code){const s=shiftByTeam[code]||{};return [s.driver,s.tech1,s.tech2].filter(Boolean).join(', ');}
+
+// ---- Live "Today's shift" clock (Manila, 7:00 AM – 7:00 PM) ----
+function updateShiftClock(){
+  const p=new Intl.DateTimeFormat('en-US',{timeZone:TZ,hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'}).formatToParts(new Date());
+  const g=t=>+(p.find(x=>x.type===t)||{value:0}).value;
+  const mins=g('hour')*60+g('minute'), start=7*60, end=19*60;
+  const nowStr=new Date().toLocaleTimeString('en-PH',{timeZone:TZ,hour:'numeric',minute:'2-digit',second:'2-digit'});
+  let pct=0, txt='';
+  if(mins<start){ const d=start-mins; pct=0; txt=`Starts in ${Math.floor(d/60)}h ${d%60}m · now ${nowStr}`; }
+  else if(mins>=end){ pct=100; txt=`Shift ended · now ${nowStr}`; }
+  else { const rem=end-mins; pct=Math.round((mins-start)/(end-start)*100); txt=`${Math.floor(rem/60)}h ${rem%60}m remaining · now ${nowStr}`; }
+  const t=$('#shiftTime'); if(t)t.textContent=txt;
+  const b=$('#shiftBar'); if(b)b.style.width=pct+'%';
+}
 function initMap(){
   if(leafMap||typeof L==='undefined'||!document.getElementById('leafletMap'))return;
   leafMap=L.map('leafletMap',{zoomControl:true,attributionControl:false}).setView([14.5995,120.9842],11);
@@ -761,6 +775,9 @@ function init(){
   // Live team shifts (account + crew, online status) — load now, then refresh every 20s
   const refreshShifts=()=>loadTeamShifts().then(()=>{ renderTeams($('#teamSearch')?.value||''); if($('#dispatchPage')?.classList.contains('active')||$('#dispatch')?.classList.contains('active')) renderJobs(); });
   refreshShifts(); setInterval(refreshShifts, 20000);
+
+  // Live shift clock (updates every second)
+  updateShiftClock(); setInterval(updateShiftClock, 1000);
 
   $$('.nav-item').forEach(b=>b.onclick=()=>switchPage(b.dataset.page));
   $$('[data-page-link]').forEach(b=>b.onclick=()=>switchPage(b.dataset.pageLink));
