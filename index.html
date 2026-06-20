@@ -32,9 +32,10 @@
     .doc-sec h4{font:800 10px Manrope;letter-spacing:.08em;text-transform:uppercase;color:#107b5e;margin:10px 0 8px}
     #valModal.modal{width:min(820px,calc(100% - 30px))}
     #valModal{max-height:92vh;overflow:auto}
-    .dispatch-board{grid-template-columns:repeat(5,1fr)}
+    .dispatch-board{grid-template-columns:repeat(6,1fr)}
     @media(max-width:1200px){.dispatch-board{grid-template-columns:repeat(3,1fr)}}
     @media(max-width:760px){.dispatch-board{grid-template-columns:1fr}}
+    .status.negative{background:#fdecea;color:#c2503a}
   </style>
 </head>
 <body>
@@ -295,7 +296,7 @@
       <div class="modal-head"><div><span class="eyebrow">COST CONTROL</span><h2>Record expense</h2><p>Log a field expense for approval.</p></div><button type="button" class="icon-btn close-modal"><i data-icon="close"></i></button></div>
       <div class="form-grid">
         <label class="field"><span>Team</span><select name="team" id="expenseTeam"></select></label>
-        <label class="field"><span>Category</span><select name="category"><option>Fuel</option><option>Materials</option><option>Meals</option><option>Toll & Parking</option><option>Other</option></select></label>
+        <label class="field"><span>Category</span><select name="category"><option>Permit</option><option>Gas</option><option>Parking</option><option>Violation</option><option>Other</option></select></label>
         <label class="field full"><span>Description</span><input name="description" required placeholder="What was the expense for?"></label>
         <label class="field"><span>Amount (₱)</span><input name="amount" type="number" min="1" required placeholder="0.00"></label>
         <label class="field"><span>Work order (optional)</span><input name="workOrder" placeholder="WO-2026-XXXX"></label>

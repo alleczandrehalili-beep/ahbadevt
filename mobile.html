@@ -70,7 +70,7 @@
     .job .plan{font-size:12px;color:var(--muted);margin:0}
     .badge{display:inline-flex;align-items:center;gap:5px;border-radius:20px;padding:5px 9px;font-size:9px;font-weight:800;white-space:nowrap}
     .badge:before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor}
-    .b-assigned{background:#f0ebff;color:#7959c7}.b-en-route{background:#eaf1ff;color:#3473d8}.b-on-site{background:#e7f7ef;color:#11825f}.b-in-progress{background:#e8f7f5;color:#168b81}.b-completed{background:#e7f7ef;color:#11825f}.b-pending{background:#fff4e1;color:#b97a16}
+    .b-assigned{background:#f0ebff;color:#7959c7}.b-en-route{background:#eaf1ff;color:#3473d8}.b-on-site{background:#e7f7ef;color:#11825f}.b-in-progress{background:#e8f7f5;color:#168b81}.b-completed{background:#e7f7ef;color:#11825f}.b-pending{background:#fff4e1;color:#b97a16}.b-negative{background:#fdecea;color:#c2503a}
     .prio{font-size:9px;font-weight:800;text-transform:uppercase;color:#d6614e;background:#fff0ed;border-radius:9px;padding:3px 7px;margin-left:6px}
     .prio.vip{color:#7959c7;background:#f0ebff}
     .job-meta{margin:12px 0;display:flex;flex-direction:column;gap:6px;font-size:12px;color:#566b66}
@@ -174,9 +174,11 @@
         <div class="stat blue"><b id="cActive">0</b><span>In progress</span></div>
         <div class="stat green"><b id="cDone">0</b><span>Completed</span></div>
       </div>
-      <div class="jobtabs">
-        <button class="jt active" id="tabActive" data-view="active">Active</button>
-        <button class="jt" id="tabDone" data-view="done">Completed today</button>
+      <div class="jobtabs" style="overflow-x:auto">
+        <button class="jt active" data-view="todo">To do</button>
+        <button class="jt" data-view="inprogress">In progress</button>
+        <button class="jt" data-view="negative">Negative</button>
+        <button class="jt" data-view="done">Completed</button>
       </div>
       <div class="jobs" id="jobsList"></div>
     </div>
@@ -238,11 +240,28 @@
     </div>
   </div>
 
+  <div class="mexp-back hidden" id="negBack"></div>
+  <div class="mexp hidden" id="negModal">
+    <h3>Mark as Negative</h3>
+    <p class="mexp-sub" id="negJob"></p>
+    <div class="field"><label>Remark</label><select id="neg_remark">
+      <option>RS BY SUBS</option>
+      <option>UNCONTACTED/UNLOCATED</option>
+      <option>BARANGAY/ADMIN/PERMIT ISSUE</option>
+      <option>SUBS FACILITY CONCERN</option>
+      <option>FULL NAP</option>
+      <option>OTHERS</option>
+    </select></div>
+    <div class="field hidden" id="negOtherWrap"><label>Specify (Others)</label><input id="neg_other" placeholder="Type the reason"></div>
+    <div class="err" id="negErr"></div>
+    <div style="display:flex;gap:8px;margin-top:6px"><button class="btn-ghost" id="negCancel" style="flex:1">Cancel</button><button class="btn-primary" id="negSave" style="flex:1;background:var(--coral)">Save as Negative</button></div>
+  </div>
+
   <div class="mexp-back hidden" id="mexpBack"></div>
   <div class="mexp hidden" id="mexpModal">
     <h3>Add expense</h3>
     <p class="mexp-sub" id="mexpJob"></p>
-    <div class="field"><label>Category</label><select id="mexp_cat"><option>Fuel</option><option>Materials</option><option>Meals</option><option>Toll &amp; Parking</option><option>Other</option></select></div>
+    <div class="field"><label>Category</label><select id="mexp_cat"><option>Permit</option><option>Gas</option><option>Parking</option><option>Violation</option></select></div>
     <div class="field"><label>Amount (₱)</label><input id="mexp_amount" type="number" inputmode="numeric" placeholder="0.00"></div>
     <div class="field"><label>Description</label><input id="mexp_desc" placeholder="What is the expense for?"></div>
     <div class="err" id="mexpErr"></div>
@@ -266,7 +285,7 @@
     let realtimeChan = null;
     let attendanceId = null;   // current open time-in record
     let pwForced = false;      // was the password screen a forced first-login?
-    let viewMode = 'active';   // 'active' | 'done'
+    let viewMode = 'todo';   // 'todo' | 'inprogress' | 'negative' | 'done'
     let photoData = {};        // jobId -> [paths]
     let myRole = 'technician'; // 'technician' | 'sales_agent'
     let myName = '';           // display name
@@ -490,24 +509,48 @@
       }catch(e){ showErr('#mexpErr','Failed: '+e.message); }
       btn.disabled=false; btn.textContent='Save expense';
     }
+
+    // ---------- negative job order ----------
+    function openNegative(jobId){
+      $('#negModal').dataset.job=jobId; $('#negJob').textContent='For '+jobId;
+      $('#neg_remark').value='RS BY SUBS'; $('#neg_other').value=''; $('#negOtherWrap').classList.add('hidden'); clearErr('#negErr');
+      $('#negBack').classList.remove('hidden'); $('#negModal').classList.remove('hidden');
+    }
+    function closeNegative(){ $('#negBack').classList.add('hidden'); $('#negModal').classList.add('hidden'); }
+    async function saveNegative(){
+      const jobId=$('#negModal').dataset.job, sel=$('#neg_remark').value, other=$('#neg_other').value.trim();
+      if(sel==='OTHERS'&&!other){ showErr('#negErr','Please specify the reason.'); return; }
+      const remark=sel==='OTHERS'?('OTHERS: '+other):sel;
+      const btn=$('#negSave'); btn.disabled=true; btn.textContent='Saving…';
+      try{
+        const {error}=await sb.from('jobs').update({status:'negative', negative_remark:remark, negative_at:new Date().toISOString(), updated_at:new Date().toISOString()}).eq('id',jobId);
+        if(error) throw error;
+        const j=jobs.find(x=>x.id===jobId); if(j){ j.status='negative'; j.negative_remark=remark; j.negative_at=new Date().toISOString(); }
+        toast('Marked as Negative'); closeNegative(); viewMode='negative'; render();
+      }catch(e){ showErr('#negErr','Failed: '+e.message); }
+      btn.disabled=false; btn.textContent='Save as Negative';
+    }
     const sameManilaDay = ts => ts && new Date(ts).toLocaleDateString('en-CA',{timeZone:TZ})===manilaDate();
     function render(){
-      const order={assigned:0,'en-route':1,'on-site':2,'in-progress':3,pending:4};
-      $('#cToDo').textContent=jobs.filter(j=>['assigned','pending'].includes(j.status)).length;
-      $('#cActive').textContent=jobs.filter(j=>['en-route','on-site','in-progress'].includes(j.status)).length;
+      const order={'en-route':0,'on-site':1,'in-progress':2,assigned:0,pending:1};
+      const todo=jobs.filter(j=>['assigned','pending'].includes(j.status));
+      const inprog=jobs.filter(j=>['en-route','on-site','in-progress'].includes(j.status));
+      const negs=jobs.filter(j=>j.status==='negative'&&sameManilaDay(j.negative_at||j.updated_at));
       const doneToday=jobs.filter(j=>j.status==='completed'&&sameManilaDay(j.updated_at));
+      $('#cToDo').textContent=todo.length;
+      $('#cActive').textContent=inprog.length;
       $('#cDone').textContent=doneToday.length;
-      $('#tabActive').classList.toggle('active',viewMode==='active');
-      $('#tabDone').classList.toggle('active',viewMode==='done');
+      document.querySelectorAll('.jobtabs .jt').forEach(b=>b.classList.toggle('active',b.dataset.view===viewMode));
 
-      let list;
-      if(viewMode==='done'){ list=doneToday.slice().sort((a,b)=>new Date(b.updated_at)-new Date(a.updated_at)); }
-      else { list=jobs.filter(j=>j.status!=='completed').sort((a,b)=>(order[a.status]??9)-(order[b.status]??9)); }
+      let list = viewMode==='todo'?todo : viewMode==='inprogress'?inprog : viewMode==='negative'?negs : doneToday;
+      list=list.slice();
+      if(viewMode==='todo'||viewMode==='inprogress') list.sort((a,b)=>(order[a.status]??9)-(order[b.status]??9));
+      else list.sort((a,b)=>new Date(b.updated_at)-new Date(a.updated_at));
 
       const el=$('#jobsList');
       if(!list.length){
-        const msg=viewMode==='done'?'No completed jobs yet today.':`No active jobs for ${myTeam}.<br>New assignments appear here automatically.`;
-        el.innerHTML=`<div class="empty">${svg('inbox')}${msg}</div>`;return;
+        const msg={todo:'No jobs to do right now.',inprogress:'No jobs in progress.',negative:'No negative job orders today.',done:'No completed jobs yet today.'}[viewMode];
+        el.innerHTML=`<div class="empty">${svg('inbox')}${msg}<br>New assignments appear here automatically.</div>`;return;
       }
       el.innerHTML=list.map(j=>{
         const f=FLOW[j.status]||{};
@@ -527,6 +570,8 @@
         } else if(j.status==='completed'){
           extra=n?`<div class="photos"><div class="photos-head"><span>Proof photos</span><span class="count ok">${n}</span></div><div class="thumbs">${thumbs}</div></div>`:'';
           actions=`<div class="job-actions">${mapLink}<span class="act ghost" style="flex:1;justify-content:center">Completed ${j.updated_at?manilaTime(j.updated_at):''}</span></div>`;
+        } else if(j.status==='negative'){
+          actions=`<div class="job-actions">${mapLink}<span class="act ghost" style="flex:1;justify-content:center;color:#c2503a">Negative</span></div>`;
         } else {
           const act=f.next?`<button class="act ${f.cls}" data-next="${f.next}" data-id="${j.id}">${svg(f.icon)}${f.action}</button>`:'<button class="act ghost" disabled style="flex:1;opacity:.5">No action</button>';
           actions=`<div class="job-actions">${mapLink}${act}</div>`;
@@ -536,14 +581,18 @@
         const svc=(j.plan||j.play_type)?`<div class="row">${svg('note')}<span>${[j.plan,j.play_type].filter(Boolean).join(' · ')}</span></div>`:'';
         const src=(j.source_of_sales||j.referral_name)?`<div class="row">${svg('note')}<span>${[j.source_of_sales,j.referral_name&&('Ref: '+j.referral_name)].filter(Boolean).join(' · ')}</span></div>`:'';
         const note=j.special_note?`<div class="row" style="color:#c2503a">${svg('note')}<span>${j.special_note}</span></div>`:'';
-        const expBtn=(j.status!=='completed')?`<button class="addphoto" style="margin-top:10px;color:#a4690f;border-color:#f0d9a8;background:#fff8eb" data-exp="${j.id}">+ Add expense for this job</button>`:'';
+        const negRemark=(j.status==='negative'&&j.negative_remark)?`<div class="row" style="color:#c2503a;font-weight:700">${svg('note')}<span>${j.negative_remark}</span></div>`:'';
+        const activeJob=!['completed','negative'].includes(j.status);
+        const expBtn=activeJob?`<button class="addphoto" style="margin-top:10px;color:#a4690f;border-color:#f0d9a8;background:#fff8eb" data-exp="${j.id}">+ Add expense for this job</button>`:'';
+        const negBtn=activeJob?`<button class="addphoto" style="margin-top:8px;color:#c2503a;border-color:#f0c4b9;background:#fff3f0" data-neg="${j.id}">⚠ Mark as Negative</button>`:'';
         return `<div class="job"><div class="job-head"><div><span class="job-id">${j.id}</span><h3>${j.subscriber||'—'}${prio}</h3><p class="plan">${j.service_type||''} · ${j.plan||''}</p></div><span class="badge b-${j.status}">${statusLabel(j.status)}</span></div>
-        <div class="job-meta"><div class="row">${svg('pin')}<span>${addr||'—'}</span></div><div class="row">${svg('clock')}<span>${(j.schedule||'Today').replace('Today, ','Today · ')}</span></div>${contact}${acct}${svc}${src}${note}</div>
-        ${extra}${actions}${expBtn}</div>`;
+        <div class="job-meta"><div class="row">${svg('pin')}<span>${addr||'—'}</span></div><div class="row">${svg('clock')}<span>${(j.schedule||'Today').replace('Today, ','Today · ')}</span></div>${contact}${acct}${svc}${src}${note}${negRemark}</div>
+        ${extra}${actions}${expBtn}${negBtn}</div>`;
       }).join('');
       el.querySelectorAll('[data-next]').forEach(b=>b.onclick=()=>advance(b.dataset.id,b.dataset.next));
       el.querySelectorAll('[data-up]').forEach(inp=>inp.onchange=()=>{const id=inp.dataset.up,files=inp.files;uploadPhotos(id,files);inp.value='';});
       el.querySelectorAll('[data-exp]').forEach(b=>b.onclick=()=>openMobileExpense(b.dataset.exp));
+      el.querySelectorAll('[data-neg]').forEach(b=>b.onclick=()=>openNegative(b.dataset.neg));
     }
 
     function startApp(){
@@ -629,8 +678,11 @@
       $('#teamName').textContent=headerName();
     };
     $('#mLocate').onclick=()=>{$('#menuPop').classList.add('hidden');captureLocation(true)};
-    $('#tabActive').onclick=()=>{viewMode='active';render()};
-    $('#tabDone').onclick=()=>{viewMode='done';render()};
+    document.querySelectorAll('.jobtabs .jt').forEach(b=>b.onclick=()=>{viewMode=b.dataset.view;render()});
+    $('#neg_remark')?.addEventListener('change',()=>$('#negOtherWrap').classList.toggle('hidden',$('#neg_remark').value!=='OTHERS'));
+    $('#negCancel')?.addEventListener('click',closeNegative);
+    $('#negSave')?.addEventListener('click',saveNegative);
+    $('#negBack')?.addEventListener('click',closeNegative);
     // sales agent bindings
     document.querySelectorAll('[data-doc]').forEach(inp=>inp.onchange=()=>{const cat=inp.dataset.doc;[...inp.files].forEach(f=>saDocs[cat].push(f));inp.value='';saRenderDocs();});
     $('#saTabNew')?.addEventListener('click',()=>saSwitch('new'));
