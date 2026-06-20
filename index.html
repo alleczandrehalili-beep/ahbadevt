@@ -64,6 +64,7 @@
         <button class="nav-item" data-page="accounts"><i data-icon="users"></i><span>Accounts</span></button>
         <button class="nav-item" data-page="attendance"><i data-icon="clock"></i><span>Attendance</span></button>
         <button class="nav-item" data-page="completed"><i data-icon="check"></i><span>Completed</span></button>
+        <button class="nav-item" data-page="history"><i data-icon="clipboard"></i><span>Load History</span></button>
       </nav>
       <div class="sidebar-spacer"></div>
       <div class="shift-card">
@@ -243,6 +244,27 @@
         <article class="panel full-table">
           <div class="filter-row"><div><h2 style="font:800 13px Manrope;margin:0">For validation</h2><p style="font-size:10px;color:#8a9894;margin:4px 0 0">Check the ID, Proof of Billing, and Premise photos before approving.</p></div></div>
           <div class="table-wrap"><table><thead><tr><th>Work order</th><th>Sales agent</th><th>Subscriber</th><th>Contact</th><th>Area</th><th>Submitted</th><th>Action</th></tr></thead><tbody id="validationBody"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="historyPage" class="page">
+        <div class="page-toolbar">
+          <div><h2>Load History</h2><p>Lahat ng loads sa loob ng linggo — kasama ang buong subscriber info. Na-a-archive dito (hindi nawawala), at ma-e-extract sa Excel.</p></div>
+          <div class="toolbar-actions">
+            <div class="search-box" style="min-width:auto"><span style="font-size:10px;color:#7e8d89">From</span><input id="histFrom" type="date"></div>
+            <div class="search-box" style="min-width:auto"><span style="font-size:10px;color:#7e8d89">To</span><input id="histTo" type="date"></div>
+            <button class="primary-btn" id="histExport"><i data-icon="arrow"></i>Download Excel</button>
+          </div>
+        </div>
+        <div class="dispatch-stats">
+          <div class="small-stat"><span>Total loads</span><strong id="histTotal">0</strong></div>
+          <div class="small-stat"><span>Completed</span><strong id="histCompleted">0</strong></div>
+          <div class="small-stat"><span>Negative (bounced)</span><strong id="histNegative">0</strong></div>
+          <div class="small-stat"><span>Cancelled</span><strong id="histCancelled">0</strong></div>
+        </div>
+        <article class="panel full-table">
+          <div class="filter-row"><div><h2 style="font:800 13px Manrope;margin:0">Weekly load log</h2><p style="font-size:10px;color:#8a9894;margin:4px 0 0">I-click ang isang load para makita ang buong detalye at history.</p></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Date</th><th>Work order</th><th>J.O. No</th><th>Subscriber</th><th>Team</th><th>Status</th><th>Dispatched</th><th>Area</th></tr></thead><tbody id="historyBody"></tbody></table></div>
         </article>
       </section>
     </main>

@@ -121,11 +121,14 @@ function renderJobs(){
   $('#queueBody').innerHTML=pending.slice(0,4).map(j=>`<tr><td><strong>${j.id}</strong><span>${j.priority}</span></td><td><strong>${j.subscriber}</strong></td><td>${j.type}</td><td>${j.area}</td><td><span class="status pending">${j.wait}</span></td><td><button class="assign-btn" data-assign="${j.id}">Assign</button></td></tr>`).join('')||'<tr><td colspan="6" class="empty-cell">No jobs waiting for dispatch.</td></tr>';
   $('#workOrderBody').innerHTML=jobs.map(j=>`<tr data-type="${j.type.toLowerCase()}" data-status="${j.status}" data-text="${(j.id+' '+j.subscriber+' '+j.area).toLowerCase()}"><td><strong>${j.id}</strong><span>${j.priority}</span></td><td><strong>${j.subscriber}</strong><span>${j.plan}</span></td><td>${j.type}</td><td>${j.area}</td><td>${j.team||'—'}</td><td><span class="status ${j.status}">${statusLabel(j.status)}</span></td><td>${j.schedule}</td></tr>`).join('');
   const today=manilaToday();
+  const isToday=d=>d && new Date(d).toLocaleDateString('en-CA',{timeZone:TZ})===today;
+  const loadToday=d=>!d || String(d).slice(0,10)===today;   // today's working set (clears daily)
   const stages=[['pending','For Dispatch'],['assigned','Dispatched'],['en-route','Travel'],['on-site,in-progress','On Site'],['negative','Negative'],['completed','Completed'],['cancelled','Cancelled']];
   $('#dispatchBoard').innerHTML=stages.map(([keys,label])=>{
     let list;
     if(keys==='negative'){ list=jobs.filter(j=>j.status==='negative'); }
-    else { list=jobs.filter(j=>keys.split(',').includes(j.status)); if(keys==='completed'||keys==='cancelled') list=list.filter(j=>j.updatedAt && new Date(j.updatedAt).toLocaleDateString('en-CA',{timeZone:TZ})===today); }
+    else if(keys==='completed'||keys==='cancelled'){ list=jobs.filter(j=>keys.split(',').includes(j.status)&&isToday(j.updatedAt)); }
+    else { list=jobs.filter(j=>keys.split(',').includes(j.status)&&loadToday(j.load_date)); }
     return `<div class="board-column" data-drop="${keys}"><div class="column-head"><strong>${label}</strong><span>${list.length}</span></div>${list.map(jobCard).join('')||'<div class="job-card empty"><p>No jobs in this stage.</p></div>'}</div>`;
   }).join('');
   const counts=[['Waiting',pending.length],['Assigned',jobs.filter(j=>j.status==='assigned').length],['On the road',jobs.filter(j=>j.status==='en-route').length],['In service',jobs.filter(j=>['on-site','in-progress'].includes(j.status)).length]];
@@ -144,7 +147,7 @@ function negReleased(negAt){
 }
 function processNegativeReturns(){
   jobs.filter(j=>j.status==='negative'&&negReleased(j.negative_at)).forEach(j=>{
-    j.status='pending'; j.team=null; j.priority='Urgent';
+    j.status='pending'; j.team=null; j.priority='Urgent'; j.load_date=manilaToday();
     j.history=appendHistory(j.history,'Auto-returned 5:00 AM → For Dispatch (High priority)');
     if(window.AHBASync) window.AHBASync(j);
   });
@@ -152,13 +155,13 @@ function processNegativeReturns(){
 function unassignJob(jobId){
   const j=jobs.find(x=>x.id===jobId); if(!j||!['assigned','en-route','negative'].includes(j.status))return;
   const wasNeg=j.status==='negative';
-  j.status='pending'; j.team=null; if(wasNeg) j.priority='Urgent';
+  j.status='pending'; j.team=null; j.load_date=manilaToday(); if(wasNeg) j.priority='Urgent';
   j.history=appendHistory(j.history, wasNeg?'Manually returned → For Dispatch (High priority)':'Moved back to For Dispatch');
   save(); renderJobs(); showToast(`${jobId} → For Dispatch${wasNeg?' (High priority)':''}`);
   if(window.AHBASync) window.AHBASync(j);
 }
 function openJobDetail(jobId){
-  const j=jobs.find(x=>x.id===jobId)||{};
+  const j=findJob(jobId)||{};
   $('#jdTitle').textContent=`${j.id} · ${j.subscriber||''}`;
   $('#jdSub').textContent=`${statusLabel(j.status||'—')}${j.team?' · '+j.team:''}${j.dispatch_count?' · ⟳ ×'+j.dispatch_count:''}`;
   const F=(l,v)=>`<div><b>${l}</b>${v||'—'}</div>`;
@@ -176,14 +179,14 @@ function openJobDetail(jobId){
   openModal($('#jobDetailModal'));
 }
 function applyStatusUpdate(jobId,choice){
-  const j=jobs.find(x=>x.id===jobId); if(!j)return;
+  const j=findJob(jobId); if(!j)return;
   if(choice==='completed') j.status='completed';
   else if(choice==='cancelled') j.status='cancelled';
-  else { j.status='pending'; j.team=null; }  // incomplete / re-dispatch → For Dispatch
+  else { j.status='pending'; j.team=null; j.load_date=manilaToday(); }  // incomplete / re-dispatch → For Dispatch (today)
   const label={completed:'Completed',incomplete:'Incomplete → For Dispatch',redispatch:'Re-dispatch → For Dispatch',cancelled:'Cancelled'}[choice];
   j.history=appendHistory(j.history, `Status → ${label} (by Dispatcher)`);
   j.updatedAt=new Date().toISOString();
-  save(); closeModals(); renderJobs(); showToast(`${jobId}: ${label}`);
+  save(); closeModals(); renderJobs(); if($('#historyPage')?.classList.contains('active'))renderHistory(); showToast(`${jobId}: ${label}`);
   if(window.AHBASync) window.AHBASync(j);
 }
 function wireDispatchDnD(){
@@ -292,7 +295,7 @@ async function openAssign(jobId){
   }).join('');
   $$('[data-team]').forEach(b=>b.onclick=()=>assignTeam(jobId,b.dataset.team));
 }
-function assignTeam(jobId,team){const j=jobs.find(x=>x.id===jobId);const joVal=(($('#assignJONum')&&$('#assignJONum').value)||'').trim();if(joVal&&!j.job_order_no)j.job_order_no=joVal;j.team=team;j.status='assigned';j.dispatch_count=(j.dispatch_count||0)+1;j.history=appendHistory(j.history,`Dispatched to ${team} (#${j.dispatch_count})${j.job_order_no?' · JO '+j.job_order_no:''}`);save();closeModals();renderJobs();showToast(`${team} assigned to ${jobId}`);if(window.AHBASync)window.AHBASync(j)}
+function assignTeam(jobId,team){const j=jobs.find(x=>x.id===jobId);const joVal=(($('#assignJONum')&&$('#assignJONum').value)||'').trim();if(joVal&&!j.job_order_no)j.job_order_no=joVal;j.team=team;j.status='assigned';j.load_date=manilaToday();j.dispatch_count=(j.dispatch_count||0)+1;j.history=appendHistory(j.history,`Dispatched to ${team} (#${j.dispatch_count})${j.job_order_no?' · JO '+j.job_order_no:''}`);save();closeModals();renderJobs();showToast(`${team} assigned to ${jobId}`);if(window.AHBASync)window.AHBASync(j)}
 function openModal(modal){$('#modalBackdrop').classList.add('show');modal.showModal()}
 function closeModals(){$$('dialog[open]').forEach(d=>d.close());$('#modalBackdrop').classList.remove('show')}
 
@@ -315,7 +318,7 @@ function renderNotifPop(){
   injectIcons();
 }
 
-function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>{const on=n.dataset.page===page;n.classList.toggle('active',on);on?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current')});const labels={overview:'Good morning, Allec',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring',accounts:'Technician accounts',attendance:'Attendance · Time records',completed:'Completed jobs',validation:'Validator · New job orders'};$('#pageTitle').textContent=labels[page];if(page==='accounts')renderAccounts();if(page==='attendance')renderAttendance();if(page==='completed')renderCompleted();if(page==='validation')renderValidation();closeSidebar();scrollTo(0,0)}
+function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>{const on=n.dataset.page===page;n.classList.toggle('active',on);on?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current')});const labels={overview:'Good morning, Allec',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring',accounts:'Technician accounts',attendance:'Attendance · Time records',completed:'Completed jobs',validation:'Validator · New job orders',history:'Load history'};$('#pageTitle').textContent=labels[page];if(page==='accounts')renderAccounts();if(page==='attendance')renderAttendance();if(page==='completed')renderCompleted();if(page==='validation')renderValidation();if(page==='history')renderHistory();closeSidebar();scrollTo(0,0)}
 
 // ---------- Validator (sales-agent job orders awaiting approval) ----------
 let valJobs=[], valDocs={};
@@ -386,7 +389,7 @@ function openValidate(jobId){
 }
 async function decideValidation(jobId,approve){
   const body=approve
-    ? {status:'pending', validated:true, validated_at:new Date().toISOString(), updated_at:new Date().toISOString()}
+    ? {status:'pending', validated:true, validated_at:new Date().toISOString(), updated_at:new Date().toISOString(), load_date:manilaToday()}
     : {status:'rejected', updated_at:new Date().toISOString(), special_note:(($('#valReason').value||'').trim()?('REJECTED: '+$('#valReason').value.trim()):'REJECTED')};
   try{
     await fetch(`${SUPA_URL}/rest/v1/jobs?id=eq.${encodeURIComponent(jobId)}`,{method:'PATCH',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify(body)});
@@ -618,6 +621,60 @@ async function clearCloud(){
   }catch(e){showToast('Clear failed: '+e.message)}
 }
 
+// ---------- Load History (weekly archive of all loads) ----------
+function jobToRow(j,nPhotos){
+  return {
+    'DATE': j.load_date||(j.updated_at?String(j.updated_at).slice(0,10):''),
+    'DISPATCH STATUS': j.dispatch_status||'',
+    'STATUS': statusLabel(j.status||''),
+    'TEAM ASSIGNED': j.team||'',
+    'DRIVER': j.driver||'', 'TECH1': j.tech1||'', 'MAPPING TEAM': j.mapping_team||'',
+    'MAPPING REMARKS': j.mapping_remarks||'', 'DISPATCHED REMARKS': j.dispatched_remarks||'',
+    'IBASS ACCT NO.': j.ibass_acct_no||'', 'JOB ORDER NO.': j.job_order_no||'', 'VAS NO': j.vas_no||'',
+    '1P OR 2P': j.play_type||'', 'SPECIAL NOTE': j.special_note||'', 'REF NO.': j.ref_no||'', 'NEW REF #': j.new_ref||'',
+    'PRIMARY NO.': j.primary_no||'', 'OTHER CONTACT NO.': j.other_contact_no||'',
+    'FIRST NAME': j.first_name||'', 'MIDDLE NAME': j.middle_name||'', 'LAST NAME': j.last_name||'',
+    'HOUSE NO.': j.house_no||'', 'STREET NAME': j.street_name||'', 'VILLAGE / SUBDIVISION': j.village||'',
+    'BRGY': j.brgy||'', 'CITY': j.city||j.area||'',
+    'SALES AGENT': agentLabel(j.created_by), 'IN-CHARGE': j.in_charge||'', 'SOURCE OF SALES': j.source_of_sales||'', 'REFERRAL NAME': j.referral_name||'',
+    'PLAN': j.plan||'', 'PRIORITY': j.priority||'', 'DISPATCH COUNT': j.dispatch_count||0,
+    'NEGATIVE REMARK': j.negative_remark||'', 'LAST UPDATE': j.updated_at?fmtWhen(j.updated_at):'',
+    'VALIDATED': j.validated?'YES':'NO', 'WO ID': j.id
+  };
+}
+function findJob(id){ return jobs.find(x=>x.id===id)||histJobs.find(x=>x.id===id)||compJobs.find(x=>x.id===id)||valJobs.find(x=>x.id===id)||null; }
+let histJobs=[];
+async function renderHistory(){
+  const fromEl=$('#histFrom'), toEl=$('#histTo'), body=$('#historyBody'); if(!body)return;
+  if(toEl&&!toEl.value) toEl.value=manilaToday();
+  if(fromEl&&!fromEl.value){ const d=new Date(); d.setDate(d.getDate()-6); fromEl.value=d.toLocaleDateString('en-CA',{timeZone:TZ}); }
+  if(fromEl)fromEl.onchange=renderHistory; if(toEl)toEl.onchange=renderHistory;
+  const from=fromEl.value, to=toEl.value;
+  body.innerHTML=`<tr><td colspan="8" class="empty-cell">Loading…</td></tr>`;
+  await loadAgentNames();
+  let all=[]; try{ const r=await fetch(`${SUPA_URL}/rest/v1/jobs?select=*&order=updated_at.desc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}}); all=r.ok?await r.json():[]; }catch(e){}
+  const dayOf=j=> j.load_date?String(j.load_date).slice(0,10) : (j.updated_at?new Date(j.updated_at).toLocaleDateString('en-CA',{timeZone:TZ}):'');
+  histJobs=all.filter(j=>{const d=dayOf(j);return d&&d>=from&&d<=to;});
+  $('#histTotal').textContent=histJobs.length;
+  $('#histCompleted').textContent=histJobs.filter(j=>j.status==='completed').length;
+  $('#histNegative').textContent=histJobs.filter(j=>j.negative_remark).length;
+  $('#histCancelled').textContent=histJobs.filter(j=>j.status==='cancelled').length;
+  if(!histJobs.length){body.innerHTML=`<tr><td colspan="8" class="empty-cell">No loads in this range.</td></tr>`;return}
+  body.innerHTML=histJobs.map(j=>`<tr data-detail="${j.id}" style="cursor:pointer"><td>${dayOf(j)}</td><td><strong>${j.id}</strong></td><td>${j.job_order_no||'—'}</td><td><strong>${j.subscriber||'—'}</strong></td><td>${j.team||'—'}</td><td><span class="status ${j.status}">${statusLabel(j.status||'')}</span></td><td>⟳ ${j.dispatch_count||0}</td><td>${j.area||j.city||'—'}</td></tr>`).join('');
+  $$('#historyBody [data-detail]').forEach(r=>r.onclick=()=>openJobDetail(r.dataset.detail));
+}
+async function exportHistoryExcel(){
+  if(typeof XLSX==='undefined'){showToast('Excel library still loading');return}
+  if(!histJobs.length){showToast('Nothing to export for this range');return}
+  await loadAgentNames();
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(histJobs.map(j=>jobToRow(j))), 'Load History');
+  const out=XLSX.write(wb,{type:'array',bookType:'xlsx'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([out],{type:'application/octet-stream'})); a.download=`AHBA_load_history_${$('#histFrom').value}_to_${$('#histTo').value}.xlsx`; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+  showToast('Load history exported (Excel)');
+}
+
 function init(){
   injectIcons();const d=new Date();$('#todayLabel').textContent=d.toLocaleDateString('en-PH',{timeZone:TZ,weekday:'short',month:'short',day:'numeric'});$$('input[type=date]').forEach(i=>i.value=manilaToday());
   $('#expenseTeam').innerHTML=teams.map(t=>`<option>${t.name}</option>`).join('');
@@ -660,7 +717,7 @@ function init(){
     const full=[f.first_name,f.middle_name,f.last_name].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
     const addr=[f.house_no,f.street_name,f.village,f.brgy,f.city].filter(Boolean).join(', ');
     const num=2050+jobs.length;
-    const job={id:`WO-2026-${num}`,subscriber:full||'Subscriber',type:f.type,plan:f.plan,area:f.city||f.brgy||'Quezon City',address:addr,status:f.team?'assigned':'pending',wait:'Just now',priority:f.priority,schedule:`${f.date}, 9:00 AM`,team:f.team||null,load_date:f.date||null};
+    const job={id:`WO-2026-${num}`,subscriber:full||'Subscriber',type:f.type,plan:f.plan,area:f.city||f.brgy||'Quezon City',address:addr,status:f.team?'assigned':'pending',wait:'Just now',priority:f.priority,schedule:`${f.date}, 9:00 AM`,team:f.team||null,load_date:manilaToday()};
     SUB_FIELDS.forEach(k=>{ if(f[k]) job[k]=f[k]; });
     jobs.unshift(job);save();if(window.AHBASync)window.AHBASync(job);e.target.reset();$$('input[type=date]').forEach(i=>i.value=manilaToday());closeModals();renderOverview();showToast('Work order created and added to dispatch queue')};
   $('#expenseForm').onsubmit=e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
@@ -677,6 +734,7 @@ function init(){
   // Completed view: export + clear
   $('#exportBtn')?.addEventListener('click',exportZip);
   $('#clearBtn')?.addEventListener('click',clearCloud);
+  $('#histExport')?.addEventListener('click',exportHistoryExcel);
 
   // Validator badge (count of pending sales-agent submissions)
   refreshValBadge(); setInterval(refreshValBadge,30000);
