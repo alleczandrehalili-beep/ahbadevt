@@ -585,13 +585,14 @@
         const acct=(j.job_order_no||j.ibass_acct_no)?`<div class="row">${svg('note')}<span>JO ${j.job_order_no||'—'} · Acct ${j.ibass_acct_no||'—'}</span></div>`:'';
         const svc=(j.plan||j.play_type)?`<div class="row">${svg('note')}<span>${[j.plan,j.play_type].filter(Boolean).join(' · ')}</span></div>`:'';
         const src=(j.source_of_sales||j.referral_name)?`<div class="row">${svg('note')}<span>${[j.source_of_sales,j.referral_name&&('Ref: '+j.referral_name)].filter(Boolean).join(' · ')}</span></div>`:'';
+        const drem=j.dispatched_remarks?`<div class="row" style="color:#107b5e;font-weight:700">${svg('note')}<span>Dispatcher: ${j.dispatched_remarks}</span></div>`:'';
         const note=j.special_note?`<div class="row" style="color:#c2503a">${svg('note')}<span>${j.special_note}</span></div>`:'';
         const negRemark=(j.status==='negative'&&j.negative_remark)?`<div class="row" style="color:#c2503a;font-weight:700">${svg('note')}<span>${j.negative_remark}</span></div>`:'';
         const activeJob=!['completed','negative'].includes(j.status);
         const expBtn=activeJob?`<button class="addphoto" style="margin-top:10px;color:#a4690f;border-color:#f0d9a8;background:#fff8eb" data-exp="${j.id}">+ Add expense for this job</button>`:'';
         const negBtn=activeJob?`<button class="addphoto" style="margin-top:8px;color:#c2503a;border-color:#f0c4b9;background:#fff3f0" data-neg="${j.id}">⚠ Mark as Negative</button>`:'';
         return `<div class="job"><div class="job-head"><div><span class="job-id">${j.id}</span><h3>${j.subscriber||'—'}${prio}</h3><p class="plan">${j.service_type||''} · ${j.plan||''}</p></div><span class="badge b-${j.status}">${statusLabel(j.status)}</span></div>
-        <div class="job-meta"><div class="row">${svg('pin')}<span>${addr||'—'}</span></div><div class="row">${svg('clock')}<span>${(j.schedule||'Today').replace('Today, ','Today · ')}</span></div>${contact}${acct}${svc}${src}${note}${negRemark}</div>
+        <div class="job-meta"><div class="row">${svg('pin')}<span>${addr||'—'}</span></div><div class="row">${svg('clock')}<span>${(j.schedule||'Today').replace('Today, ','Today · ')}</span></div>${contact}${acct}${svc}${src}${drem}${note}${negRemark}</div>
         ${extra}${actions}${expBtn}${negBtn}</div>`;
       }).join('');
       el.querySelectorAll('[data-next]').forEach(b=>b.onclick=()=>advance(b.dataset.id,b.dataset.next));

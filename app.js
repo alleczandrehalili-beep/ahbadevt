@@ -174,9 +174,16 @@ function openJobDetail(jobId){
     F('Schedule',j.schedule),F('Negative remark',j.negative_remark)
   ].join('');
   $('#jdHistory').textContent=j.history||'No history yet.';
+  if($('#jdPriority')){ $('#jdPriority').value=j.priority||'Normal'; $('#jdPriority').onchange=()=>updatePriority(jobId,$('#jdPriority').value); }
   $('#jdStatus').value='';
   $('#jdApply').onclick=()=>{const c=$('#jdStatus').value; if(!c){showToast('Select a status to apply');return;} applyStatusUpdate(jobId,c);};
   openModal($('#jobDetailModal'));
+}
+function updatePriority(jobId,p){
+  const j=findJob(jobId); if(!j||!p||j.priority===p)return;
+  j.priority=p; j.history=appendHistory(j.history,`Priority → ${p} (by Dispatcher)`);
+  save(); renderJobs(); if($('#historyPage')?.classList.contains('active'))renderHistory(); showToast(`${jobId} priority → ${p}`);
+  if(window.AHBASync) window.AHBASync(j);
 }
 function applyStatusUpdate(jobId,choice){
   const j=findJob(jobId); if(!j)return;
@@ -270,6 +277,7 @@ function applyJobTableFilter(){
 async function openAssign(jobId){
   const job=jobs.find(j=>j.id===jobId);$('#assignJobLabel').textContent=`${job.id} · ${job.subscriber} · ${job.area}`;$('#assignModal').dataset.job=jobId;
   const joEl=$('#assignJONum'); if(joEl){ joEl.value=job.job_order_no||''; joEl.readOnly=!!job.job_order_no; joEl.style.background=job.job_order_no?'#f1f3f1':''; if($('#joLock'))$('#joLock').textContent=job.job_order_no?'(locked)':''; }
+  const remEl=$('#assignRemarks'); if(remEl) remEl.value=job.dispatched_remarks||'';
   openModal($('#assignModal'));
   $('#assignmentList').innerHTML='<div class="empty-row">Finding nearest teams by GPS…</div>';
   await fetchTechLocations();
@@ -295,7 +303,7 @@ async function openAssign(jobId){
   }).join('');
   $$('[data-team]').forEach(b=>b.onclick=()=>assignTeam(jobId,b.dataset.team));
 }
-function assignTeam(jobId,team){const j=jobs.find(x=>x.id===jobId);const joVal=(($('#assignJONum')&&$('#assignJONum').value)||'').trim();if(joVal&&!j.job_order_no)j.job_order_no=joVal;j.team=team;j.status='assigned';j.load_date=manilaToday();j.dispatch_count=(j.dispatch_count||0)+1;j.history=appendHistory(j.history,`Dispatched to ${team} (#${j.dispatch_count})${j.job_order_no?' · JO '+j.job_order_no:''}`);save();closeModals();renderJobs();showToast(`${team} assigned to ${jobId}`);if(window.AHBASync)window.AHBASync(j)}
+function assignTeam(jobId,team){const j=jobs.find(x=>x.id===jobId);const joVal=(($('#assignJONum')&&$('#assignJONum').value)||'').trim();const joFinal=j.job_order_no||joVal;if(!joFinal){showToast('Enter the J.O. Number first');$('#assignJONum')&&$('#assignJONum').focus();return;}if(!j.job_order_no)j.job_order_no=joVal;const rem=(($('#assignRemarks')&&$('#assignRemarks').value)||'').trim();if(rem)j.dispatched_remarks=rem;j.team=team;j.status='assigned';j.load_date=manilaToday();j.dispatch_count=(j.dispatch_count||0)+1;j.history=appendHistory(j.history,`Dispatched to ${team} (#${j.dispatch_count})${j.job_order_no?' · JO '+j.job_order_no:''}`);save();closeModals();renderJobs();showToast(`${team} assigned to ${jobId}`);if(window.AHBASync)window.AHBASync(j)}
 function openModal(modal){$('#modalBackdrop').classList.add('show');modal.showModal()}
 function closeModals(){$$('dialog[open]').forEach(d=>d.close());$('#modalBackdrop').classList.remove('show')}
 

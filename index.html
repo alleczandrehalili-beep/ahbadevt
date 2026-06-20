@@ -32,8 +32,10 @@
     .doc-sec h4{font:800 10px Manrope;letter-spacing:.08em;text-transform:uppercase;color:#107b5e;margin:10px 0 8px}
     #valModal.modal{width:min(820px,calc(100% - 30px))}
     #valModal{max-height:92vh;overflow:auto}
-    .dispatch-board{display:flex!important;grid-template-columns:none!important;gap:12px;overflow-x:auto;padding-bottom:8px}
-    .board-column{flex:0 0 230px;min-width:230px}
+    .dispatch-board{display:flex!important;grid-template-columns:none!important;gap:10px;overflow-x:auto;padding-bottom:10px;scrollbar-width:thin}
+    .dispatch-board::-webkit-scrollbar{height:10px}
+    .dispatch-board::-webkit-scrollbar-thumb{background:#c2ccc8;border-radius:6px}
+    .board-column{flex:1 0 168px;min-width:168px}
     .status.negative{background:#fdecea;color:#c2503a}
     .status.cancelled{background:#f1f1f1;color:#7a7f7d}
     .job-card{cursor:pointer}
@@ -336,7 +338,8 @@
 
   <dialog id="assignModal" class="modal small-modal">
     <div class="modal-head"><div><span class="eyebrow">DISPATCH</span><h2>Assign a field team</h2><p id="assignJobLabel"></p></div><button type="button" class="icon-btn close-modal"><i data-icon="close"></i></button></div>
-    <div style="padding:14px 20px 2px"><label class="field"><span>J.O. Number <em id="joLock" style="font-style:normal;color:#9aa6a2"></em></span><input id="assignJONum" placeholder="e.g. R3393914"><span style="font-size:9px;color:#8a9894">Makikita ng technician. Hindi na mabubura kapag naset na (kahit mag-negative).</span></label></div>
+    <div style="padding:14px 20px 2px"><label class="field"><span>J.O. Number <em style="font-style:normal;color:#c2503a">*required</em> <em id="joLock" style="font-style:normal;color:#9aa6a2"></em></span><input id="assignJONum" placeholder="e.g. R3393914" required><span style="font-size:9px;color:#8a9894">Kailangan bago mag-dispatch. Makikita ng technician. Hindi na mabubura kapag naset na.</span></label></div>
+    <div style="padding:2px 20px 6px"><label class="field"><span>Dispatch remarks <em style="font-style:normal;color:#9aa6a2">(makikita ng technician)</em></span><input id="assignRemarks" placeholder="hal. Prio please / tawagan bago dumating / landmark"></label></div>
     <div class="assignment-list" id="assignmentList"></div>
   </dialog>
 
@@ -353,6 +356,7 @@
   <dialog id="jobDetailModal" class="modal">
     <div class="modal-head"><div><span class="eyebrow">JOB ORDER</span><h2 id="jdTitle">Job order</h2><p id="jdSub"></p></div><button type="button" class="icon-btn close-modal"><i data-icon="close"></i></button></div>
     <div style="padding:18px 25px 4px"><div class="info-grid" id="jdInfo"></div></div>
+    <div style="padding:8px 25px 0"><label class="field"><span>Load priority</span><select id="jdPriority"><option>Normal</option><option>Urgent</option><option>VIP</option></select></label></div>
     <div style="padding:8px 25px 0"><div class="form-sec" style="font:800 10px Manrope;letter-spacing:.08em;text-transform:uppercase;color:#107b5e;margin:8px 0 4px">Status history</div><pre id="jdHistory"></pre></div>
     <div style="padding:4px 25px 0"><label class="field"><span>Dispatcher status update</span><select id="jdStatus"><option value="">— Select status —</option><option value="completed">Completed</option><option value="incomplete">Incomplete → For Dispatch</option><option value="redispatch">Re-dispatch → For Dispatch</option><option value="cancelled">Cancelled</option></select></label></div>
     <div class="modal-actions"><button type="button" class="secondary-btn close-modal">Close</button><button type="button" class="primary-btn" id="jdApply">Apply update</button></div>
