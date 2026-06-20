@@ -717,7 +717,32 @@
       if(fresh){ await clockIn(); } else { await findOpenAttendance(); }
       captureLocation(false);   // grab GPS on entry (prompts for permission first time)
       if(myRole==='sales_agent'){ startSA(); return; }
-      openShift();              // technicians must set account + crew before starting
+      // If this team already declared a shift today, skip the setup on refresh/resume.
+      if(await resumeShift()){
+        try{ if(attendanceId) await sb.from('attendance').update({work_account:shiftAccount,crew_driver:shiftDriver,crew_tech1:shiftTech1,crew_tech2:shiftTech2}).eq('id',attendanceId); }catch(e){}
+        startApp(); return;
+      }
+      openShift();              // otherwise technicians must set account + crew first
+    }
+    // Restore today's account+crew (from local cache, then from the attendance row).
+    async function resumeShift(){
+      try{ const s=JSON.parse(localStorage.getItem(shiftKey())||'null');
+        if(s && s.date===manilaDate() && s.account && s.driver && s.tech1){
+          shiftAccount=s.account; shiftDriver=s.driver; shiftTech1=s.tech1; shiftTech2=s.tech2||''; return true;
+        }
+      }catch(e){}
+      try{
+        const {data}=await sb.from('attendance').select('work_account,crew_driver,crew_tech1,crew_tech2')
+          .eq('username',myTeam).eq('work_date',manilaDate()).not('work_account','is',null)
+          .order('time_in',{ascending:false}).limit(1);
+        const a=data&&data[0];
+        if(a && a.work_account && a.crew_driver && a.crew_tech1){
+          shiftAccount=a.work_account; shiftDriver=a.crew_driver; shiftTech1=a.crew_tech1; shiftTech2=a.crew_tech2||'';
+          try{ localStorage.setItem(shiftKey(), JSON.stringify({date:manilaDate(),account:shiftAccount,driver:shiftDriver,tech1:shiftTech1,tech2:shiftTech2})); }catch(e){}
+          return true;
+        }
+      }catch(e){}
+      return false;
     }
 
     $('#shiftForm').addEventListener('submit', async e=>{
