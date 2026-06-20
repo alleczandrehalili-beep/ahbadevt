@@ -864,6 +864,66 @@ function exportRemittance(){
   showToast('Remittance exported (Excel)');
 }
 
+// ---------- Add Job Order (console intake → Validator, mirrors sales agent) ----------
+let ordDocs={id:[],billing:[],premise:[]};
+let _sbc=null;
+function sbc(){ if(!_sbc && window.supabase?.createClient) _sbc=window.supabase.createClient(SUPA_URL,SUPA_KEY); return _sbc; }
+function compressImage(file,maxDim=1400,targetKB=250){
+  return new Promise(resolve=>{
+    if(!file || !(file.type||'').startsWith('image/')){ resolve(file); return; }
+    const img=new Image(); const url=URL.createObjectURL(file);
+    img.onload=async()=>{
+      let w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+      const scale=Math.min(1,maxDim/Math.max(w,h)); w=Math.round(w*scale); h=Math.round(h*scale);
+      const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(img,0,0,w,h);
+      const toBlob=q=>new Promise(r=>cv.toBlob(b=>r(b),'image/jpeg',q));
+      let q=0.6, blob=await toBlob(q);
+      while(blob && blob.size>targetKB*1024 && q>0.3){ q=Math.round((q-0.1)*10)/10; blob=await toBlob(q); }
+      URL.revokeObjectURL(url); resolve(blob||file);
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); resolve(file); };
+    img.src=url;
+  });
+}
+async function submitOrder(e){
+  e.preventDefault();
+  const f=Object.fromEntries(new FormData($('#orderForm')));
+  const err=m=>{const el=$('#orderErr'); if(el)el.textContent=m||'';};
+  err('');
+  const t=v=>(v||'').trim();
+  const fn=t(f.first_name), ln=t(f.last_name), brgy=t(f.brgy), city=t(f.city), pno=t(f.primary_no), ono=t(f.other_contact_no);
+  if(!fn||!ln||!pno||!brgy||!city){ err('Please fill: first & last name, primary no., barangay, and city.'); return; }
+  if(!/^\d{11}$/.test(pno)){ err('Primary no. must be exactly 11 digits (numbers only).'); return; }
+  if(ono && !/^\d{11}$/.test(ono)){ err('Other contact no. must be 11 digits (numbers only).'); return; }
+  if(!ordDocs.id.length){ err('A Valid ID photo is required.'); return; }
+  const client=sbc(); if(!client){ err('Cloud client still loading — try again in a moment.'); return; }
+  const btn=$('#orderSubmit'); btn.disabled=true; btn.textContent='Submitting…';
+  const full=[fn,t(f.middle_name),ln].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
+  const addr=[t(f.house_no),t(f.street_name),t(f.village),brgy,city].filter(Boolean).join(', ');
+  const jobId='WO-'+new Date().getFullYear()+'-'+Date.now().toString().slice(-6);
+  const job={id:jobId,subscriber:full,service_type:'Installation',plan:t(f.plan),area:city,address:addr,status:'for_validation',wait_time:'Just now',priority:'Normal',schedule:manilaToday()+', 9:00 AM',team:null,created_by:'CONSOLE',
+    first_name:fn,middle_name:t(f.middle_name),last_name:ln,primary_no:pno,other_contact_no:ono,
+    house_no:t(f.house_no),street_name:t(f.street_name),village:t(f.village),brgy:brgy,city:city,
+    play_type:f.play_type,source_of_sales:f.source_of_sales,referral_name:t(f.referral_name),
+    special_note:t(f.special_note),updated_at:new Date().toISOString()};
+  try{
+    const {error}=await client.from('jobs').insert(job); if(error) throw error;
+    for(const cat of ['id','billing','premise']){
+      for(let i=0;i<ordDocs[cat].length;i++){
+        const blob=await compressImage(ordDocs[cat][i]);
+        const path=`${jobId}/docs/${cat}_${Date.now()}_${i}.jpg`;
+        const {error:e2}=await client.storage.from('job-photos').upload(path,blob,{contentType:'image/jpeg',upsert:false}); if(e2) throw e2;
+        await client.from('job_docs').insert({job_id:jobId,category:cat,path});
+      }
+    }
+    ordDocs={id:[],billing:[],premise:[]};
+    $('#orderForm').reset(); $$('#orderModal [data-cnt]').forEach(b=>b.textContent='0 file(s)');
+    closeModals(); showToast('Job order submitted to the Validator');
+    refreshValBadge(); if($('#validationPage')?.classList.contains('active')) renderValidation();
+  }catch(e2){ err('Submit failed: '+(e2.message||e2)); }
+  btn.disabled=false; btn.textContent='Submit for validation';
+}
+
 function init(){
   injectIcons();const d=new Date();$('#todayLabel').textContent=d.toLocaleDateString('en-PH',{timeZone:TZ,weekday:'short',month:'short',day:'numeric'});$$('input[type=date]').forEach(i=>i.value=manilaToday());
   $('#expenseTeam').innerHTML=teams.map(t=>`<option>${t.name}</option>`).join('');
@@ -909,13 +969,9 @@ function init(){
   setInterval(()=>{ if($('#overviewPage')?.classList.contains('active')) renderTeamLocations(); }, 30000);
 
   // Forms
-  $('#orderForm').onsubmit=e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
-    const full=[f.first_name,f.middle_name,f.last_name].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
-    const addr=[f.house_no,f.street_name,f.village,f.brgy,f.city].filter(Boolean).join(', ');
-    const num=2050+jobs.length;
-    const job={id:`WO-2026-${num}`,subscriber:full||'Subscriber',type:f.type,plan:f.plan,area:f.city||f.brgy||'Quezon City',address:addr,status:f.team?'assigned':'pending',wait:'Just now',priority:f.priority,schedule:`${f.date}, 9:00 AM`,team:f.team||null,load_date:manilaToday()};
-    SUB_FIELDS.forEach(k=>{ if(f[k]) job[k]=f[k]; });
-    jobs.unshift(job);save();if(window.AHBASync)window.AHBASync(job);e.target.reset();$$('input[type=date]').forEach(i=>i.value=manilaToday());closeModals();renderOverview();showToast('Work order created and added to dispatch queue')};
+  $('#orderForm').onsubmit=submitOrder;
+  $$('#orderModal [data-doc]').forEach(inp=>inp.onchange=()=>{ const cat=inp.dataset.doc; ordDocs[cat]=[...inp.files]; const b=$(`#orderModal [data-cnt="${cat}"]`); if(b)b.textContent=`${ordDocs[cat].length} file(s)`; });
+  $$('#orderModal input[inputmode="numeric"]').forEach(el=>el.oninput=()=>{el.value=el.value.replace(/\D/g,'').slice(0,11)});
   $('#expenseForm').onsubmit=e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
     fetch(`${SUPA_URL}/rest/v1/expenses`,{method:'POST',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({team:f.team,category:f.category,description:f.description,amount:Number(f.amount),job_id:f.workOrder||null,status:'Pending',work_date:manilaToday()})}).then(()=>setTimeout(renderExpenses,400)).catch(()=>{});
     e.target.reset();closeModals();showToast('Expense recorded for approval')};

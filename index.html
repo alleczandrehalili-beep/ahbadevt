@@ -308,50 +308,36 @@
   <div class="modal-backdrop" id="modalBackdrop"></div>
   <dialog id="orderModal" class="modal">
     <form method="dialog" id="orderForm">
-      <div class="modal-head"><div><span class="eyebrow">SALES INTAKE</span><h2>Create work order</h2><p>Encode the subscriber and requested service.</p></div><button type="button" class="icon-btn close-modal"><i data-icon="close"></i></button></div>
+      <div class="modal-head"><div><span class="eyebrow">SALES INTAKE</span><h2>Add job order</h2><p>Same requirements as the sales-agent app. Goes to the Validator for review.</p></div><button type="button" class="icon-btn close-modal"><i data-icon="close"></i></button></div>
       <div class="form-grid">
         <div class="field full form-sec">Subscriber</div>
         <label class="field"><span>First name *</span><input name="first_name" required placeholder="CONCHITA"></label>
         <label class="field"><span>Middle name</span><input name="middle_name" placeholder="SAMPAGA"></label>
         <label class="field"><span>Last name *</span><input name="last_name" required placeholder="TOLEDO"></label>
-        <label class="field"><span>Primary no.</span><input name="primary_no" placeholder="09XXXXXXXXX"></label>
-        <label class="field"><span>Other contact no.</span><input name="other_contact_no" placeholder="09XXXXXXXXX"></label>
+        <label class="field"><span>Primary no. * (11 digits)</span><input name="primary_no" inputmode="numeric" maxlength="11" required placeholder="09XXXXXXXXX"></label>
+        <label class="field"><span>Other contact no. (11 digits)</span><input name="other_contact_no" inputmode="numeric" maxlength="11" placeholder="09XXXXXXXXX"></label>
 
         <div class="field full form-sec">Address</div>
         <label class="field"><span>House no.</span><input name="house_no" placeholder="23"></label>
         <label class="field"><span>Street name</span><input name="street_name" placeholder="LEGAL"></label>
         <label class="field"><span>Village / Subdivision</span><input name="village" placeholder=""></label>
-        <label class="field"><span>Barangay</span><input name="brgy" placeholder="SANGANDAAN"></label>
-        <label class="field"><span>City</span><input name="city" value="QUEZON CITY"></label>
+        <label class="field"><span>Barangay *</span><input name="brgy" required placeholder="SANGANDAAN"></label>
+        <label class="field"><span>City *</span><input name="city" value="QUEZON CITY" required></label>
 
-        <div class="field full form-sec">Account &amp; service</div>
-        <label class="field"><span>IBASS Acct no.</span><input name="ibass_acct_no" placeholder="1878702256026"></label>
-        <label class="field"><span>Job order no.</span><input name="job_order_no" placeholder="R3393914"></label>
-        <label class="field"><span>VAS no.</span><input name="vas_no" placeholder=""></label>
-        <label class="field"><span>1P / 2P</span><select name="play_type"><option>1-PLAY</option><option>2-PLAY</option></select></label>
+        <div class="field full form-sec">Service</div>
         <label class="field"><span>Plan / Ref no.</span><input name="plan" placeholder="SKY-N72A0M6-VQ55PDT"></label>
-        <label class="field"><span>Ref no.</span><input name="ref_no" placeholder=""></label>
-        <label class="field"><span>New ref #</span><input name="new_ref" placeholder=""></label>
-        <label class="field"><span>Service type</span><select name="type"><option>Installation</option><option>Repair</option><option>Site Survey</option></select></label>
-
-        <div class="field full form-sec">Dispatch</div>
-        <label class="field"><span>Team assigned</span><select name="team" id="orderTeam"><option value="">— Unassigned —</option></select></label>
-        <label class="field"><span>Driver</span><input name="driver" placeholder="DANNIE IGOT"></label>
-        <label class="field"><span>Tech 1</span><input name="tech1" placeholder="JEMAR TAGALOG"></label>
-        <label class="field"><span>Mapping team</span><input name="mapping_team" placeholder=""></label>
-        <label class="field"><span>Dispatch status</span><input name="dispatch_status" placeholder="DISPATCHED" list="dispatchStatuses"></label>
-        <datalist id="dispatchStatuses"><option>DISPATCHED</option><option>FOR MAPPING</option><option>FIBERLAYING</option><option>ACTIVATED - CLOSED</option><option>ACTIVATED - NO BROWSING</option><option>ACTIVATED NOT CLOSED</option><option>RESCHED - SUBS NOT AVAILABLE</option><option>RS BY SUBS</option><option>CANCEL BY CLIENT</option><option>CANCEL BY HOA</option></datalist>
-        <label class="field"><span>Load priority</span><select name="priority"><option>1st Load</option><option>2nd Load</option><option>3rd Load</option><option>4th Load</option><option>5th Load</option></select></label>
-        <label class="field"><span>Preferred date</span><input name="date" type="date" required></label>
-        <label class="field"><span>In-charge</span><input name="in_charge" placeholder="ABBY SIOCO"></label>
-        <label class="field"><span>Source of sales</span><input name="source_of_sales" placeholder="REFERRAL" list="salesSources"></label>
-        <datalist id="salesSources"><option>REFERRAL</option><option>SALARIED AGENT</option><option>FIELD TECHNICIAN</option><option>WALK-IN</option></datalist>
+        <label class="field"><span>1P / 2P</span><select name="play_type"><option>1-PLAY</option><option>2-PLAY</option></select></label>
+        <label class="field"><span>Source of sales</span><select name="source_of_sales"><option>Referral</option><option>Organic</option></select></label>
         <label class="field"><span>Referral name</span><input name="referral_name" placeholder="JDC"></label>
-        <label class="field full"><span>Mapping remarks</span><input name="mapping_remarks" placeholder=""></label>
-        <label class="field full"><span>Dispatched remarks</span><input name="dispatched_remarks" placeholder=""></label>
-        <label class="field full"><span>Special note</span><textarea name="special_note" rows="2" placeholder="1ST LOAD PLS / PRIO PLEASE / landmark"></textarea></label>
+        <label class="field full"><span>Special note</span><textarea name="special_note" rows="2" placeholder="Landmark / access notes"></textarea></label>
+
+        <div class="field full form-sec">Documents</div>
+        <label class="field full"><span>Valid ID <em style="font-style:normal;color:#c2503a">*required</em> · <b data-cnt="id">0 file(s)</b></span><input type="file" accept="image/*" multiple data-doc="id"></label>
+        <label class="field full"><span>Proof of Billing <em style="font-style:normal;color:#9aa6a2">(optional)</em> · <b data-cnt="billing">0 file(s)</b></span><input type="file" accept="image/*" multiple data-doc="billing"></label>
+        <label class="field full"><span>Subscriber Premise <em style="font-style:normal;color:#9aa6a2">(optional)</em> · <b data-cnt="premise">0 file(s)</b></span><input type="file" accept="image/*" multiple data-doc="premise"></label>
       </div>
-      <div class="modal-actions"><button type="button" class="secondary-btn close-modal">Cancel</button><button type="submit" class="primary-btn">Create & queue job</button></div>
+      <div class="err" id="orderErr" style="padding:2px 25px;color:#c2503a;font-size:11px;min-height:14px"></div>
+      <div class="modal-actions"><button type="button" class="secondary-btn close-modal">Cancel</button><button type="submit" class="primary-btn" id="orderSubmit">Submit for validation</button></div>
     </form>
   </dialog>
 
