@@ -970,14 +970,15 @@ async function renderAccess(){
   try{ const r=await fetch(`${SUPA_URL}/rest/v1/dashboard_users?select=*&order=is_super.desc,username.asc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}}); accessUsers=r.ok?await r.json():[]; }catch(e){accessUsers=[];}
   const head=`<tr><th>User</th><th>Role</th>${PAGE_KEYS.map(p=>`<th style="text-align:center;font-size:9px">${p[1]}</th>`).join('')}<th></th></tr>`;
   const rows=accessUsers.map(u=>{
-    if(u.is_super) return `<tr><td><strong>${u.display_name||u.username}</strong><span>${u.username}</span></td><td>Superadmin</td><td colspan="${PAGE_KEYS.length}" style="text-align:center;color:#11825f">Full access (all sections)</td><td><button class="assign-btn" data-resetdash="${u.username}">Reset PW</button></td></tr>`;
+    if(u.is_super) return `<tr><td><strong>${u.display_name||u.username}</strong><span>${u.username}</span></td><td>Superadmin</td><td colspan="${PAGE_KEYS.length}" style="text-align:center;color:#11825f">Full access (all sections)</td><td style="white-space:nowrap"><button class="assign-btn" data-renamedash="${u.username}">Rename</button> <button class="assign-btn" data-resetdash="${u.username}">Reset PW</button></td></tr>`;
     const allowed=Array.isArray(u.allowed_pages)?u.allowed_pages:[];
     const cells=PAGE_KEYS.map(p=>`<td style="text-align:center"><input type="checkbox" data-u="${u.username}" data-pg="${p[0]}" ${allowed.includes(p[0])?'checked':''}></td>`).join('');
-    return `<tr><td><strong>${u.display_name||u.username}</strong><span>${u.username}</span></td><td>${u.role_label||''}</td>${cells}<td style="white-space:nowrap"><button class="assign-btn" data-saveaccess="${u.username}">Save</button> <button class="assign-btn" data-resetdash="${u.username}">Reset PW</button></td></tr>`;
+    return `<tr><td><strong>${u.display_name||u.username}</strong><span>${u.username}</span></td><td>${u.role_label||''}</td>${cells}<td style="white-space:nowrap"><button class="assign-btn" data-saveaccess="${u.username}">Save</button> <button class="assign-btn" data-renamedash="${u.username}">Rename</button> <button class="assign-btn" data-resetdash="${u.username}">Reset PW</button></td></tr>`;
   }).join('');
   wrap.innerHTML=`<table><thead>${head}</thead><tbody>${rows}</tbody></table>`;
   $$('#accessWrap [data-saveaccess]').forEach(b=>b.onclick=()=>saveAccess(b.dataset.saveaccess));
   $$('#accessWrap [data-resetdash]').forEach(b=>b.onclick=()=>resetDashUser(b.dataset.resetdash));
+  $$('#accessWrap [data-renamedash]').forEach(b=>b.onclick=()=>renameDashUser(b.dataset.renamedash));
 }
 async function saveAccess(username){
   const pages=$$(`#accessWrap input[data-u="${username}"]`).filter(c=>c.checked).map(c=>c.dataset.pg);
@@ -1021,8 +1022,31 @@ async function resetDashUser(username){
     showToast(`${username} password reset. They must change it on next login.`);
   }catch(e){ showToast('Reset failed: '+e.message); }
 }
+async function renameDashUser(username){
+  let nu=(prompt(`New username for ${username} (letters/numbers, no spaces):`,username)||'').trim().toUpperCase();
+  if(!nu||nu===username) return;
+  if(!/^[A-Z0-9._-]{3,}$/.test(nu)){ showToast('Username: 3+ chars, letters/numbers/._- only (no spaces).'); return; }
+  const sec=getAdminSecret(); if(!sec){ showToast('Admin secret required'); return; }
+  try{
+    await callAdminFn({admin_secret:sec,action:'rename',target:'dash',username,new_username:nu});
+    showToast(`${username} → ${nu}. New login email: ${nu.toLowerCase()}@ahbadash.app`);
+    renderAccess();
+  }catch(e){ showToast('Rename failed: '+e.message); }
+}
+async function changeMyDisplayName(){
+  const u=window.dashUser; if(!u){ return; }
+  const nm=(prompt('Your display name:', u.display_name||u.username)||'').trim();
+  if(!nm||nm===u.display_name) return;
+  try{
+    await fetch(`${SUPA_URL}/rest/v1/dashboard_users?username=eq.${encodeURIComponent(u.username)}`,{method:'PATCH',headers:DH(),body:JSON.stringify({display_name:nm,updated_at:new Date().toISOString()})});
+    u.display_name=nm;
+    const nameEl=$('.user-card strong'); if(nameEl) nameEl.textContent=nm;
+    const av=$('.user-card .avatar'); if(av) av.textContent=nm.split(/\s+/).map(s=>s[0]).slice(0,2).join('').toUpperCase();
+    showToast('Display name updated');
+  }catch(e){ showToast('Could not update display name'); }
+}
 async function dashRecover(){
-  const u=(($('#drUser').value||'SUPERADMIN').trim()||'SUPERADMIN').toUpperCase(), sec=($('#drSecret').value||'').trim(), pw=($('#drPass').value||'').trim();
+  const u='SUPERADMIN', sec=($('#drSecret').value||'').trim(), pw=($('#drPass').value||'').trim();
   if(!sec){ dgErr('#drErr','Enter the admin secret.'); return; }
   if(pw.length<8){ dgErr('#drErr','New password must be at least 8 characters.'); return; }
   const btn=$('#drBtn'); btn.disabled=true; btn.textContent='Resetting…';
@@ -1130,6 +1154,7 @@ function init(){
   });
   $('#dashLogoutBtn')?.addEventListener('click',dashLogout);
   $('#dashChangePw')?.addEventListener('click',()=>{ closePopovers&&closePopovers(); showDashGate('#dashPwGate'); });
+  $('#dashChangeName')?.addEventListener('click',()=>{ closePopovers&&closePopovers(); changeMyDisplayName(); });
   $('#cuCreate')?.addEventListener('click',createDashUser);
   $('#dashForgot')?.addEventListener('click',()=>{ const r=$('#dashRecover'); r.style.display=r.style.display==='none'?'block':'none'; });
   $('#drBtn')?.addEventListener('click',dashRecover);

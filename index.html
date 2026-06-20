@@ -57,7 +57,7 @@
     #jobDetailModal.modal{width:min(720px,calc(100% - 30px))}#jobDetailModal{max-height:92vh;overflow:auto}
     #jdHistory{white-space:pre-wrap;font:11px/1.6 'DM Sans',sans-serif;color:#566b66;background:#f8f9f7;border:1px solid var(--line);border-radius:10px;padding:12px;max-height:170px;overflow:auto;margin:6px 0}
     /* Dashboard login gate */
-    .dash-gate{position:fixed;inset:0;z-index:200;background:linear-gradient(150deg,#071f1d,#0c3a34);display:flex;align-items:center;justify-content:center;padding:20px}
+    .dash-gate{position:fixed;inset:0;z-index:1000;background:linear-gradient(150deg,#071f1d,#0c3a34);display:flex;align-items:center;justify-content:center;padding:20px}
     .dash-card{width:min(380px,100%);background:#fff;border-radius:18px;padding:28px 26px;box-shadow:0 30px 80px rgba(0,0,0,.35)}
     .dash-card h2{font:800 20px Manrope;margin:6px 0 2px;color:#0e2b27}
     .dash-card p{font-size:12px;color:#7c8a87;margin:0 0 16px}
@@ -86,12 +86,13 @@
       </form>
       <button id="dashForgot" type="button" style="background:none;border:none;color:#107b5e;font:600 11px 'DM Sans';margin-top:12px;cursor:pointer;padding:0">Forgot password? (Superadmin recovery)</button>
       <div id="dashRecover" style="display:none;margin-top:6px">
-        <p style="font-size:11px;color:#7c8a87;margin:8px 0">Recover using the admin secret. Resets the account's password and asks for a new one on next login.</p>
+        <p style="font-size:11px;color:#7c8a87;margin:8px 0;background:#f1f5f3;border-radius:8px;padding:9px 11px">Other users: please <strong>coordinate with the Superadmin</strong> to regain access to your account.</p>
+        <p style="font-size:11px;color:#0e2b27;font-weight:700;margin:12px 0 0">Superadmin recovery</p>
+        <p style="font-size:11px;color:#7c8a87;margin:2px 0 0">Resets the Superadmin password using the admin secret.</p>
         <div class="dg-err" id="drErr"></div>
-        <label>Username<input id="drUser" autocapitalize="characters" value="SUPERADMIN"></label>
         <label>Admin secret<input id="drSecret" type="password" placeholder="Superadmin admin secret"></label>
         <label>New password<input id="drPass" type="password" placeholder="At least 8 characters"></label>
-        <button class="primary-btn" id="drBtn" type="button">Reset password</button>
+        <button class="primary-btn" id="drBtn" type="button">Reset Superadmin password</button>
       </div>
     </div>
   </div>
@@ -142,6 +143,7 @@
         <i data-icon="chevron"></i>
       </button>
       <div class="role-menu" id="roleMenu" hidden>
+        <button id="dashChangeName">Change my display name</button>
         <button id="dashChangePw">Change my password</button>
         <button id="dashLogoutBtn" style="color:#c2503a">Sign out</button>
       </div>
