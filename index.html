@@ -56,9 +56,58 @@
     .board-column[data-drop="pending"] .column-head strong:after{content:" ⤺";color:#9aa6a2;font-weight:400}
     #jobDetailModal.modal{width:min(720px,calc(100% - 30px))}#jobDetailModal{max-height:92vh;overflow:auto}
     #jdHistory{white-space:pre-wrap;font:11px/1.6 'DM Sans',sans-serif;color:#566b66;background:#f8f9f7;border:1px solid var(--line);border-radius:10px;padding:12px;max-height:170px;overflow:auto;margin:6px 0}
+    /* Dashboard login gate */
+    .dash-gate{position:fixed;inset:0;z-index:200;background:linear-gradient(150deg,#071f1d,#0c3a34);display:flex;align-items:center;justify-content:center;padding:20px}
+    .dash-card{width:min(380px,100%);background:#fff;border-radius:18px;padding:28px 26px;box-shadow:0 30px 80px rgba(0,0,0,.35)}
+    .dash-card h2{font:800 20px Manrope;margin:6px 0 2px;color:#0e2b27}
+    .dash-card p{font-size:12px;color:#7c8a87;margin:0 0 16px}
+    .dash-card .dg-brand{display:flex;align-items:center;gap:10px;margin-bottom:14px;font:800 14px Manrope;color:#0e2b27}
+    .dash-card .dg-brand .mk{width:30px;height:30px;border-radius:8px;background:var(--lime,#c9f36a);display:flex;align-items:center;justify-content:center}
+    .dash-card label{display:block;font:600 11px 'DM Sans';color:#52635f;margin:10px 0 0}
+    .dash-card input{width:100%;margin-top:5px;padding:11px 12px;border:1px solid #d9e0dc;border-radius:10px;font:500 14px 'DM Sans';box-sizing:border-box}
+    .dash-card .primary-btn{width:100%;justify-content:center;margin-top:16px}
+    .dg-err{background:#fdecea;color:#c2503a;font-size:11px;border-radius:8px;padding:8px 10px;margin-bottom:6px;display:none}
+    .dg-err.show{display:block}
+    .access-table input[type=checkbox]{width:16px;height:16px}
   </style>
 </head>
 <body>
+  <!-- Dashboard login gate -->
+  <div id="dashGate" class="dash-gate" style="display:flex">
+    <div class="dash-card">
+      <div class="dg-brand"><span class="mk"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#0e2b27" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>FieldFlow Console</div>
+      <h2>Sign in</h2>
+      <p>Operations dashboard access</p>
+      <div class="dg-err" id="dlErr"></div>
+      <form id="dashLoginForm">
+        <label>Username<input id="dlUser" autocapitalize="characters" autocomplete="username" placeholder="e.g. DISPATCH01"></label>
+        <label>Password<input id="dlPass" type="password" autocomplete="current-password" placeholder="••••••••"></label>
+        <button class="primary-btn" id="dlBtn" type="submit">Sign in</button>
+      </form>
+      <button id="dashForgot" type="button" style="background:none;border:none;color:#107b5e;font:600 11px 'DM Sans';margin-top:12px;cursor:pointer;padding:0">Forgot password? (Superadmin recovery)</button>
+      <div id="dashRecover" style="display:none;margin-top:6px">
+        <p style="font-size:11px;color:#7c8a87;margin:8px 0">Recover using the admin secret. Resets the account's password and asks for a new one on next login.</p>
+        <div class="dg-err" id="drErr"></div>
+        <label>Username<input id="drUser" autocapitalize="characters" value="SUPERADMIN"></label>
+        <label>Admin secret<input id="drSecret" type="password" placeholder="Superadmin admin secret"></label>
+        <label>New password<input id="drPass" type="password" placeholder="At least 8 characters"></label>
+        <button class="primary-btn" id="drBtn" type="button">Reset password</button>
+      </div>
+    </div>
+  </div>
+  <div id="dashPwGate" class="dash-gate" style="display:none">
+    <div class="dash-card">
+      <h2>Set a new password</h2>
+      <p>First sign-in — please replace the default password.</p>
+      <div class="dg-err" id="dpwErr"></div>
+      <form id="dashPwForm">
+        <label>New password<input id="dpw1" type="password" autocomplete="new-password" placeholder="At least 8 characters"></label>
+        <label>Confirm new password<input id="dpw2" type="password" autocomplete="new-password" placeholder="Re-enter password"></label>
+        <button class="primary-btn" id="dpwBtn" type="submit">Save password</button>
+      </form>
+    </div>
+  </div>
+
   <div class="app-shell">
     <div class="sidebar-scrim" id="sidebarScrim" hidden></div>
     <aside class="sidebar" id="sidebar">
@@ -79,6 +128,7 @@
         <button class="nav-item" data-page="completed"><i data-icon="check"></i><span>Completed</span></button>
         <button class="nav-item" data-page="remittance"><i data-icon="wallet"></i><span>Remittance</span></button>
         <button class="nav-item" data-page="history"><i data-icon="clipboard"></i><span>Load History</span></button>
+        <button class="nav-item" data-page="access" style="display:none"><i data-icon="users"></i><span>Access Control</span></button>
       </nav>
       <div class="sidebar-spacer"></div>
       <div class="shift-card">
@@ -92,10 +142,8 @@
         <i data-icon="chevron"></i>
       </button>
       <div class="role-menu" id="roleMenu" hidden>
-        <button data-role="Operations Manager">Operations Manager</button>
-        <button data-role="Dispatcher">Dispatcher</button>
-        <button data-role="Sales Agent">Sales Agent</button>
-        <button data-role="Finance Officer">Finance Officer</button>
+        <button id="dashChangePw">Change my password</button>
+        <button id="dashLogoutBtn" style="color:#c2503a">Sign out</button>
       </div>
     </aside>
 
@@ -300,6 +348,24 @@
         <article class="panel full-table">
           <div class="filter-row"><div><h2 style="font:800 13px Manrope;margin:0">Weekly load log</h2><p style="font-size:10px;color:#8a9894;margin:4px 0 0">I-click ang isang load para makita ang buong detalye at history.</p></div></div>
           <div class="table-wrap"><table><thead><tr><th>Date</th><th>Work order</th><th>J.O. No</th><th>Subscriber</th><th>Team</th><th>Status</th><th>Dispatched</th><th>Area</th></tr></thead><tbody id="historyBody"></tbody></table></div>
+        </article>
+      </section>
+      <section id="accessPage" class="page">
+        <div class="page-toolbar"><div><h2>Access control</h2><p>Gumawa ng user, mag-assign ng role/access, at mag-reset ng password. Superadmin lang ang makaka-access dito.</p></div></div>
+        <article class="panel full-table" style="margin-bottom:14px">
+          <div class="filter-row"><div><h2 style="font:800 13px Manrope;margin:0">Create new user</h2><p style="font-size:10px;color:#8a9894;margin:4px 0 0">Gagawa ng login account. I-set ang access sa table sa baba pagkatapos. Kailangan ng admin secret.</p></div></div>
+          <div class="form-grid" style="padding:14px 20px;grid-template-columns:repeat(2,1fr);gap:10px 16px">
+            <label class="field"><span>Username *</span><input id="cuUser" placeholder="e.g. DISPATCH04" autocapitalize="characters"></label>
+            <label class="field"><span>Display name</span><input id="cuName" placeholder="Dispatcher 04"></label>
+            <label class="field"><span>Role label</span><input id="cuRole" placeholder="Dispatcher"></label>
+            <label class="field"><span>Temp password * (min 8)</span><input id="cuPass" placeholder="Ahba@2026"></label>
+            <label class="field" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="cuSuper" style="width:16px;height:16px"><span style="margin:0">Make superadmin (full access)</span></label>
+            <div style="display:flex;align-items:flex-end"><button class="primary-btn" id="cuCreate" type="button">Create user</button></div>
+          </div>
+        </article>
+        <article class="panel full-table">
+          <div class="filter-row"><div><h2 style="font:800 13px Manrope;margin:0">Dashboard users</h2><p style="font-size:10px;color:#8a9894;margin:4px 0 0">I-tick ang access, tapos i-click ang Save sa bawat user. Default password: Ahba@2026 (papalitan sa unang login).</p></div></div>
+          <div class="table-wrap access-table" id="accessWrap"></div>
         </article>
       </section>
     </main>

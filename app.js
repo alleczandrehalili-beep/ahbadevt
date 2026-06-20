@@ -443,7 +443,7 @@ function renderNotifPop(){
   injectIcons();
 }
 
-function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>{const on=n.dataset.page===page;n.classList.toggle('active',on);on?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current')});const labels={overview:'Good morning, Allec',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring',accounts:'Technician accounts',attendance:'Attendance · Time records',completed:'Completed jobs',validation:'Validator · New job orders',history:'Load history',remittance:'Remittance · Daily collection'};$('#pageTitle').textContent=labels[page];if(page==='accounts')renderAccounts();if(page==='attendance')renderAttendance();if(page==='completed')renderCompleted();if(page==='validation')renderValidation();if(page==='history')renderHistory();if(page==='remittance')renderRemittance();closeSidebar();scrollTo(0,0)}
+function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>{const on=n.dataset.page===page;n.classList.toggle('active',on);on?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current')});const labels={overview:'Good morning, Allec',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring',accounts:'Technician accounts',attendance:'Attendance · Time records',completed:'Completed jobs',validation:'Validator · New job orders',history:'Load history',remittance:'Remittance · Daily collection',access:'Access control'};$('#pageTitle').textContent=labels[page]||'';if(page==='accounts')renderAccounts();if(page==='attendance')renderAttendance();if(page==='completed')renderCompleted();if(page==='validation')renderValidation();if(page==='history')renderHistory();if(page==='remittance')renderRemittance();if(page==='access')renderAccess();closeSidebar();scrollTo(0,0)}
 
 // ---------- Validator (sales-agent job orders awaiting approval) ----------
 let valJobs=[], valDocs={};
@@ -811,7 +811,7 @@ async function exportHistoryExcel(){
 
 // ---------- Remittance (daily team collections) ----------
 let remJobs=[];
-function currentOperator(){ return 'Allec Zandre A. Halili'+(($('#roleLabel')?.textContent)?(' ('+$('#roleLabel').textContent+')'):''); }
+function currentOperator(){ const u=window.dashUser; const nm=u?(u.display_name||u.username):'Allec Zandre A. Halili'; const rl=u?(u.is_super?'Superadmin':(u.role_label||'')):''; return nm+(rl?(' ('+rl+')'):''); }
 async function renderRemittance(){
   const dEl=$('#remDate'); if(dEl&&!dEl.value){dEl.value=manilaToday();dEl.onchange=renderRemittance;}
   const date=dEl?dEl.value:manilaToday();
@@ -924,6 +924,118 @@ async function submitOrder(e){
   btn.disabled=false; btn.textContent='Submit for validation';
 }
 
+// ---------- Dashboard login + role-based access ----------
+const PAGE_KEYS=[['overview','Overview'],['validation','Validator'],['dispatch','Dispatch'],['teams','Field Teams'],['workorders','Work Orders'],['expenses','Expenses'],['accounts','Accounts'],['attendance','Attendance'],['completed','Completed'],['remittance','Remittance'],['history','Load History']];
+let dashAuth=null; window.dashUser=null;
+const dashEmailFor=u=>u.trim().toLowerCase()+'@ahbadash.app';
+const DH=()=>({apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json'});
+function dgErr(id,msg){const e=$(id); if(!e)return; e.textContent=msg||''; e.classList.toggle('show',!!msg);}
+function startDashAuth(){
+  if(!window.supabase?.createClient){ console.warn('supabase-js not loaded'); return; }
+  dashAuth=window.supabase.createClient(SUPA_URL,SUPA_KEY);
+  dashAuth.auth.getSession().then(({data})=>{
+    if(data.session&&data.session.user) onDashLogin(data.session.user.email);
+    else showDashGate('#dashGate');
+  });
+}
+function showDashGate(which){ ['#dashGate','#dashPwGate'].forEach(g=>{const el=$(g); if(el)el.style.display=(g===which)?'flex':'none';}); }
+function hideDashGates(){ ['#dashGate','#dashPwGate'].forEach(g=>{const el=$(g); if(el)el.style.display='none';}); }
+async function fetchDashUser(email){
+  try{ const r=await fetch(`${SUPA_URL}/rest/v1/dashboard_users?email=eq.${encodeURIComponent(email)}&select=*`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}}); const rows=r.ok?await r.json():[]; return rows[0]||null; }catch(e){ return null; }
+}
+async function onDashLogin(email){
+  const u=await fetchDashUser(email);
+  if(!u){ dgErr('#dlErr','This account is not registered as a dashboard user.'); try{await dashAuth.auth.signOut();}catch(e){} showDashGate('#dashGate'); return; }
+  window.dashUser=u;
+  fetch(`${SUPA_URL}/rest/v1/dashboard_users?username=eq.${encodeURIComponent(u.username)}`,{method:'PATCH',headers:DH(),body:JSON.stringify({last_login:new Date().toISOString()})}).catch(()=>{});
+  if(u.must_change){ showDashGate('#dashPwGate'); return; }
+  hideDashGates(); applyAccess(u);
+}
+function applyAccess(u){
+  const allowed = u.is_super ? PAGE_KEYS.map(p=>p[0]) : (Array.isArray(u.allowed_pages)?u.allowed_pages:[]);
+  $$('.nav-item').forEach(n=>{ const pg=n.dataset.page; if(pg==='access'){ n.style.display=u.is_super?'':'none'; } else { n.style.display=allowed.includes(pg)?'':'none'; } });
+  $$('[data-action="new-order"]').forEach(b=>b.style.display=(u.is_super||allowed.includes('workorders'))?'':'none');
+  const nameEl=$('.user-card strong'); if(nameEl) nameEl.textContent=u.display_name||u.username;
+  const rl=$('#roleLabel'); if(rl) rl.textContent=u.is_super?'Superadmin':(u.role_label||'Dashboard user');
+  const av=$('.user-card .avatar'); if(av) av.textContent=(u.display_name||u.username).split(/\s+/).map(s=>s[0]).slice(0,2).join('').toUpperCase();
+  const first=(allowed[0]||'overview');
+  switchPage(first);
+}
+function dashLogout(){ if(dashAuth) dashAuth.auth.signOut().catch(()=>{}); window.dashUser=null; closePopovers&&closePopovers(); showDashGate('#dashGate'); }
+// Access Control page (superadmin)
+let accessUsers=[];
+async function renderAccess(){
+  const wrap=$('#accessWrap'); if(!wrap)return;
+  wrap.innerHTML='Loading…';
+  try{ const r=await fetch(`${SUPA_URL}/rest/v1/dashboard_users?select=*&order=is_super.desc,username.asc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}}); accessUsers=r.ok?await r.json():[]; }catch(e){accessUsers=[];}
+  const head=`<tr><th>User</th><th>Role</th>${PAGE_KEYS.map(p=>`<th style="text-align:center;font-size:9px">${p[1]}</th>`).join('')}<th></th></tr>`;
+  const rows=accessUsers.map(u=>{
+    if(u.is_super) return `<tr><td><strong>${u.display_name||u.username}</strong><span>${u.username}</span></td><td>Superadmin</td><td colspan="${PAGE_KEYS.length}" style="text-align:center;color:#11825f">Full access (all sections)</td><td><button class="assign-btn" data-resetdash="${u.username}">Reset PW</button></td></tr>`;
+    const allowed=Array.isArray(u.allowed_pages)?u.allowed_pages:[];
+    const cells=PAGE_KEYS.map(p=>`<td style="text-align:center"><input type="checkbox" data-u="${u.username}" data-pg="${p[0]}" ${allowed.includes(p[0])?'checked':''}></td>`).join('');
+    return `<tr><td><strong>${u.display_name||u.username}</strong><span>${u.username}</span></td><td>${u.role_label||''}</td>${cells}<td style="white-space:nowrap"><button class="assign-btn" data-saveaccess="${u.username}">Save</button> <button class="assign-btn" data-resetdash="${u.username}">Reset PW</button></td></tr>`;
+  }).join('');
+  wrap.innerHTML=`<table><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+  $$('#accessWrap [data-saveaccess]').forEach(b=>b.onclick=()=>saveAccess(b.dataset.saveaccess));
+  $$('#accessWrap [data-resetdash]').forEach(b=>b.onclick=()=>resetDashUser(b.dataset.resetdash));
+}
+async function saveAccess(username){
+  const pages=$$(`#accessWrap input[data-u="${username}"]`).filter(c=>c.checked).map(c=>c.dataset.pg);
+  try{
+    await fetch(`${SUPA_URL}/rest/v1/dashboard_users?username=eq.${encodeURIComponent(username)}`,{method:'PATCH',headers:DH(),body:JSON.stringify({allowed_pages:pages,updated_at:new Date().toISOString()})});
+    showToast(`${username}: access updated`);
+  }catch(e){ showToast('Could not save access'); }
+}
+// ---- Secure admin actions via the admin-reset Edge Function ----
+function getAdminSecret(){
+  let s=localStorage.getItem('ahba_admin_secret')||'';
+  if(!s){ s=(prompt('Enter the Superadmin admin secret:')||'').trim(); if(s) localStorage.setItem('ahba_admin_secret',s); }
+  return s;
+}
+async function callAdminFn(payload){
+  const r=await fetch(`${SUPA_URL}/functions/v1/admin-reset`,{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`},body:JSON.stringify(payload)});
+  let out={}; try{out=await r.json()}catch(e){}
+  if(!r.ok||out.error) throw new Error(out.error||('HTTP '+r.status));
+  return out;
+}
+async function createDashUser(){
+  const u=($('#cuUser').value||'').trim().toUpperCase(), nm=($('#cuName').value||'').trim(), rl=($('#cuRole').value||'').trim(), pw=($('#cuPass').value||'').trim(), sup=$('#cuSuper').checked;
+  if(!u){ showToast('Enter a username'); return; }
+  if(pw.length<8){ showToast('Temp password must be at least 8 characters'); return; }
+  const sec=getAdminSecret(); if(!sec){ showToast('Admin secret required'); return; }
+  const btn=$('#cuCreate'); btn.disabled=true; btn.textContent='Creating…';
+  try{
+    await callAdminFn({admin_secret:sec,action:'create',target:'dash',username:u,new_password:pw,display_name:nm||u,role_label:rl||'Dashboard user',is_super:sup,allowed_pages:sup?PAGE_KEYS.map(p=>p[0]):['overview']});
+    showToast(`${u} created. They must change the temp password on first login.`);
+    ['#cuUser','#cuName','#cuRole','#cuPass'].forEach(id=>{const e=$(id);if(e)e.value='';}); $('#cuSuper').checked=false;
+    renderAccess();
+  }catch(e){ showToast('Create failed: '+e.message); }
+  btn.disabled=false; btn.textContent='Create user';
+}
+async function resetDashUser(username){
+  const pw=(prompt(`New temporary password for ${username} (min 8 chars):`,'Ahba@2026')||'').trim();
+  if(pw.length<8){ showToast('Password must be at least 8 characters'); return; }
+  const sec=getAdminSecret(); if(!sec){ showToast('Admin secret required'); return; }
+  try{
+    await callAdminFn({admin_secret:sec,action:'reset',target:'dash',username,new_password:pw});
+    showToast(`${username} password reset. They must change it on next login.`);
+  }catch(e){ showToast('Reset failed: '+e.message); }
+}
+async function dashRecover(){
+  const u=(($('#drUser').value||'SUPERADMIN').trim()||'SUPERADMIN').toUpperCase(), sec=($('#drSecret').value||'').trim(), pw=($('#drPass').value||'').trim();
+  if(!sec){ dgErr('#drErr','Enter the admin secret.'); return; }
+  if(pw.length<8){ dgErr('#drErr','New password must be at least 8 characters.'); return; }
+  const btn=$('#drBtn'); btn.disabled=true; btn.textContent='Resetting…';
+  try{
+    await callAdminFn({admin_secret:sec,action:'reset',target:'dash',username:u,new_password:pw});
+    localStorage.setItem('ahba_admin_secret',sec); dgErr('#drErr','');
+    showToast('Password reset. Sign in with the new password.');
+    $('#dashRecover').style.display='none'; $('#dashLoginForm').style.display='';
+    $('#dlUser').value=u; $('#dlPass').value='';
+  }catch(e){ dgErr('#drErr','Reset failed: '+e.message); }
+  btn.disabled=false; btn.textContent='Reset password';
+}
+
 function init(){
   injectIcons();const d=new Date();$('#todayLabel').textContent=d.toLocaleDateString('en-PH',{timeZone:TZ,weekday:'short',month:'short',day:'numeric'});$$('input[type=date]').forEach(i=>i.value=manilaToday());
   $('#expenseTeam').innerHTML=teams.map(t=>`<option>${t.name}</option>`).join('');
@@ -994,5 +1106,33 @@ function init(){
 
   // Superadmin password reset
   $('#resetNow')?.addEventListener('click',resetNow);
+
+  // ---- Dashboard login + access wiring ----
+  $('#dashLoginForm')?.addEventListener('submit',async e=>{
+    e.preventDefault(); dgErr('#dlErr','');
+    const u=$('#dlUser').value.trim(), p=$('#dlPass').value; if(!u||!p)return;
+    const btn=$('#dlBtn'); btn.disabled=true; btn.textContent='Signing in…';
+    const {data,error}=await dashAuth.auth.signInWithPassword({email:dashEmailFor(u),password:p});
+    btn.disabled=false; btn.textContent='Sign in';
+    if(error){ dgErr('#dlErr',/invalid/i.test(error.message||'')?'Wrong username or password.':(error.message||'Sign-in failed.')); return; }
+    onDashLogin(data.user.email);
+  });
+  $('#dashPwForm')?.addEventListener('submit',async e=>{
+    e.preventDefault(); dgErr('#dpwErr','');
+    const a=$('#dpw1').value, b=$('#dpw2').value;
+    if(a.length<8){ dgErr('#dpwErr','Password must be at least 8 characters.'); return; }
+    if(a!==b){ dgErr('#dpwErr','Passwords do not match.'); return; }
+    const btn=$('#dpwBtn'); btn.disabled=true; btn.textContent='Saving…';
+    const {error}=await dashAuth.auth.updateUser({password:a});
+    btn.disabled=false; btn.textContent='Save password';
+    if(error){ dgErr('#dpwErr',error.message); return; }
+    if(window.dashUser){ fetch(`${SUPA_URL}/rest/v1/dashboard_users?username=eq.${encodeURIComponent(window.dashUser.username)}`,{method:'PATCH',headers:DH(),body:JSON.stringify({must_change:false,password_changed_at:new Date().toISOString()})}).catch(()=>{}); window.dashUser.must_change=false; hideDashGates(); applyAccess(window.dashUser); }
+  });
+  $('#dashLogoutBtn')?.addEventListener('click',dashLogout);
+  $('#dashChangePw')?.addEventListener('click',()=>{ closePopovers&&closePopovers(); showDashGate('#dashPwGate'); });
+  $('#cuCreate')?.addEventListener('click',createDashUser);
+  $('#dashForgot')?.addEventListener('click',()=>{ const r=$('#dashRecover'); r.style.display=r.style.display==='none'?'block':'none'; });
+  $('#drBtn')?.addEventListener('click',dashRecover);
+  startDashAuth();
 }
 document.addEventListener('DOMContentLoaded',init);
