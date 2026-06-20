@@ -77,6 +77,7 @@
         <button class="nav-item" data-page="accounts"><i data-icon="users"></i><span>Accounts</span></button>
         <button class="nav-item" data-page="attendance"><i data-icon="clock"></i><span>Attendance</span></button>
         <button class="nav-item" data-page="completed"><i data-icon="check"></i><span>Completed</span></button>
+        <button class="nav-item" data-page="remittance"><i data-icon="wallet"></i><span>Remittance</span></button>
         <button class="nav-item" data-page="history"><i data-icon="clipboard"></i><span>Load History</span></button>
       </nav>
       <div class="sidebar-spacer"></div>
@@ -256,6 +257,28 @@
         <article class="panel full-table">
           <div class="filter-row"><div><h2 style="font:800 13px Manrope;margin:0">For validation</h2><p style="font-size:10px;color:#8a9894;margin:4px 0 0">Check the ID, Proof of Billing, and Premise photos before approving.</p></div></div>
           <div class="table-wrap"><table><thead><tr><th>Work order</th><th>Sales agent</th><th>Subscriber</th><th>Contact</th><th>Area</th><th>Submitted</th><th>Action</th></tr></thead><tbody id="validationBody"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="remittancePage" class="page">
+        <div class="page-toolbar">
+          <div><h2>Remittance · Daily collection</h2><p>Monitor lahat ng koleksyon ng team kada araw. I-click ang "Mark received" kada JO bago mag-export para ma-validate kung natanggap na ang pera.</p></div>
+          <div class="toolbar-actions">
+            <div class="search-box" style="min-width:auto"><i data-icon="calendar"></i><input id="remDate" type="date"></div>
+            <button class="primary-btn" id="remExport"><i data-icon="arrow"></i>Download Excel</button>
+          </div>
+        </div>
+        <div class="dispatch-stats">
+          <div class="small-stat"><span>Total collection</span><strong id="remTotal">₱0</strong></div>
+          <div class="small-stat"><span>Received</span><strong id="remReceived">₱0</strong></div>
+          <div class="small-stat"><span>Pending</span><strong id="remPending">₱0</strong></div>
+          <div class="small-stat"><span>JO with collection</span><strong id="remCount">0</strong></div>
+          <div class="small-stat"><span>Gcash</span><strong id="remGcash">₱0</strong></div>
+          <div class="small-stat"><span>Cash Remittance</span><strong id="remCash">₱0</strong></div>
+        </div>
+        <article class="panel full-table">
+          <div class="filter-row"><div><h2 style="font:800 13px Manrope;margin:0">Daily collection log</h2><p style="font-size:10px;color:#8a9894;margin:4px 0 0">Bawat na-tanggap ay naka-record sa load history (sino at kailan).</p></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Work order</th><th>J.O. No</th><th>Team</th><th>Account</th><th>Subscriber</th><th>Mode</th><th>Amount</th><th>AR No.</th><th>Received</th></tr></thead><tbody id="remittanceBody"></tbody></table></div>
         </article>
       </section>
 

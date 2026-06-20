@@ -33,7 +33,8 @@
     'ref_no','new_ref','primary_no','other_contact_no','first_name','middle_name','last_name',
     'house_no','street_name','village','brgy','city','in_charge','source_of_sales','referral_name',
     'negative_remark','negative_at','dispatch_count','history','created_at',
-    'payment_mode','payment_amount','ar_no','work_account','crew_driver','crew_tech1','crew_tech2'];
+    'payment_mode','payment_amount','ar_no','work_account','crew_driver','crew_tech1','crew_tech2',
+    'remittance_received','remittance_received_by','remittance_received_at'];
 
   function normalizeJob(row) {
     var j = {

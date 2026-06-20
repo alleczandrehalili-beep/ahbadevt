@@ -87,7 +87,7 @@ async function loadTeamShifts(){
     const r=await fetch(`${SUPA_URL}/rest/v1/attendance?select=username,time_in,time_out,work_account,crew_driver,crew_tech1,crew_tech2,deployed_verified&work_date=eq.${date}&order=time_in.desc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
     const rows=r.ok?await r.json():[];
     const m={};
-    rows.forEach(a=>{ if(!m[a.username]) m[a.username]={account:a.work_account||'',driver:a.crew_driver||'',tech1:a.crew_tech1||'',tech2:a.crew_tech2||'',online:!!(a.time_in&&!a.time_out),time_in:a.time_in,verified:a.deployed_verified===true}; });
+    rows.forEach(a=>{ if(!m[a.username]) m[a.username]={account:a.work_account||'',driver:a.crew_driver||'',tech1:a.crew_tech1||'',tech2:a.crew_tech2||'',online:!!(a.time_in&&!a.time_out),time_in:a.time_in,verified:a.deployed_verified===true,verified_by:a.verified_by||'',verified_at:a.verified_at||''}; });
     shiftByTeam=m;
   }catch(e){}
 }
@@ -106,8 +106,10 @@ function teamCounted(code){const s=shiftByTeam[code]||{};return s.verified===tru
 // Dispatcher confirms (or unconfirms) that a signed-in team is really deployed
 async function verifyTeamDeployed(code,val){
   const date=manilaToday();
+  const who=currentOperator(), now=new Date().toISOString();
+  const payload=val?{deployed_verified:true,verified_by:who,verified_at:now}:{deployed_verified:false,verified_by:null,verified_at:null};
   try{
-    await fetch(`${SUPA_URL}/rest/v1/attendance?username=eq.${code}&work_date=eq.${date}`,{method:'PATCH',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({deployed_verified:val})});
+    await fetch(`${SUPA_URL}/rest/v1/attendance?username=eq.${code}&work_date=eq.${date}`,{method:'PATCH',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify(payload)});
     await loadTeamShifts();
     renderTeams($('#teamSearch')?.value||'');
     if($('#expensesPage')?.classList.contains('active')) renderExpenses();
@@ -313,6 +315,8 @@ function openTeamDetail(code){
     F('Completed today',teamJobs.filter(j=>j.status==='completed').length+''),
     F('Load activity',teamHasActivity(code)?'Has updated a load ✓':'No load update yet'),
     F('Dispatcher verification',s.verified?'Verified deployed ✓':'Not verified'),
+    F('Verified by',s.verified?(s.verified_by||'—'):'—'),
+    F('Verified at',s.verified&&s.verified_at?fmtWhen(s.verified_at):'—'),
     F('Counted in expenses',teamCounted(code)?'Yes':'Not yet')
   ].join('');
   const vb=$('#tdVerify');
@@ -439,7 +443,7 @@ function renderNotifPop(){
   injectIcons();
 }
 
-function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>{const on=n.dataset.page===page;n.classList.toggle('active',on);on?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current')});const labels={overview:'Good morning, Allec',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring',accounts:'Technician accounts',attendance:'Attendance · Time records',completed:'Completed jobs',validation:'Validator · New job orders',history:'Load history'};$('#pageTitle').textContent=labels[page];if(page==='accounts')renderAccounts();if(page==='attendance')renderAttendance();if(page==='completed')renderCompleted();if(page==='validation')renderValidation();if(page==='history')renderHistory();closeSidebar();scrollTo(0,0)}
+function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$(`#${page}Page`).classList.add('active');$$('.nav-item').forEach(n=>{const on=n.dataset.page===page;n.classList.toggle('active',on);on?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current')});const labels={overview:'Good morning, Allec',dispatch:'Dispatch operations',teams:'Field team monitoring',workorders:'Subscriber work orders',expenses:'Expense monitoring',accounts:'Technician accounts',attendance:'Attendance · Time records',completed:'Completed jobs',validation:'Validator · New job orders',history:'Load history',remittance:'Remittance · Daily collection'};$('#pageTitle').textContent=labels[page];if(page==='accounts')renderAccounts();if(page==='attendance')renderAttendance();if(page==='completed')renderCompleted();if(page==='validation')renderValidation();if(page==='history')renderHistory();if(page==='remittance')renderRemittance();closeSidebar();scrollTo(0,0)}
 
 // ---------- Validator (sales-agent job orders awaiting approval) ----------
 let valJobs=[], valDocs={};
@@ -805,6 +809,61 @@ async function exportHistoryExcel(){
   showToast('Load history exported (Excel)');
 }
 
+// ---------- Remittance (daily team collections) ----------
+let remJobs=[];
+function currentOperator(){ return 'Allec Zandre A. Halili'+(($('#roleLabel')?.textContent)?(' ('+$('#roleLabel').textContent+')'):''); }
+async function renderRemittance(){
+  const dEl=$('#remDate'); if(dEl&&!dEl.value){dEl.value=manilaToday();dEl.onchange=renderRemittance;}
+  const date=dEl?dEl.value:manilaToday();
+  const body=$('#remittanceBody'); if(!body)return;
+  body.innerHTML=`<tr><td colspan="9" class="empty-cell">Loading…</td></tr>`;
+  const all=await fetchCompleted(date);
+  // only loads with a declared collection (amount or payment mode)
+  remJobs=all.filter(j=>(j.payment_amount!=null&&Number(j.payment_amount)>0)||j.payment_mode);
+  const sum=k=>remJobs.reduce((a,b)=>a+(k(b)||0),0);
+  const totalCol=sum(j=>Number(j.payment_amount)||0);
+  const recAmt=sum(j=>j.remittance_received?(Number(j.payment_amount)||0):0);
+  const gcash=sum(j=>j.payment_mode==='Gcash'?(Number(j.payment_amount)||0):0);
+  const cash=sum(j=>j.payment_mode==='Cash Remittance'?(Number(j.payment_amount)||0):0);
+  const set=(id,v)=>{const el=$(id);if(el)el.textContent=v};
+  set('#remTotal',money(totalCol)); set('#remReceived',money(recAmt)); set('#remPending',money(totalCol-recAmt)); set('#remCount',remJobs.length+'');
+  set('#remGcash',money(gcash)); set('#remCash',money(cash));
+  if(!remJobs.length){body.innerHTML=`<tr><td colspan="9" class="empty-cell">No collections declared for this day.</td></tr>`;return}
+  body.innerHTML=remJobs.map(j=>{
+    const amt=j.payment_amount!=null?money(j.payment_amount):'—';
+    const recd=j.remittance_received
+      ? `<span class="status completed">✓ Received</span><div style="font-size:8px;color:#8a9894;margin-top:2px">${j.remittance_received_by||''}${j.remittance_received_at?' · '+fmtWhen(j.remittance_received_at):''}</div>`
+      : `<button class="assign-btn" data-received="${j.id}">Mark received</button>`;
+    return `<tr><td><strong>${j.id}</strong></td><td>${j.job_order_no||'—'}</td><td><strong>${j.team||'—'}</strong></td><td>${j.work_account||'—'}</td><td>${j.subscriber||'—'}</td><td>${j.payment_mode||'—'}</td><td><strong>${amt}</strong></td><td>${j.ar_no||'—'}</td><td>${recd}</td></tr>`;
+  }).join('');
+  $$('#remittanceBody [data-received]').forEach(b=>b.onclick=()=>markReceived(b.dataset.received));
+}
+async function markReceived(jobId){
+  const j=remJobs.find(x=>x.id===jobId); if(!j)return;
+  const who=currentOperator(), now=new Date().toISOString();
+  const hist=appendHistory(j.history, `Remittance received (${j.payment_mode||''} ${j.payment_amount!=null?money(j.payment_amount):''}${j.ar_no?' · AR '+j.ar_no:''}) by ${who}`);
+  try{
+    await fetch(`${SUPA_URL}/rest/v1/jobs?id=eq.${encodeURIComponent(jobId)}`,{method:'PATCH',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({remittance_received:true,remittance_received_by:who,remittance_received_at:now,history:hist,updated_at:now})});
+    j.remittance_received=true; j.remittance_received_by=who; j.remittance_received_at=now; j.history=hist;
+    renderRemittance(); showToast(`${jobId}: remittance received`);
+  }catch(e){ showToast('Could not mark received'); }
+}
+function exportRemittance(){
+  if(typeof XLSX==='undefined'){showToast('Excel library still loading');return}
+  if(!remJobs.length){showToast('Nothing to export for this day');return}
+  const rows=remJobs.map(j=>({
+    'DATE': $('#remDate').value, 'WO ID': j.id, 'JOB ORDER NO.': j.job_order_no||'', 'TEAM': j.team||'',
+    'ACCOUNT': j.work_account||'', 'DRIVER': j.crew_driver||'', 'SUBSCRIBER': j.subscriber||'',
+    'MODE OF PAYMENT': j.payment_mode||'', 'AMOUNT': (j.payment_amount!=null?j.payment_amount:''), 'AR NO.': j.ar_no||'',
+    'RECEIVED': j.remittance_received?'YES':'NO', 'RECEIVED BY': j.remittance_received_by||'', 'RECEIVED AT': j.remittance_received_at?fmtWhen(j.remittance_received_at):''
+  }));
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Remittance');
+  const out=XLSX.write(wb,{type:'array',bookType:'xlsx'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([out],{type:'application/octet-stream'})); a.download=`AHBA_remittance_${$('#remDate').value}.xlsx`; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+  showToast('Remittance exported (Excel)');
+}
+
 function init(){
   injectIcons();const d=new Date();$('#todayLabel').textContent=d.toLocaleDateString('en-PH',{timeZone:TZ,weekday:'short',month:'short',day:'numeric'});$$('input[type=date]').forEach(i=>i.value=manilaToday());
   $('#expenseTeam').innerHTML=teams.map(t=>`<option>${t.name}</option>`).join('');
@@ -872,6 +931,7 @@ function init(){
   $('#exportBtn')?.addEventListener('click',exportZip);
   $('#clearBtn')?.addEventListener('click',clearCloud);
   $('#histExport')?.addEventListener('click',exportHistoryExcel);
+  $('#remExport')?.addEventListener('click',exportRemittance);
 
   // Validator badge (count of pending sales-agent submissions)
   refreshValBadge(); setInterval(refreshValBadge,30000);
