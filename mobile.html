@@ -450,9 +450,10 @@
       const job=jobs.find(j=>j.id===id); if(!job) return;
       if(next==='completed' && photoCount(id)<PHOTOS_REQUIRED){ toast(`Attach ${PHOTOS_REQUIRED} photos first (${photoCount(id)}/${PHOTOS_REQUIRED})`); return; }
       const prev=job.status; job.status=next; render(); setSync('syncing','Saving…');
-      const {error}=await sb.from('jobs').update({status:next, updated_at:new Date().toISOString()}).eq('id',id);
+      const hist=appendHist(job.history, `→ ${statusLabel(next)} (by ${myTeam})`);
+      const {error}=await sb.from('jobs').update({status:next, history:hist, updated_at:new Date().toISOString()}).eq('id',id);
       if(error){ job.status=prev; render(); setSync('error','Sync error'); toast('Could not save: '+error.message); }
-      else { setSync('live','Synced'); toast(`${id} → ${statusLabel(next)}`); }
+      else { job.history=hist; setSync('live','Synced'); toast(`${id} → ${statusLabel(next)}`); }
     }
     // Compress/resize a photo so each upload stays small (~120 KB) to save cloud space.
     function compressImage(file, maxDim=1000, targetKB=120){

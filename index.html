@@ -32,14 +32,17 @@
     .doc-sec h4{font:800 10px Manrope;letter-spacing:.08em;text-transform:uppercase;color:#107b5e;margin:10px 0 8px}
     #valModal.modal{width:min(820px,calc(100% - 30px))}
     #valModal{max-height:92vh;overflow:auto}
-    .dispatch-board{grid-template-columns:repeat(6,1fr)}
-    @media(max-width:1200px){.dispatch-board{grid-template-columns:repeat(3,1fr)}}
-    @media(max-width:760px){.dispatch-board{grid-template-columns:1fr}}
+    .dispatch-board{display:flex!important;grid-template-columns:none!important;gap:12px;overflow-x:auto;padding-bottom:8px}
+    .board-column{flex:0 0 230px;min-width:230px}
     .status.negative{background:#fdecea;color:#c2503a}
+    .status.cancelled{background:#f1f1f1;color:#7a7f7d}
+    .job-card{cursor:pointer}
     .job-card[draggable]{cursor:grab}
     .job-card[draggable]:active{cursor:grabbing}
     .board-column.drop-hover{outline:2px dashed var(--green,#18a57b);outline-offset:-2px;background:#e7f4ed}
     .board-column[data-drop="pending"] .column-head strong:after{content:" ⤺";color:#9aa6a2;font-weight:400}
+    #jobDetailModal.modal{width:min(720px,calc(100% - 30px))}#jobDetailModal{max-height:92vh;overflow:auto}
+    #jdHistory{white-space:pre-wrap;font:11px/1.6 'DM Sans',sans-serif;color:#566b66;background:#f8f9f7;border:1px solid var(--line);border-radius:10px;padding:12px;max-height:170px;overflow:auto;margin:6px 0}
   </style>
 </head>
 <body>
@@ -311,6 +314,7 @@
 
   <dialog id="assignModal" class="modal small-modal">
     <div class="modal-head"><div><span class="eyebrow">DISPATCH</span><h2>Assign a field team</h2><p id="assignJobLabel"></p></div><button type="button" class="icon-btn close-modal"><i data-icon="close"></i></button></div>
+    <div style="padding:14px 20px 2px"><label class="field"><span>J.O. Number <em id="joLock" style="font-style:normal;color:#9aa6a2"></em></span><input id="assignJONum" placeholder="e.g. R3393914"><span style="font-size:9px;color:#8a9894">Makikita ng technician. Hindi na mabubura kapag naset na (kahit mag-negative).</span></label></div>
     <div class="assignment-list" id="assignmentList"></div>
   </dialog>
 
@@ -322,6 +326,14 @@
       <p style="font-size:11px;color:#7c8a87;margin:0">The user will be asked to choose their own new password on next login. Tell them this temporary password.</p>
     </div>
     <div class="modal-actions"><button type="button" class="secondary-btn close-modal">Close</button><a class="text-btn" href="https://supabase.com/dashboard/project/avjzkfxgzeyxtihkofed/auth/users" target="_blank" rel="noopener" style="align-self:center">Or reset in Supabase</a><button type="button" class="primary-btn" id="resetNow">Reset now</button></div>
+  </dialog>
+
+  <dialog id="jobDetailModal" class="modal">
+    <div class="modal-head"><div><span class="eyebrow">JOB ORDER</span><h2 id="jdTitle">Job order</h2><p id="jdSub"></p></div><button type="button" class="icon-btn close-modal"><i data-icon="close"></i></button></div>
+    <div style="padding:18px 25px 4px"><div class="info-grid" id="jdInfo"></div></div>
+    <div style="padding:8px 25px 0"><div class="form-sec" style="font:800 10px Manrope;letter-spacing:.08em;text-transform:uppercase;color:#107b5e;margin:8px 0 4px">Status history</div><pre id="jdHistory"></pre></div>
+    <div style="padding:4px 25px 0"><label class="field"><span>Dispatcher status update</span><select id="jdStatus"><option value="">— Select status —</option><option value="completed">Completed</option><option value="incomplete">Incomplete → For Dispatch</option><option value="redispatch">Re-dispatch → For Dispatch</option><option value="cancelled">Cancelled</option></select></label></div>
+    <div class="modal-actions"><button type="button" class="secondary-btn close-modal">Close</button><button type="button" class="primary-btn" id="jdApply">Apply update</button></div>
   </dialog>
 
   <dialog id="photoModal" class="modal">

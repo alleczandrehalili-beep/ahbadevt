@@ -121,11 +121,11 @@ function renderJobs(){
   $('#queueBody').innerHTML=pending.slice(0,4).map(j=>`<tr><td><strong>${j.id}</strong><span>${j.priority}</span></td><td><strong>${j.subscriber}</strong></td><td>${j.type}</td><td>${j.area}</td><td><span class="status pending">${j.wait}</span></td><td><button class="assign-btn" data-assign="${j.id}">Assign</button></td></tr>`).join('')||'<tr><td colspan="6" class="empty-cell">No jobs waiting for dispatch.</td></tr>';
   $('#workOrderBody').innerHTML=jobs.map(j=>`<tr data-type="${j.type.toLowerCase()}" data-status="${j.status}" data-text="${(j.id+' '+j.subscriber+' '+j.area).toLowerCase()}"><td><strong>${j.id}</strong><span>${j.priority}</span></td><td><strong>${j.subscriber}</strong><span>${j.plan}</span></td><td>${j.type}</td><td>${j.area}</td><td>${j.team||'—'}</td><td><span class="status ${j.status}">${statusLabel(j.status)}</span></td><td>${j.schedule}</td></tr>`).join('');
   const today=manilaToday();
-  const stages=[['pending','For Dispatch'],['assigned','Dispatched'],['en-route','Travel'],['on-site,in-progress','On Site'],['negative','Negative'],['completed','Completed']];
+  const stages=[['pending','For Dispatch'],['assigned','Dispatched'],['en-route','Travel'],['on-site,in-progress','On Site'],['negative','Negative'],['completed','Completed'],['cancelled','Cancelled']];
   $('#dispatchBoard').innerHTML=stages.map(([keys,label])=>{
     let list;
     if(keys==='negative'){ list=jobs.filter(j=>j.status==='negative'); }
-    else { list=jobs.filter(j=>keys.split(',').includes(j.status)); if(keys==='completed') list=list.filter(j=>j.updatedAt && new Date(j.updatedAt).toLocaleDateString('en-CA',{timeZone:TZ})===today); }
+    else { list=jobs.filter(j=>keys.split(',').includes(j.status)); if(keys==='completed'||keys==='cancelled') list=list.filter(j=>j.updatedAt && new Date(j.updatedAt).toLocaleDateString('en-CA',{timeZone:TZ})===today); }
     return `<div class="board-column" data-drop="${keys}"><div class="column-head"><strong>${label}</strong><span>${list.length}</span></div>${list.map(jobCard).join('')||'<div class="job-card empty"><p>No jobs in this stage.</p></div>'}</div>`;
   }).join('');
   const counts=[['Waiting',pending.length],['Assigned',jobs.filter(j=>j.status==='assigned').length],['On the road',jobs.filter(j=>j.status==='en-route').length],['In service',jobs.filter(j=>['on-site','in-progress'].includes(j.status)).length]];
@@ -157,7 +157,37 @@ function unassignJob(jobId){
   save(); renderJobs(); showToast(`${jobId} → For Dispatch${wasNeg?' (High priority)':''}`);
   if(window.AHBASync) window.AHBASync(j);
 }
+function openJobDetail(jobId){
+  const j=jobs.find(x=>x.id===jobId)||{};
+  $('#jdTitle').textContent=`${j.id} · ${j.subscriber||''}`;
+  $('#jdSub').textContent=`${statusLabel(j.status||'—')}${j.team?' · '+j.team:''}${j.dispatch_count?' · ⟳ ×'+j.dispatch_count:''}`;
+  const F=(l,v)=>`<div><b>${l}</b>${v||'—'}</div>`;
+  $('#jdInfo').innerHTML=[
+    F('Subscriber',j.subscriber),F('Primary no.',j.primary_no),F('Other contact',j.other_contact_no),
+    F('J.O. Number',j.job_order_no),F('IBASS acct',j.ibass_acct_no),F('Plan / 1P-2P',[j.plan,j.play_type].filter(Boolean).join(' · ')),
+    F('Address',j.address),F('Barangay',j.brgy),F('City',j.city||j.area),
+    F('Team',j.team),F('Status',statusLabel(j.status||'')),F('Priority',j.priority),
+    F('Source / Referral',[j.source_of_sales,j.referral_name].filter(Boolean).join(' · ')),
+    F('Schedule',j.schedule),F('Negative remark',j.negative_remark)
+  ].join('');
+  $('#jdHistory').textContent=j.history||'No history yet.';
+  $('#jdStatus').value='';
+  $('#jdApply').onclick=()=>{const c=$('#jdStatus').value; if(!c){showToast('Select a status to apply');return;} applyStatusUpdate(jobId,c);};
+  openModal($('#jobDetailModal'));
+}
+function applyStatusUpdate(jobId,choice){
+  const j=jobs.find(x=>x.id===jobId); if(!j)return;
+  if(choice==='completed') j.status='completed';
+  else if(choice==='cancelled') j.status='cancelled';
+  else { j.status='pending'; j.team=null; }  // incomplete / re-dispatch → For Dispatch
+  const label={completed:'Completed',incomplete:'Incomplete → For Dispatch',redispatch:'Re-dispatch → For Dispatch',cancelled:'Cancelled'}[choice];
+  j.history=appendHistory(j.history, `Status → ${label} (by Dispatcher)`);
+  j.updatedAt=new Date().toISOString();
+  save(); closeModals(); renderJobs(); showToast(`${jobId}: ${label}`);
+  if(window.AHBASync) window.AHBASync(j);
+}
 function wireDispatchDnD(){
+  $$('#dispatchBoard .job-card[data-detail]').forEach(c=>c.onclick=e=>{ if(e.target.closest('button'))return; openJobDetail(c.dataset.detail); });
   $$('#dispatchBoard [data-unassign]').forEach(b=>b.onclick=()=>unassignJob(b.dataset.unassign));
   $$('#dispatchBoard [data-jobid]').forEach(card=>{
     card.ondragstart=e=>{e.dataTransfer.setData('text/plain',card.dataset.jobid);e.dataTransfer.effectAllowed='move';card.style.opacity='.45'};
@@ -180,7 +210,7 @@ function jobCard(j){
     : canBounce
       ? `<div class="job-actions" style="align-items:center"><span class="status ${j.status}">${j.team||statusLabel(j.status)}</span><button class="assign-btn" data-unassign="${j.id}" title="Return to For Dispatch" style="margin-left:auto">${btnLabel}</button></div>`
       : `<div class="job-actions"><span class="status ${j.status}">${j.team||statusLabel(j.status)}</span></div>`;
-  return `<article class="job-card"${drag}><div class="job-top"><span class="job-id">${j.id}</span>${dc}${j.priority!=='Normal'?`<span class="priority">${j.priority}</span>`:''}</div><h3>${j.subscriber}</h3><p>${j.type} · ${j.plan}</p><div class="job-meta"><span>⌖ ${j.area}</span><span>${(j.schedule||'').replace('Today, ','')}</span></div>${remark}${actions}</article>`;
+  return `<article class="job-card" data-detail="${j.id}"${drag}><div class="job-top"><span class="job-id">${j.id}</span>${dc}${j.priority!=='Normal'?`<span class="priority">${j.priority}</span>`:''}</div><h3>${j.subscriber}</h3><p>${j.type} · ${j.plan}</p><div class="job-meta"><span>⌖ ${j.area}</span><span>${(j.schedule||'').replace('Today, ','')}</span></div>${remark}${actions}</article>`;
 }
 function renderTeams(filter=''){$('#teamGrid').innerHTML=teams.filter(t=>(t.name+t.area+t.code).toLowerCase().includes(filter.toLowerCase())).map(t=>`<article class="team-card"><div class="team-card-head"><span class="team-avatar" style="background:${t.color}">${t.short}</span><div><h3>${t.name}</h3><p>${t.members} technicians · ${t.area}</p></div></div><span class="status ${t.status}">${statusLabel(t.status)}</span><div class="load-row"><span>Today’s load</span><b>${t.jobs} / 5 jobs</b></div><div class="load-bar"><span style="width:${t.jobs/5*100}%"></span></div><div class="team-info"><span>Current area<strong>${t.area}</strong></span><span>Completed<strong>${t.completed} jobs · ★ ${t.rating}</strong></span></div></article>`).join('')||'<div class="empty-row">No teams match your search.</div>'}
 const DEPLOY_COST=2100;
@@ -236,6 +266,7 @@ function applyJobTableFilter(){
 
 async function openAssign(jobId){
   const job=jobs.find(j=>j.id===jobId);$('#assignJobLabel').textContent=`${job.id} · ${job.subscriber} · ${job.area}`;$('#assignModal').dataset.job=jobId;
+  const joEl=$('#assignJONum'); if(joEl){ joEl.value=job.job_order_no||''; joEl.readOnly=!!job.job_order_no; joEl.style.background=job.job_order_no?'#f1f3f1':''; if($('#joLock'))$('#joLock').textContent=job.job_order_no?'(locked)':''; }
   openModal($('#assignModal'));
   $('#assignmentList').innerHTML='<div class="empty-row">Finding nearest teams by GPS…</div>';
   await fetchTechLocations();
@@ -261,7 +292,7 @@ async function openAssign(jobId){
   }).join('');
   $$('[data-team]').forEach(b=>b.onclick=()=>assignTeam(jobId,b.dataset.team));
 }
-function assignTeam(jobId,team){const j=jobs.find(x=>x.id===jobId);j.team=team;j.status='assigned';j.dispatch_count=(j.dispatch_count||0)+1;j.history=appendHistory(j.history,`Dispatched to ${team} (#${j.dispatch_count})`);save();closeModals();renderJobs();showToast(`${team} assigned to ${jobId}`);if(window.AHBASync)window.AHBASync(j)}
+function assignTeam(jobId,team){const j=jobs.find(x=>x.id===jobId);const joVal=(($('#assignJONum')&&$('#assignJONum').value)||'').trim();if(joVal&&!j.job_order_no)j.job_order_no=joVal;j.team=team;j.status='assigned';j.dispatch_count=(j.dispatch_count||0)+1;j.history=appendHistory(j.history,`Dispatched to ${team} (#${j.dispatch_count})${j.job_order_no?' · JO '+j.job_order_no:''}`);save();closeModals();renderJobs();showToast(`${team} assigned to ${jobId}`);if(window.AHBASync)window.AHBASync(j)}
 function openModal(modal){$('#modalBackdrop').classList.add('show');modal.showModal()}
 function closeModals(){$$('dialog[open]').forEach(d=>d.close());$('#modalBackdrop').classList.remove('show')}
 
