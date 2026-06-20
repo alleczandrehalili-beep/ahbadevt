@@ -400,12 +400,25 @@
     const ACCOUNTS=["msp-vince.abrasaldo","msp-ronnel.agno","msp-joshua.ampuan","msp-arijim.astarani","msp-dave.bolivar","msp-mark.bulan","msp-leo.caroscos","msp-prince.cas","msp-fidel.casica","msp-alfredo.celoso","msp-dionisio.chua","msp-arvin.copada","msp-marc.david","msp-ronie.delosreyes","msp-daniel.dorado","msp-elijah.emilia","msp-john.feniquito","msp-steven.halim","msp-dannie.igot","msp-isagan.lizarondo","msp-reyna.magallanes","msp-dante.martinez","msp-noel.mendoza","msp-johai.pangonotan","msp-joshua.paraiso","msp-marjun.peralta","msp-joshua.regalario","msp-junrasir.sahir","msp-chrisman.samson","msp-clark.tagalog","msp-edzel.tugonon","msp-markjay.alapan","msp-jayrex.ascano"];
     let shiftAccount='', shiftDriver='', shiftTech1='', shiftTech2='';
     function shiftKey(){ return 'ahba_shift_'+myTeam; }
-    function openShift(){
+    async function takenAccounts(){
+      // accounts currently in use by OTHER teams that are still timed in today
+      const taken={};
+      try{
+        const {data}=await sb.from('attendance').select('username,work_account,time_out').eq('work_date',manilaDate());
+        (data||[]).forEach(a=>{ if(a.work_account && !a.time_out && a.username!==myTeam) taken[a.work_account]=a.username; });
+      }catch(e){}
+      return taken;
+    }
+    async function openShift(){
       const sel=$('#sf_account');
-      if(sel.options.length<=1) ACCOUNTS.forEach(a=>{const o=document.createElement('option');o.value=a;o.textContent=a;sel.appendChild(o);});
+      const taken=await takenAccounts();
+      sel.innerHTML='<option value="">— Select account —</option>';
+      ACCOUNTS.forEach(a=>{ const o=document.createElement('option'); o.value=a;
+        if(taken[a]){ o.textContent=a+' — in use'; o.disabled=true; } else { o.textContent=a; }
+        sel.appendChild(o); });
       // prefill from last saved shift for this team (today only)
       try{ const s=JSON.parse(localStorage.getItem(shiftKey())||'null');
-        if(s && s.date===manilaDate()){ sel.value=s.account||''; $('#sf_driver').value=s.driver||''; $('#sf_tech1').value=s.tech1||''; $('#sf_tech2').value=s.tech2||''; }
+        if(s && s.date===manilaDate() && !taken[s.account]){ sel.value=s.account||''; $('#sf_driver').value=s.driver||''; $('#sf_tech1').value=s.tech1||''; $('#sf_tech2').value=s.tech2||''; }
       }catch(e){}
       clearErr('#shiftErr'); show('shiftView');
     }
@@ -707,14 +720,26 @@
       openShift();              // technicians must set account + crew before starting
     }
 
-    $('#shiftForm').addEventListener('submit', e=>{
+    $('#shiftForm').addEventListener('submit', async e=>{
       e.preventDefault(); clearErr('#shiftErr');
       const acc=$('#sf_account').value, drv=$('#sf_driver').value.trim(), t1=$('#sf_tech1').value.trim(), t2=$('#sf_tech2').value.trim();
       if(!acc){ showErr('#shiftErr','Select an account.'); return; }
       if(!drv){ showErr('#shiftErr','Driver is required.'); return; }
       if(!t1){ showErr('#shiftErr','Technician 1 is required.'); return; }
+      const btn=$('#shiftBtn'); btn.disabled=true; btn.textContent='Starting…';
+      // make sure no other active team grabbed this account in the meantime
+      try{
+        const {data}=await sb.from('attendance').select('username').eq('work_date',manilaDate()).eq('work_account',acc).is('time_out',null).neq('username',myTeam);
+        if(data && data.length){ btn.disabled=false; btn.textContent='Start shift'; showErr('#shiftErr','Account '+acc+' is already in use by '+data[0].username+'. Please pick another.'); openShift(); return; }
+      }catch(e){}
       shiftAccount=acc; shiftDriver=drv; shiftTech1=t1; shiftTech2=t2;
       try{ localStorage.setItem(shiftKey(), JSON.stringify({date:manilaDate(),account:acc,driver:drv,tech1:t1,tech2:t2})); }catch(e){}
+      // record the shift on today's open attendance row → dashboard + account lock
+      try{
+        if(!attendanceId) await findOpenAttendance();
+        if(attendanceId) await sb.from('attendance').update({work_account:acc,crew_driver:drv,crew_tech1:t1,crew_tech2:t2}).eq('id',attendanceId);
+      }catch(e){ console.warn('shift save',e.message); }
+      btn.disabled=false; btn.textContent='Start shift';
       startApp();
     });
 

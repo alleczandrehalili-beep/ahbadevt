@@ -78,6 +78,20 @@ const safeName=s=>(s||'subscriber').replace(/[\\/:*?"<>|]+/g,'').replace(/\s+/g,
 let leafMap=null, teamMarkers={}, techIndex={};
 function haversineKm(a,b,c,d){const R=6371,toR=x=>x*Math.PI/180;const dLat=toR(c-a),dLng=toR(d-b);const s=Math.sin(dLat/2)**2+Math.cos(toR(a))*Math.cos(toR(c))*Math.sin(dLng/2)**2;return 2*R*Math.asin(Math.sqrt(s))}
 function isOnline(loc){return loc && loc.location_at && (Date.now()-new Date(loc.location_at))<15*60*1000}
+
+// ---- Live team shifts (account + crew) read from today's attendance ----
+let shiftByTeam={};   // { AHBA_SLI001: {account,driver,tech1,tech2,online,time_in} }
+async function loadTeamShifts(){
+  const date=manilaToday();
+  try{
+    const r=await fetch(`${SUPA_URL}/rest/v1/attendance?select=username,time_in,time_out,work_account,crew_driver,crew_tech1,crew_tech2&work_date=eq.${date}&order=time_in.desc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const rows=r.ok?await r.json():[];
+    const m={};
+    rows.forEach(a=>{ if(!m[a.username]) m[a.username]={account:a.work_account||'',driver:a.crew_driver||'',tech1:a.crew_tech1||'',tech2:a.crew_tech2||'',online:!!(a.time_in&&!a.time_out),time_in:a.time_in}; });
+    shiftByTeam=m;
+  }catch(e){}
+}
+function teamCrew(code){const s=shiftByTeam[code]||{};return [s.driver,s.tech1,s.tech2].filter(Boolean).join(', ');}
 function initMap(){
   if(leafMap||typeof L==='undefined'||!document.getElementById('leafletMap'))return;
   leafMap=L.map('leafletMap',{zoomControl:true,attributionControl:false}).setView([14.5995,120.9842],11);
@@ -171,8 +185,8 @@ function openJobDetail(jobId){
     F('Address',j.address),F('Barangay',j.brgy),F('City',j.city||j.area),
     F('Team',j.team),F('Status',statusLabel(j.status||'')),F('Priority',j.priority),
     F('Source / Referral',[j.source_of_sales,j.referral_name].filter(Boolean).join(' · ')),
-    F('Account',j.work_account),
-    F('Crew (Driver / T1 / T2)',[j.crew_driver,j.crew_tech1,j.crew_tech2].filter(Boolean).join(' · ')),
+    F('Account',j.work_account||(j.team&&shiftByTeam[j.team]?shiftByTeam[j.team].account:'')),
+    F('Crew (Driver / T1 / T2)',[j.crew_driver||(j.team&&shiftByTeam[j.team]?shiftByTeam[j.team].driver:''),j.crew_tech1||(j.team&&shiftByTeam[j.team]?shiftByTeam[j.team].tech1:''),j.crew_tech2||(j.team&&shiftByTeam[j.team]?shiftByTeam[j.team].tech2:'')].filter(Boolean).join(' · ')),
     F('Payment',[j.payment_mode, j.payment_amount!=null?('₱'+j.payment_amount):null, j.ar_no?('AR '+j.ar_no):null].filter(Boolean).join(' · ')),
     F('Schedule',j.schedule),F('Negative remark',j.negative_remark)
   ].join('');
@@ -222,16 +236,53 @@ function jobCard(j){
     : canBounce
       ? `<button class="assign-btn" data-unassign="${j.id}" title="Return to For Dispatch" style="margin-top:8px;width:100%">${j.status==='negative'?'↩ For Dispatch (1st Load)':'↩ For Dispatch'}</button>`
       : '';
+  const s=j.team?(shiftByTeam[j.team]||{}):{};
+  const acct=j.work_account||s.account;
+  const crew=[j.crew_driver||s.driver, j.crew_tech1||s.tech1, j.crew_tech2||s.tech2].filter(Boolean).join(', ');
+  const acctLine=acct?`<span>🚐 ${acct}</span>`:'';
+  const crewLine=crew?`<span>👤 ${crew}</span>`:'';
   return `<article class="job-card" data-detail="${j.id}"${drag}>
     <div class="job-top"><span class="job-id">${j.id}</span>${prio}</div>
     <h3 style="margin:7px 0 6px">${j.subscriber||'—'}</h3>
     <div style="display:flex;flex-direction:column;gap:5px;font-size:9px;color:#647571">
       <span><span class="status ${j.status}">${statusLabel(j.status)}</span></span>
       <span>👥 ${j.team||'Unassigned'}</span>
+      ${acctLine}${crewLine}
       <span>🕒 ${enc}</span>
     </div>${action}</article>`;
 }
-function renderTeams(filter=''){$('#teamGrid').innerHTML=teams.filter(t=>(t.name+t.area+t.code).toLowerCase().includes(filter.toLowerCase())).map(t=>`<article class="team-card"><div class="team-card-head"><span class="team-avatar" style="background:${t.color}">${t.short}</span><div><h3>${t.name}</h3><p>${t.members} technicians · ${t.area}</p></div></div><span class="status ${t.status}">${statusLabel(t.status)}</span><div class="load-row"><span>Today’s load</span><b>${t.jobs} / 5 jobs</b></div><div class="load-bar"><span style="width:${t.jobs/5*100}%"></span></div><div class="team-info"><span>Current area<strong>${t.area}</strong></span><span>Completed<strong>${t.completed} jobs · ★ ${t.rating}</strong></span></div></article>`).join('')||'<div class="empty-row">No teams match your search.</div>'}
+function renderTeams(filter=''){
+  $('#teamGrid').innerHTML=teams.filter(t=>(t.name+t.area+t.code).toLowerCase().includes(filter.toLowerCase())).map(t=>{
+    const s=shiftByTeam[t.code]||{};
+    const online=!!s.online;
+    const crew=teamCrew(t.code);
+    const todayJobs=jobs.filter(j=>j.team===t.code).length;
+    const cardStyle=online?'style="cursor:pointer;background:#e9f9f0;border:1px solid #a8e6c9"':'style="cursor:pointer"';
+    const badge=online?'<span class="status en-route">● Online</span>':'<span class="status offline">Offline</span>';
+    const acctLine=online&&s.account?`<div class="team-info"><span>Account<strong>${s.account}</strong></span><span>Crew<strong>${crew||'—'}</strong></span></div>`:'';
+    return `<article class="team-card" data-team="${t.code}" ${cardStyle}><div class="team-card-head"><span class="team-avatar" style="background:${online?'#18a57b':t.color}">${t.short}</span><div><h3>${t.name}</h3><p>${online?'On shift':'Not signed in'} · ${t.area}</p></div></div>${badge}<div class="load-row"><span>Today’s load</span><b>${todayJobs} jobs</b></div><div class="load-bar"><span style="width:${Math.min(todayJobs/5*100,100)}%"></span></div>${acctLine}</article>`;
+  }).join('')||'<div class="empty-row">No teams match your search.</div>';
+  $$('#teamGrid [data-team]').forEach(c=>c.onclick=()=>openTeamDetail(c.dataset.team));
+}
+function openTeamDetail(code){
+  const t=teams.find(x=>x.code===code)||{code}; const s=shiftByTeam[code]||{};
+  const online=!!s.online;
+  const teamJobs=jobs.filter(j=>j.team===code);
+  const F=(l,v)=>`<div><b>${l}</b>${v||'—'}</div>`;
+  $('#tdTitle').textContent=code;
+  $('#tdSub').textContent=online?('On shift since '+(s.time_in?fmtWhen(s.time_in):'—')):'Not signed in today';
+  $('#tdInfo').innerHTML=[
+    F('Status',online?'Online (on shift)':'Offline'),
+    F('Account in use',s.account),
+    F('Driver',s.driver),
+    F('Technician 1',s.tech1),
+    F('Technician 2',s.tech2),
+    F('Jobs today',teamJobs.length+''),
+    F('Active now',teamJobs.filter(j=>['assigned','en-route','on-site','in-progress'].includes(j.status)).map(j=>j.id).join(', ')),
+    F('Completed today',teamJobs.filter(j=>j.status==='completed').length+'')
+  ].join('');
+  openModal($('#teamDetailModal'));
+}
 const DEPLOY_COST=2100;
 async function renderExpenses(){
   const date=manilaToday(), H={apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`};
@@ -706,6 +757,10 @@ function init(){
   $('#expenseTeam').innerHTML=teams.map(t=>`<option>${t.name}</option>`).join('');
   if($('#orderTeam'))$('#orderTeam').innerHTML='<option value="">— Unassigned —</option>'+teams.map(t=>`<option>${t.name}</option>`).join('');
   renderOverview();renderTeams();renderNotifPop();
+
+  // Live team shifts (account + crew, online status) — load now, then refresh every 20s
+  const refreshShifts=()=>loadTeamShifts().then(()=>{ renderTeams($('#teamSearch')?.value||''); if($('#dispatchPage')?.classList.contains('active')||$('#dispatch')?.classList.contains('active')) renderJobs(); });
+  refreshShifts(); setInterval(refreshShifts, 20000);
 
   $$('.nav-item').forEach(b=>b.onclick=()=>switchPage(b.dataset.page));
   $$('[data-page-link]').forEach(b=>b.onclick=()=>switchPage(b.dataset.pageLink));
