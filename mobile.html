@@ -195,8 +195,8 @@
           <div class="field"><label>First name *</label><input id="sa_first_name" autocapitalize="characters" placeholder="CONCHITA"></div>
           <div class="field"><label>Middle name</label><input id="sa_middle_name" autocapitalize="characters"></div>
           <div class="field"><label>Last name *</label><input id="sa_last_name" autocapitalize="characters" placeholder="TOLEDO"></div>
-          <div class="field"><label>Primary no. *</label><input id="sa_primary_no" inputmode="tel" placeholder="09XXXXXXXXX"></div>
-          <div class="field"><label>Other contact no.</label><input id="sa_other_contact_no" inputmode="tel"></div>
+          <div class="field"><label>Primary no. * (11 digits)</label><input id="sa_primary_no" inputmode="numeric" maxlength="11" placeholder="09XXXXXXXXX"></div>
+          <div class="field"><label>Other contact no. (11 digits, optional)</label><input id="sa_other_contact_no" inputmode="numeric" maxlength="11" placeholder="09XXXXXXXXX"></div>
 
           <div class="form-sec">Address</div>
           <div class="field"><label>House no.</label><input id="sa_house_no"></div>
@@ -208,25 +208,25 @@
           <div class="form-sec">Service</div>
           <div class="field"><label>Plan / Ref no.</label><input id="sa_plan" placeholder="SKY-XXXXXXX-XXXXXXX"></div>
           <div class="field"><label>1P / 2P</label><select id="sa_play_type"><option>1-PLAY</option><option>2-PLAY</option></select></div>
-          <div class="field"><label>Source of sales</label><input id="sa_source_of_sales" placeholder="REFERRAL"></div>
+          <div class="field"><label>Source of sales</label><select id="sa_source_of_sales"><option>Referral</option><option>Organic</option></select></div>
           <div class="field"><label>Referral name</label><input id="sa_referral_name"></div>
           <div class="field"><label>Special note</label><textarea id="sa_special_note" rows="2" placeholder="Landmark / access notes"></textarea></div>
 
-          <div class="form-sec">Documents (required)</div>
+          <div class="form-sec">Documents</div>
           <div class="docblock" data-cat="id">
-            <div class="photos-head"><span>Valid ID</span><span class="count need" data-cnt="id">0</span></div>
+            <div class="photos-head"><span>Valid ID <em style="color:#c2503a;font-style:normal">*required</em></span><span class="count need" data-cnt="id">0</span></div>
             <div class="thumbs" data-thumbs="id"></div>
-            <label class="addphoto"><input type="file" accept="image/*" capture="environment" multiple hidden data-doc="id">Add ID photo</label>
+            <div style="display:flex;gap:8px"><label class="addphoto" style="flex:1">📷 Camera<input type="file" accept="image/*" capture="environment" multiple hidden data-doc="id"></label><label class="addphoto" style="flex:1">🖼️ Album<input type="file" accept="image/*" multiple hidden data-doc="id"></label></div>
           </div>
           <div class="docblock" data-cat="billing">
-            <div class="photos-head"><span>Proof of Billing</span><span class="count need" data-cnt="billing">0</span></div>
+            <div class="photos-head"><span>Proof of Billing <em style="color:#9aa6a2;font-style:normal">(optional)</em></span><span class="count" data-cnt="billing">0</span></div>
             <div class="thumbs" data-thumbs="billing"></div>
-            <label class="addphoto"><input type="file" accept="image/*" capture="environment" multiple hidden data-doc="billing">Add billing photo</label>
+            <div style="display:flex;gap:8px"><label class="addphoto" style="flex:1">📷 Camera<input type="file" accept="image/*" capture="environment" multiple hidden data-doc="billing"></label><label class="addphoto" style="flex:1">🖼️ Album<input type="file" accept="image/*" multiple hidden data-doc="billing"></label></div>
           </div>
           <div class="docblock" data-cat="premise">
-            <div class="photos-head"><span>Subscriber Premise</span><span class="count need" data-cnt="premise">0</span></div>
+            <div class="photos-head"><span>Subscriber Premise <em style="color:#9aa6a2;font-style:normal">(optional)</em></span><span class="count" data-cnt="premise">0</span></div>
             <div class="thumbs" data-thumbs="premise"></div>
-            <label class="addphoto"><input type="file" accept="image/*" capture="environment" multiple hidden data-doc="premise">Add premise photo</label>
+            <div style="display:flex;gap:8px"><label class="addphoto" style="flex:1">📷 Camera<input type="file" accept="image/*" capture="environment" multiple hidden data-doc="premise"></label><label class="addphoto" style="flex:1">🖼️ Album<input type="file" accept="image/*" multiple hidden data-doc="premise"></label></div>
           </div>
 
           <div class="err" id="saErr"></div>
@@ -380,9 +380,11 @@
     async function saSubmit(){
       clearErr('#saErr');
       const v=id=>($('#'+id)?$('#'+id).value.trim():'');
-      const fn=v('sa_first_name'), ln=v('sa_last_name'), brgy=v('sa_brgy'), city=v('sa_city'), pno=v('sa_primary_no');
+      const fn=v('sa_first_name'), ln=v('sa_last_name'), brgy=v('sa_brgy'), city=v('sa_city'), pno=v('sa_primary_no'), ono=v('sa_other_contact_no');
       if(!fn||!ln||!pno||!brgy||!city){ showErr('#saErr','Please fill: first & last name, primary no., barangay, and city.'); return; }
-      if(!saDocs.id.length||!saDocs.billing.length||!saDocs.premise.length){ showErr('#saErr','Attach at least 1 photo each: ID, Proof of Billing, and Premise.'); return; }
+      if(!/^\d{11}$/.test(pno)){ showErr('#saErr','Primary no. must be exactly 11 digits (numbers only).'); return; }
+      if(ono && !/^\d{11}$/.test(ono)){ showErr('#saErr','Other contact no. must be 11 digits (numbers only).'); return; }
+      if(!saDocs.id.length){ showErr('#saErr','A Valid ID photo is required.'); return; }
       const btn=$('#saSubmit'); btn.disabled=true; btn.textContent='Submitting…';
       const full=[fn,v('sa_middle_name'),ln].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
       const addr=[v('sa_house_no'),v('sa_street_name'),v('sa_village'),brgy,city].filter(Boolean).join(', ');
@@ -633,6 +635,7 @@
     document.querySelectorAll('[data-doc]').forEach(inp=>inp.onchange=()=>{const cat=inp.dataset.doc;[...inp.files].forEach(f=>saDocs[cat].push(f));inp.value='';saRenderDocs();});
     $('#saTabNew')?.addEventListener('click',()=>saSwitch('new'));
     $('#saTabMine')?.addEventListener('click',()=>saSwitch('mine'));
+    ['sa_primary_no','sa_other_contact_no'].forEach(id=>{const el=$('#'+id);if(el)el.oninput=()=>{el.value=el.value.replace(/\D/g,'').slice(0,11)};});
     $('#saSubmit')?.addEventListener('click',saSubmit);
     $('#mexpCancel')?.addEventListener('click',closeMobileExpense);
     $('#mexpSave')?.addEventListener('click',saveMobileExpense);
