@@ -241,10 +241,10 @@ function jobCard(j){
   const crew=[j.crew_driver||s.driver, j.crew_tech1||s.tech1, j.crew_tech2||s.tech2].filter(Boolean).join(', ');
   const acctLine=acct?`<span>🚐 ${acct}</span>`:'';
   const crewLine=crew?`<span>👤 ${crew}</span>`:'';
-  return `<article class="job-card" data-detail="${j.id}"${drag}>
+  return `<article class="job-card compact" data-detail="${j.id}"${drag}>
     <div class="job-top"><span class="job-id">${j.id}</span>${prio}</div>
-    <h3 style="margin:7px 0 6px">${j.subscriber||'—'}</h3>
-    <div style="display:flex;flex-direction:column;gap:5px;font-size:9px;color:#647571">
+    <h3>${j.subscriber||'—'}</h3>
+    <div class="jc-meta">
       <span><span class="status ${j.status}">${statusLabel(j.status)}</span></span>
       <span>👥 ${j.team||'Unassigned'}</span>
       ${acctLine}${crewLine}

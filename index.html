@@ -35,7 +35,18 @@
     .dispatch-board{display:flex!important;grid-template-columns:none!important;gap:10px;overflow-x:auto;padding-bottom:10px;scrollbar-width:thin}
     .dispatch-board::-webkit-scrollbar{height:10px}
     .dispatch-board::-webkit-scrollbar-thumb{background:#c2ccc8;border-radius:6px}
-    .board-column{flex:1 0 168px;min-width:168px}
+    .board-column{flex:1 0 158px;min-width:158px}
+    /* compact dispatch cards — fit more on screen */
+    .dispatch-board .job-card.compact{padding:8px 9px;border-radius:9px;margin-bottom:7px}
+    .dispatch-board .job-card.compact .job-top{display:flex;align-items:center;justify-content:space-between;gap:6px}
+    .dispatch-board .job-card.compact .job-id{font:700 8.5px Manrope;color:#9aa6a2;letter-spacing:.02em}
+    .dispatch-board .job-card.compact .priority{font-size:8px;padding:1px 6px;border-radius:9px}
+    .dispatch-board .job-card.compact h3{font:700 12px/1.2 Manrope;margin:4px 0 5px;color:#13322d}
+    .dispatch-board .job-card.compact .jc-meta{display:flex;flex-direction:column;gap:3px;font-size:9px;color:#647571;line-height:1.25}
+    .dispatch-board .job-card.compact .jc-meta .status{font-size:8px;padding:1px 6px}
+    .dispatch-board .job-card.compact .assign-btn{margin-top:7px;width:100%;padding:5px 8px;font-size:9.5px}
+    .dispatch-board .column-head{padding:4px 2px 8px}
+    .dispatch-board .column-head strong{font-size:11px}
     .status.negative{background:#fdecea;color:#c2503a}
     .status.cancelled{background:#f1f1f1;color:#7a7f7d}
     .job-card{cursor:pointer}
