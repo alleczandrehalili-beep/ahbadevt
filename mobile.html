@@ -7,9 +7,9 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="SKY TruFiber" />
+  <meta name="apple-mobile-web-app-title" content="AHBA FieldOps" />
   <link rel="manifest" href="manifest.webmanifest" />
-  <title>SKY TruFiber · AHBA</title>
+  <title>AHBA FieldOps · AHBA</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
@@ -126,7 +126,7 @@
   <div class="wrap">
     <div class="appbar">
       <img class="mark" src="logo-ahba.png" alt="AHBA" style="background:#fff;object-fit:contain;padding:3px">
-      <h1>SKY TruFiber<small id="teamName">by AHBA Development</small></h1>
+      <h1>AHBA FieldOps<small id="teamName">by AHBA Development</small></h1>
       <button class="menu-btn hidden" id="menuBtn" aria-label="Menu">⋯</button>
     </div>
     <div class="menu-pop hidden" id="menuPop">
@@ -143,8 +143,8 @@
         <p>Sign in with your technician account to see the jobs dispatched to you.</p>
         <div class="err" id="loginErr"></div>
         <form id="loginForm">
-          <div class="field"><label for="uName">Username</label><input id="uName" autocapitalize="characters" autocomplete="username" placeholder="AHBA_SLI001" required></div>
-          <div class="field"><label for="uPass">Password</label><input id="uPass" type="password" autocomplete="current-password" placeholder="••••••••" required></div>
+          <div class="field"><label for="uName">Username</label><input id="uName" autocapitalize="characters" autocomplete="username" required></div>
+          <div class="field"><label for="uPass">Password</label><input id="uPass" type="password" autocomplete="current-password" required></div>
           <button class="btn-primary" id="loginBtn" type="submit">Sign in</button>
         </form>
       </div>
@@ -158,8 +158,8 @@
         <div class="hint" id="pwForceHint">This is your first sign-in — please replace the default password.</div>
         <div class="err" id="pwErr"></div>
         <form id="pwForm">
-          <div class="field"><label for="np1">New password</label><input id="np1" type="password" autocomplete="new-password" placeholder="At least 8 characters" required></div>
-          <div class="field"><label for="np2">Confirm new password</label><input id="np2" type="password" autocomplete="new-password" placeholder="Re-enter password" required></div>
+          <div class="field"><label for="np1">New password</label><input id="np1" type="password" autocomplete="new-password" required></div>
+          <div class="field"><label for="np2">Confirm new password</label><input id="np2" type="password" autocomplete="new-password" required></div>
           <button class="btn-primary" id="pwBtn" type="submit">Save password</button>
           <button class="btn-ghost hidden" id="pwCancel" type="button">Cancel</button>
         </form>
@@ -174,9 +174,9 @@
         <div class="err" id="shiftErr"></div>
         <form id="shiftForm">
           <div class="field"><label for="sf_account">Account *</label><select id="sf_account" required><option value="">— Select account —</option></select></div>
-          <div class="field"><label for="sf_driver">Driver *</label><input id="sf_driver" autocapitalize="words" placeholder="Full name" required></div>
-          <div class="field"><label for="sf_tech1">Technician 1 *</label><input id="sf_tech1" autocapitalize="words" placeholder="Full name" required></div>
-          <div class="field"><label for="sf_tech2">Technician 2 (optional)</label><input id="sf_tech2" autocapitalize="words" placeholder="Full name"></div>
+          <div class="field"><label for="sf_driver">Driver *</label><input id="sf_driver" autocapitalize="words" required></div>
+          <div class="field"><label for="sf_tech1">Technician 1 *</label><input id="sf_tech1" autocapitalize="words" required></div>
+          <div class="field"><label for="sf_tech2">Technician 2 (optional)</label><input id="sf_tech2" autocapitalize="words"></div>
           <button class="btn-primary" id="shiftBtn" type="submit">Start shift</button>
         </form>
       </div>
@@ -210,25 +210,25 @@
       <div class="sa-pane" id="saNew">
         <div class="sa-card">
           <div class="form-sec">Subscriber</div>
-          <div class="field"><label>First name *</label><input id="sa_first_name" autocapitalize="characters" placeholder="CONCHITA"></div>
+          <div class="field"><label>First name *</label><input id="sa_first_name" autocapitalize="characters"></div>
           <div class="field"><label>Middle name</label><input id="sa_middle_name" autocapitalize="characters"></div>
-          <div class="field"><label>Last name *</label><input id="sa_last_name" autocapitalize="characters" placeholder="TOLEDO"></div>
-          <div class="field"><label>Primary no. * (11 digits)</label><input id="sa_primary_no" inputmode="numeric" maxlength="11" placeholder="09XXXXXXXXX"></div>
-          <div class="field"><label>Other contact no. (11 digits, optional)</label><input id="sa_other_contact_no" inputmode="numeric" maxlength="11" placeholder="09XXXXXXXXX"></div>
+          <div class="field"><label>Last name *</label><input id="sa_last_name" autocapitalize="characters"></div>
+          <div class="field"><label>Primary no. * (11 digits)</label><input id="sa_primary_no" inputmode="numeric" maxlength="11"></div>
+          <div class="field"><label>Other contact no. (11 digits, optional)</label><input id="sa_other_contact_no" inputmode="numeric" maxlength="11"></div>
 
           <div class="form-sec">Address</div>
           <div class="field"><label>House no.</label><input id="sa_house_no"></div>
           <div class="field"><label>Street name</label><input id="sa_street_name"></div>
           <div class="field"><label>Village / Subdivision</label><input id="sa_village"></div>
           <div class="field"><label>Barangay *</label><input id="sa_brgy"></div>
-          <div class="field"><label>City *</label><input id="sa_city" value="QUEZON CITY"></div>
+          <div class="field"><label>City *</label><input id="sa_city"></div>
 
           <div class="form-sec">Service</div>
-          <div class="field"><label>Plan / Ref no.</label><input id="sa_plan" placeholder="SKY-XXXXXXX-XXXXXXX"></div>
+          <div class="field"><label>Plan / Ref no.</label><input id="sa_plan"></div>
           <div class="field"><label>1P / 2P</label><select id="sa_play_type"><option>1-PLAY</option><option>2-PLAY</option></select></div>
           <div class="field"><label>Source of sales</label><select id="sa_source_of_sales"><option>Referral</option><option>Organic</option></select></div>
           <div class="field"><label>Referral name</label><input id="sa_referral_name"></div>
-          <div class="field"><label>Special note</label><textarea id="sa_special_note" rows="2" placeholder="Landmark / access notes"></textarea></div>
+          <div class="field"><label>Special note</label><textarea id="sa_special_note" rows="2"></textarea></div>
 
           <div class="form-sec">Documents</div>
           <div class="docblock" data-cat="id">
@@ -261,8 +261,8 @@
     <h3>Complete load — Payment</h3>
     <p class="mexp-sub" id="payJob"></p>
     <div class="field"><label>Mode of payment</label><select id="pay_mode"><option>Gcash</option><option>Cash Remittance</option></select></div>
-    <div class="field"><label>Amount (₱)</label><input id="pay_amount" type="number" inputmode="numeric" placeholder="0.00"></div>
-    <div class="field"><label>AR No. (Acknowledgement Receipt)</label><input id="pay_ar" placeholder="AR-XXXXXX"></div>
+    <div class="field"><label>Amount (₱)</label><input id="pay_amount" type="number" inputmode="numeric"></div>
+    <div class="field"><label>AR No. (Acknowledgement Receipt)</label><input id="pay_ar"></div>
     <div class="err" id="payErr"></div>
     <div style="display:flex;gap:8px;margin-top:6px"><button class="btn-ghost" id="payCancel" style="flex:1">Cancel</button><button class="btn-primary" id="paySave" style="flex:1">Complete job</button></div>
   </div>
@@ -279,7 +279,7 @@
       <option>FULL NAP</option>
       <option>OTHERS</option>
     </select></div>
-    <div class="field hidden" id="negOtherWrap"><label>Specify (Others)</label><input id="neg_other" placeholder="Type the reason"></div>
+    <div class="field hidden" id="negOtherWrap"><label>Specify (Others)</label><input id="neg_other"></div>
     <div class="err" id="negErr"></div>
     <div style="display:flex;gap:8px;margin-top:6px"><button class="btn-ghost" id="negCancel" style="flex:1">Cancel</button><button class="btn-primary" id="negSave" style="flex:1;background:var(--coral)">Save as Negative</button></div>
   </div>
@@ -289,8 +289,8 @@
     <h3>Add expense</h3>
     <p class="mexp-sub" id="mexpJob"></p>
     <div class="field"><label>Category</label><select id="mexp_cat"><option>Permit</option><option>Gas</option><option>Parking</option><option>Violation</option></select></div>
-    <div class="field"><label>Amount (₱)</label><input id="mexp_amount" type="number" inputmode="numeric" placeholder="0.00"></div>
-    <div class="field"><label>Description</label><input id="mexp_desc" placeholder="What is the expense for?"></div>
+    <div class="field"><label>Amount (₱)</label><input id="mexp_amount" type="number" inputmode="numeric"></div>
+    <div class="field"><label>Description</label><input id="mexp_desc"></div>
     <div class="err" id="mexpErr"></div>
     <div style="display:flex;gap:8px;margin-top:6px"><button class="btn-ghost" id="mexpCancel" style="flex:1">Cancel</button><button class="btn-primary" id="mexpSave" style="flex:1">Save expense</button></div>
   </div>

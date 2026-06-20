@@ -1,7 +1,7 @@
 {
-  "name": "SKY TruFiber — AHBA",
-  "short_name": "SKY TruFiber",
-  "description": "SKY TruFiber field technician app by AHBA Development — view and update dispatched jobs.",
+  "name": "AHBA FieldOps",
+  "short_name": "AHBA FieldOps",
+  "description": "AHBA FieldOps — field technician app by AHBA Development. View and update dispatched jobs.",
   "start_url": "mobile.html",
   "scope": ".",
   "display": "standalone",

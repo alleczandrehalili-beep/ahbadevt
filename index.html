@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#071f1d" />
   <link rel="icon" type="image/png" href="favicon.png" />
-  <title>SKY TruFiber · AHBA Development</title>
+  <title>AHBA FieldOps · AHBA Development</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
@@ -77,12 +77,12 @@
   <div id="dashGate" class="dash-gate" style="display:flex">
     <div class="dash-card">
       <div style="text-align:center;margin-bottom:6px"><img src="logo-ahba.png" alt="AHBA Development" style="height:54px;object-fit:contain"></div>
-      <h2 style="text-align:center;margin-top:0">SKY TruFiber</h2>
+      <h2 style="text-align:center;margin-top:0">AHBA FieldOps</h2>
       <p style="text-align:center">by AHBA Development · Operations console</p>
       <div class="dg-err" id="dlErr"></div>
       <form id="dashLoginForm">
-        <label>Username<input id="dlUser" autocapitalize="characters" autocomplete="username" placeholder="e.g. DISPATCH01"></label>
-        <label>Password<input id="dlPass" type="password" autocomplete="current-password" placeholder="••••••••"></label>
+        <label>Username<input id="dlUser" autocapitalize="characters" autocomplete="username"></label>
+        <label>Password<input id="dlPass" type="password" autocomplete="current-password"></label>
         <button class="primary-btn" id="dlBtn" type="submit">Sign in</button>
       </form>
       <p style="font-size:11px;color:#8a9894;margin-top:14px;text-align:center">Forgot your password? Please coordinate with the Superadmin.</p>
@@ -94,8 +94,8 @@
       <p>First sign-in — please replace the default password.</p>
       <div class="dg-err" id="dpwErr"></div>
       <form id="dashPwForm">
-        <label>New password<input id="dpw1" type="password" autocomplete="new-password" placeholder="At least 8 characters"></label>
-        <label>Confirm new password<input id="dpw2" type="password" autocomplete="new-password" placeholder="Re-enter password"></label>
+        <label>New password<input id="dpw1" type="password" autocomplete="new-password"></label>
+        <label>Confirm new password<input id="dpw2" type="password" autocomplete="new-password"></label>
         <button class="primary-btn" id="dpwBtn" type="submit">Save password</button>
       </form>
     </div>
@@ -106,7 +106,7 @@
     <aside class="sidebar" id="sidebar">
       <div class="brand">
         <img src="logo-ahba.png" alt="AHBA Development" style="width:40px;height:40px;object-fit:contain;background:#fff;border-radius:10px;padding:3px;flex:none">
-        <div><strong>SKY TruFiber</strong><small>by AHBA Development</small></div>
+        <div><strong>AHBA FieldOps</strong><small>by AHBA Development</small></div>
         <button class="icon-btn sidebar-close mobile-only" id="sidebarCloseBtn" aria-label="Close menu"><i data-icon="close"></i></button>
       </div>
       <nav class="nav-list" aria-label="Main navigation">
@@ -349,10 +349,10 @@
         <article class="panel full-table" style="margin-bottom:14px">
           <div class="filter-row"><div><h2 style="font:800 13px Manrope;margin:0">Create new user</h2><p style="font-size:10px;color:#8a9894;margin:4px 0 0">Gagawa ng login account. I-set ang access sa table sa baba pagkatapos. Kailangan ng admin secret.</p></div></div>
           <div class="form-grid" style="padding:14px 20px;grid-template-columns:repeat(2,1fr);gap:10px 16px">
-            <label class="field"><span>Username *</span><input id="cuUser" placeholder="e.g. DISPATCH04" autocapitalize="characters"></label>
-            <label class="field"><span>Display name</span><input id="cuName" placeholder="Dispatcher 04"></label>
-            <label class="field"><span>Role label</span><input id="cuRole" placeholder="Dispatcher"></label>
-            <label class="field"><span>Temp password * (min 8)</span><input id="cuPass" placeholder="Ahba@2026"></label>
+            <label class="field"><span>Username *</span><input id="cuUser" autocapitalize="characters"></label>
+            <label class="field"><span>Display name</span><input id="cuName"></label>
+            <label class="field"><span>Role label</span><input id="cuRole"></label>
+            <label class="field"><span>Temp password * (min 8)</span><input id="cuPass"></label>
             <label class="field" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="cuSuper" style="width:16px;height:16px"><span style="margin:0">Make superadmin (full access)</span></label>
             <div style="display:flex;align-items:flex-end"><button class="primary-btn" id="cuCreate" type="button">Create user</button></div>
           </div>
@@ -371,25 +371,25 @@
       <div class="modal-head"><div><span class="eyebrow">SALES INTAKE</span><h2>Add job order</h2><p>Same requirements as the sales-agent app. Goes to the Validator for review.</p></div><button type="button" class="icon-btn close-modal"><i data-icon="close"></i></button></div>
       <div class="form-grid">
         <div class="field full form-sec">Subscriber</div>
-        <label class="field"><span>First name *</span><input name="first_name" required placeholder="CONCHITA"></label>
-        <label class="field"><span>Middle name</span><input name="middle_name" placeholder="SAMPAGA"></label>
-        <label class="field"><span>Last name *</span><input name="last_name" required placeholder="TOLEDO"></label>
-        <label class="field"><span>Primary no. * (11 digits)</span><input name="primary_no" inputmode="numeric" maxlength="11" required placeholder="09XXXXXXXXX"></label>
-        <label class="field"><span>Other contact no. (11 digits)</span><input name="other_contact_no" inputmode="numeric" maxlength="11" placeholder="09XXXXXXXXX"></label>
+        <label class="field"><span>First name *</span><input name="first_name" required></label>
+        <label class="field"><span>Middle name</span><input name="middle_name"></label>
+        <label class="field"><span>Last name *</span><input name="last_name" required></label>
+        <label class="field"><span>Primary no. * (11 digits)</span><input name="primary_no" inputmode="numeric" maxlength="11" required></label>
+        <label class="field"><span>Other contact no. (11 digits)</span><input name="other_contact_no" inputmode="numeric" maxlength="11"></label>
 
         <div class="field full form-sec">Address</div>
-        <label class="field"><span>House no.</span><input name="house_no" placeholder="23"></label>
-        <label class="field"><span>Street name</span><input name="street_name" placeholder="LEGAL"></label>
-        <label class="field"><span>Village / Subdivision</span><input name="village" placeholder=""></label>
-        <label class="field"><span>Barangay *</span><input name="brgy" required placeholder="SANGANDAAN"></label>
-        <label class="field"><span>City *</span><input name="city" value="QUEZON CITY" required></label>
+        <label class="field"><span>House no.</span><input name="house_no"></label>
+        <label class="field"><span>Street name</span><input name="street_name"></label>
+        <label class="field"><span>Village / Subdivision</span><input name="village"></label>
+        <label class="field"><span>Barangay *</span><input name="brgy" required></label>
+        <label class="field"><span>City *</span><input name="city" required></label>
 
         <div class="field full form-sec">Service</div>
-        <label class="field"><span>Plan / Ref no.</span><input name="plan" placeholder="SKY-N72A0M6-VQ55PDT"></label>
+        <label class="field"><span>Plan / Ref no.</span><input name="plan"></label>
         <label class="field"><span>1P / 2P</span><select name="play_type"><option>1-PLAY</option><option>2-PLAY</option></select></label>
         <label class="field"><span>Source of sales</span><select name="source_of_sales"><option>Referral</option><option>Organic</option></select></label>
-        <label class="field"><span>Referral name</span><input name="referral_name" placeholder="JDC"></label>
-        <label class="field full"><span>Special note</span><textarea name="special_note" rows="2" placeholder="Landmark / access notes"></textarea></label>
+        <label class="field"><span>Referral name</span><input name="referral_name"></label>
+        <label class="field full"><span>Special note</span><textarea name="special_note" rows="2"></textarea></label>
 
         <div class="field full form-sec">Documents</div>
         <label class="field full"><span>Valid ID <em style="font-style:normal;color:#c2503a">*required</em> · <b data-cnt="id">0 file(s)</b></span><input type="file" accept="image/*" multiple data-doc="id"></label>
@@ -407,9 +407,9 @@
       <div class="form-grid">
         <label class="field"><span>Team</span><select name="team" id="expenseTeam"></select></label>
         <label class="field"><span>Category</span><select name="category"><option>Permit</option><option>Gas</option><option>Parking</option><option>Violation</option><option>Other</option></select></label>
-        <label class="field full"><span>Description</span><input name="description" required placeholder="What was the expense for?"></label>
-        <label class="field"><span>Amount (₱)</span><input name="amount" type="number" min="1" required placeholder="0.00"></label>
-        <label class="field"><span>Work order (optional)</span><input name="workOrder" placeholder="WO-2026-XXXX"></label>
+        <label class="field full"><span>Description</span><input name="description" required></label>
+        <label class="field"><span>Amount (₱)</span><input name="amount" type="number" min="1" required></label>
+        <label class="field"><span>Work order (optional)</span><input name="workOrder"></label>
       </div>
       <div class="modal-actions"><button type="button" class="secondary-btn close-modal">Cancel</button><button type="submit" class="primary-btn">Save expense</button></div>
     </form>
@@ -417,16 +417,16 @@
 
   <dialog id="assignModal" class="modal small-modal">
     <div class="modal-head"><div><span class="eyebrow">DISPATCH</span><h2>Assign a field team</h2><p id="assignJobLabel"></p></div><button type="button" class="icon-btn close-modal"><i data-icon="close"></i></button></div>
-    <div style="padding:14px 20px 2px"><label class="field"><span>J.O. Number <em style="font-style:normal;color:#c2503a">*required</em> <em id="joLock" style="font-style:normal;color:#9aa6a2"></em></span><input id="assignJONum" placeholder="e.g. R3393914" required><span style="font-size:9px;color:#8a9894">Kailangan bago mag-dispatch. Makikita ng technician. Hindi na mabubura kapag naset na.</span></label></div>
-    <div style="padding:2px 20px 6px"><label class="field"><span>Dispatch remarks <em style="font-style:normal;color:#9aa6a2">(makikita ng technician)</em></span><input id="assignRemarks" placeholder="hal. Prio please / tawagan bago dumating / landmark"></label></div>
+    <div style="padding:14px 20px 2px"><label class="field"><span>J.O. Number <em style="font-style:normal;color:#c2503a">*required</em> <em id="joLock" style="font-style:normal;color:#9aa6a2"></em></span><input id="assignJONum" required><span style="font-size:9px;color:#8a9894">Kailangan bago mag-dispatch. Makikita ng technician. Hindi na mabubura kapag naset na.</span></label></div>
+    <div style="padding:2px 20px 6px"><label class="field"><span>Dispatch remarks <em style="font-style:normal;color:#9aa6a2">(makikita ng technician)</em></span><input id="assignRemarks"></label></div>
     <div class="assignment-list" id="assignmentList"></div>
   </dialog>
 
   <dialog id="resetModal" class="modal small-modal">
     <div class="modal-head"><div><span class="eyebrow">ADMIN · PASSWORD RESET</span><h2>Reset password</h2><p>For <strong id="resetUser">AHBA_SLI001</strong> (<span id="resetEmail"></span>)</p></div><button type="button" class="icon-btn close-modal"><i data-icon="close"></i></button></div>
     <div class="form-grid" style="grid-template-columns:1fr">
-      <label class="field"><span>Temporary password (min 8 chars)</span><input id="resetNewPw" placeholder="e.g. Ahba@2026"></label>
-      <label class="field"><span>Admin secret</span><input id="resetSecret" type="password" placeholder="Superadmin reset secret"></label>
+      <label class="field"><span>Temporary password (min 8 chars)</span><input id="resetNewPw"></label>
+      <label class="field"><span>Admin secret</span><input id="resetSecret" type="password"></label>
       <p style="font-size:11px;color:#7c8a87;margin:0">The user will be asked to choose their own new password on next login. Tell them this temporary password.</p>
     </div>
     <div class="modal-actions"><button type="button" class="secondary-btn close-modal">Close</button><a class="text-btn" href="https://supabase.com/dashboard/project/avjzkfxgzeyxtihkofed/auth/users" target="_blank" rel="noopener" style="align-self:center">Or reset in Supabase</a><button type="button" class="primary-btn" id="resetNow">Reset now</button></div>
@@ -457,7 +457,7 @@
     <div class="modal-head"><div><span class="eyebrow">VALIDATOR · REVIEW</span><h2 id="valTitle">Job order review</h2><p id="valSub"></p></div><button type="button" class="icon-btn close-modal"><i data-icon="close"></i></button></div>
     <div style="padding:18px 25px 4px"><div class="info-grid" id="valInfo"></div></div>
     <div id="valDocs"></div>
-    <div style="padding:6px 25px 14px"><label class="field"><span>Rejection reason (if rejecting)</span><input id="valReason" placeholder="e.g. Blurry ID / details don't match billing"></label></div>
+    <div style="padding:6px 25px 14px"><label class="field"><span>Rejection reason (if rejecting)</span><input id="valReason"></label></div>
     <div class="modal-actions"><button type="button" class="secondary-btn close-modal">Close</button><button type="button" class="secondary-btn" id="valReject" style="color:#c2503a;border-color:#f0c4b9">Reject</button><button type="button" class="primary-btn" id="valApprove">Approve → Dispatch</button></div>
   </dialog>
 
