@@ -147,16 +147,16 @@ function negReleased(negAt){
 }
 function processNegativeReturns(){
   jobs.filter(j=>j.status==='negative'&&negReleased(j.negative_at)).forEach(j=>{
-    j.status='pending'; j.team=null; j.priority='Urgent'; j.load_date=manilaToday();
-    j.history=appendHistory(j.history,'Auto-returned 5:00 AM → For Dispatch (High priority)');
+    j.status='pending'; j.team=null; j.priority='1st Load'; j.load_date=manilaToday();
+    j.history=appendHistory(j.history,'Auto-returned 5:00 AM → For Dispatch (1st Load)');
     if(window.AHBASync) window.AHBASync(j);
   });
 }
 function unassignJob(jobId){
   const j=jobs.find(x=>x.id===jobId); if(!j||!['assigned','en-route','negative'].includes(j.status))return;
   const wasNeg=j.status==='negative';
-  j.status='pending'; j.team=null; j.load_date=manilaToday(); if(wasNeg) j.priority='Urgent';
-  j.history=appendHistory(j.history, wasNeg?'Manually returned → For Dispatch (High priority)':'Moved back to For Dispatch');
+  j.status='pending'; j.team=null; j.load_date=manilaToday(); if(wasNeg) j.priority='1st Load';
+  j.history=appendHistory(j.history, wasNeg?'Manually returned → For Dispatch (1st Load)':'Moved back to For Dispatch');
   save(); renderJobs(); showToast(`${jobId} → For Dispatch${wasNeg?' (High priority)':''}`);
   if(window.AHBASync) window.AHBASync(j);
 }
@@ -212,15 +212,21 @@ function wireDispatchDnD(){
 function jobCard(j){
   const canBounce=['assigned','en-route','negative'].includes(j.status);
   const drag=canBounce?` draggable="true" data-jobid="${j.id}"`:'';
-  const remark=j.negative_remark?`<p style="font-size:8px;color:#c2503a;font-weight:700;margin:6px 0 0">⚠ ${j.negative_remark}</p>`:'';
-  const dc=(j.dispatch_count>0)?`<span style="font-size:7px;background:#eef1ff;color:#4456c7;border-radius:10px;padding:2px 6px;font-weight:700" title="${(j.history||'').replace(/"/g,'&quot;')}">⟳ ×${j.dispatch_count}</span>`:'';
-  const btnLabel=j.status==='negative'?'↩ For Dispatch (High)':'↩ For Dispatch';
-  const actions=j.status==='pending'
-    ? `<div class="job-actions"><button class="assign-btn" data-assign="${j.id}">Assign team</button></div>`
+  const prio=j.priority?`<span class="priority" style="${j.priority!=='1st Load'?'color:#687974;background:#f1f3f1':''}">${j.priority}</span>`:'';
+  const enc=j.created_at?fmtWhen(j.created_at):(j.load_date?String(j.load_date).slice(0,10):'—');
+  const action=j.status==='pending'
+    ? `<button class="assign-btn" data-assign="${j.id}" style="margin-top:8px;width:100%">Assign team</button>`
     : canBounce
-      ? `<div class="job-actions" style="align-items:center"><span class="status ${j.status}">${j.team||statusLabel(j.status)}</span><button class="assign-btn" data-unassign="${j.id}" title="Return to For Dispatch" style="margin-left:auto">${btnLabel}</button></div>`
-      : `<div class="job-actions"><span class="status ${j.status}">${j.team||statusLabel(j.status)}</span></div>`;
-  return `<article class="job-card" data-detail="${j.id}"${drag}><div class="job-top"><span class="job-id">${j.id}</span>${dc}${j.priority!=='Normal'?`<span class="priority">${j.priority}</span>`:''}</div><h3>${j.subscriber}</h3><p>${j.type} · ${j.plan}</p><div class="job-meta"><span>⌖ ${j.area}</span><span>${(j.schedule||'').replace('Today, ','')}</span></div>${remark}${actions}</article>`;
+      ? `<button class="assign-btn" data-unassign="${j.id}" title="Return to For Dispatch" style="margin-top:8px;width:100%">${j.status==='negative'?'↩ For Dispatch (1st Load)':'↩ For Dispatch'}</button>`
+      : '';
+  return `<article class="job-card" data-detail="${j.id}"${drag}>
+    <div class="job-top"><span class="job-id">${j.id}</span>${prio}</div>
+    <h3 style="margin:7px 0 6px">${j.subscriber||'—'}</h3>
+    <div style="display:flex;flex-direction:column;gap:5px;font-size:9px;color:#647571">
+      <span><span class="status ${j.status}">${statusLabel(j.status)}</span></span>
+      <span>👥 ${j.team||'Unassigned'}</span>
+      <span>🕒 ${enc}</span>
+    </div>${action}</article>`;
 }
 function renderTeams(filter=''){$('#teamGrid').innerHTML=teams.filter(t=>(t.name+t.area+t.code).toLowerCase().includes(filter.toLowerCase())).map(t=>`<article class="team-card"><div class="team-card-head"><span class="team-avatar" style="background:${t.color}">${t.short}</span><div><h3>${t.name}</h3><p>${t.members} technicians · ${t.area}</p></div></div><span class="status ${t.status}">${statusLabel(t.status)}</span><div class="load-row"><span>Today’s load</span><b>${t.jobs} / 5 jobs</b></div><div class="load-bar"><span style="width:${t.jobs/5*100}%"></span></div><div class="team-info"><span>Current area<strong>${t.area}</strong></span><span>Completed<strong>${t.completed} jobs · ★ ${t.rating}</strong></span></div></article>`).join('')||'<div class="empty-row">No teams match your search.</div>'}
 const DEPLOY_COST=2100;
