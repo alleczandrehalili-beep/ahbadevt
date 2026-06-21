@@ -421,29 +421,20 @@ async function openAssign(jobId){
   const joEl=$('#assignJONum'); if(joEl){ joEl.value=job.job_order_no||''; joEl.readOnly=!!job.job_order_no; joEl.style.background=job.job_order_no?'#f1f3f1':''; if($('#joLock'))$('#joLock').textContent=job.job_order_no?'(locked)':''; }
   const remEl=$('#assignRemarks'); if(remEl) remEl.value=job.dispatched_remarks||'';
   openModal($('#assignModal'));
-  $('#assignmentList').innerHTML='<div class="empty-row">Finding nearest teams by GPS…</div>';
-  await fetchTechLocations();
+  $('#assignmentList').innerHTML='<div class="empty-row">Loading online teams…</div>';
+  await Promise.all([fetchTechLocations(), loadTeamShifts()]);
   const dest=areaCoord(job.area);
-  const enriched=teams.map(t=>{
-    const loc=techIndex[t.name];
-    let dist=null;
-    if(loc&&loc.lat!=null&&loc.lng!=null&&dest) dist=haversineKm(loc.lat,loc.lng,dest[0],dest[1]);
-    return {t,loc,dist,online:isOnline(loc)};
-  }).sort((a,b)=>{
-    if(a.dist!=null&&b.dist!=null)return a.dist-b.dist;
-    if(a.dist!=null)return -1;
-    if(b.dist!=null)return 1;
-    return (b.t.area===job.area?1:0)-(a.t.area===job.area?1:0);
-  });
-  const top=enriched.slice(0,6);
-  $('#assignmentList').innerHTML=top.map((e,i)=>{
-    const t=e.t, best=(i===0&&e.dist!=null);
-    const sub=e.dist!=null
-      ? `${e.dist.toFixed(1)} km away · ${e.online?'online now':'last seen '+(e.loc.location_at?fmtWhen(e.loc.location_at):'—')}`
-      : (e.loc&&e.loc.area?`${e.loc.area} · no GPS yet`:'No GPS yet');
-    return `<div class="assignment-item ${best?'recommended':''}"><span class="team-avatar" style="background:${t.color}">${t.short}</span><div><strong>${t.name}${best?'<span class="recommend">NEAREST</span>':''}</strong><p>${sub}</p></div><button class="assign-btn" data-team="${t.name}">Assign</button></div>`;
-  }).join('');
-  $$('[data-team]').forEach(b=>b.onclick=()=>assignTeam(jobId,b.dataset.team));
+  const enrich=t=>{ const loc=techIndex[t.code]; let dist=null; if(loc&&loc.lat!=null&&loc.lng!=null&&dest)dist=haversineKm(loc.lat,loc.lng,dest[0],dest[1]); const s=shiftByTeam[t.code]||{}; return {t,loc,dist,online:!!s.online,shift:s}; };
+  const all=teams.map(enrich);
+  const online=all.filter(e=>e.online).sort((a,b)=>(a.dist==null?1e9:a.dist)-(b.dist==null?1e9:b.dist));
+  const offline=all.filter(e=>!e.online);
+  const item=(e,best)=>{ const t=e.t,s=e.shift; const crew=[s.driver,s.tech1,s.tech2].filter(Boolean).join(', '); const acct=s.account?` · ${s.account}`:''; const distTxt=e.dist!=null?`${e.dist.toFixed(1)} km away`:(e.loc&&e.loc.area?e.loc.area:'no GPS'); const sub=e.online?`Online${acct}${crew?' · '+crew:''} · ${distTxt}`:`Offline · last seen ${e.loc&&e.loc.location_at?fmtWhen(e.loc.location_at):'—'}`; return `<div class="assignment-item ${best?'recommended':''}"><span class="team-avatar" style="background:${e.online?'#18a57b':t.color}">${t.short}</span><div><strong>${t.name}${best?'<span class="recommend">NEAREST</span>':e.online?'<span class="recommend">ONLINE</span>':''}</strong><p>${sub}</p></div><button class="assign-btn" data-team="${t.code}">Assign</button></div>`; };
+  let html='';
+  if(online.length){ html+=`<div class="form-sec" style="margin:4px 0 6px">Online now · ${online.length} team(s)</div>`+online.map((e,i)=>item(e,i===0&&e.dist!=null)).join(''); }
+  else { html+='<div class="empty-row">Walang online (naka-time in) na team ngayon. Pwede pa ring mag-assign mula sa listahan sa baba.</div>'; }
+  if(offline.length){ html+=`<div class="form-sec" style="margin:14px 0 6px;color:#8a9894">Offline / not signed in</div>`+offline.map(e=>item(e,false)).join(''); }
+  $('#assignmentList').innerHTML=html;
+  $$('#assignmentList [data-team]').forEach(b=>b.onclick=()=>assignTeam(jobId,b.dataset.team));
 }
 function assignTeam(jobId,team){const j=jobs.find(x=>x.id===jobId);const joVal=(($('#assignJONum')&&$('#assignJONum').value)||'').trim();const joFinal=j.job_order_no||joVal;if(!joFinal){showToast('Enter the J.O. Number first');$('#assignJONum')&&$('#assignJONum').focus();return;}if(!j.job_order_no)j.job_order_no=joVal;const rem=(($('#assignRemarks')&&$('#assignRemarks').value)||'').trim();if(rem)j.dispatched_remarks=rem;j.team=team;j.status='assigned';j.load_date=manilaToday();j.dispatch_count=(j.dispatch_count||0)+1;j.history=appendHistory(j.history,`Dispatched to ${team} (#${j.dispatch_count})${j.job_order_no?' · JO '+j.job_order_no:''}`);save();closeModals();renderJobs();showToast(`${team} assigned to ${jobId}`);if(window.AHBASync)window.AHBASync(j)}
 function openModal(modal){$('#modalBackdrop').classList.add('show');modal.showModal()}
