@@ -467,6 +467,8 @@
     function playCompletedSound(){ playSeq([[523,0,0.14],[659,0.13,0.14],[784,0.26,0.14],[1047,0.39,0.34]],'sine'); if(navigator.vibrate)navigator.vibrate([90,50,90,50,200]); }
     // Sales: JO NEGATIVE — somber descending low tones (clearly different)
     function playNegativeSound(){ playSeq([[392,0,0.22],[311,0.22,0.24],[233,0.46,0.40]],'sawtooth'); if(navigator.vibrate)navigator.vibrate([300,120,300]); }
+    // Sales: JO CANCELLED — sad slow "wah-wah" downward glide
+    function playCancelledSound(){ try{ const ctx=audioCtx(); if(!ctx)return; const o=ctx.createOscillator(),g=ctx.createGain(); o.type='sine'; const t=ctx.currentTime; o.frequency.setValueAtTime(440,t); o.frequency.exponentialRampToValueAtTime(196,t+0.95); o.connect(g); g.connect(ctx.destination); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.35,t+0.06); g.gain.exponentialRampToValueAtTime(0.0001,t+1.05); o.start(t); o.stop(t+1.1); if(navigator.vibrate)navigator.vibrate([400,160,250]); }catch(e){} }
     // ---------- Web Push (notifications even when app is closed) ----------
     const VAPID_PUBLIC='BMhNkASCHb5OSL3uw6p8OXnqF10IfPGqAyGlLg2utnoIISvlI0NrR5QgJcbPqEDtrzItqRVmOLwkkU7bHAP-MXc';
     function urlB64ToU8(b){ const p='='.repeat((4-b.length%4)%4); const s=(b+p).replace(/-/g,'+').replace(/_/g,'/'); const raw=atob(s); const a=new Uint8Array(raw.length); for(let i=0;i<raw.length;i++)a[i]=raw.charCodeAt(i); return a; }
@@ -632,7 +634,7 @@
       }catch(e){ showErr('#secErr','Failed: '+e.message); }
       btn.disabled=false; btn.textContent='Record gate-out';
     }
-    const saStatusLabel = s => ({for_validation:'For validation',pending:'Approved · for dispatch',rejected:'Rejected',assigned:'Assigned','en-route':'In progress','on-site':'In progress','in-progress':'In progress',completed:'Completed'}[s]||s);
+    const saStatusLabel = s => ({for_validation:'For validation',pending:'Approved · for dispatch',rejected:'Rejected',assigned:'Assigned','en-route':'In progress','on-site':'In progress','in-progress':'In progress',completed:'Completed',negative:'Negative',cancelled:'Cancelled'}[s]||s);
     function saSwitch(view){
       $('#saTabNew').classList.toggle('active',view==='new'); $('#saTabMine').classList.toggle('active',view==='mine');
       $('#saNew').classList.toggle('hidden',view!=='new'); $('#saMine').classList.toggle('hidden',view!=='mine');
@@ -682,6 +684,7 @@
             if(prev==='for_validation' && (now==='pending'||now==='assigned')){ playValidatedSound(); notify('✅ Job order validated', subj+(j.team?(' · assigned to '+j.team):'')); }
             else if(now==='completed'){ playCompletedSound(); notify('🎉 Job order completed', subj); }
             else if(now==='negative'){ playNegativeSound(); notify('⚠️ Job order negative', subj+(j.negative_remark?(' · '+j.negative_remark):'')); }
+            else if(now==='cancelled'){ playCancelledSound(); notify('🚫 Job order cancelled', subj); }
             else if(now==='assigned' && j.team){ playValidatedSound(); notify('👷 Team assigned', subj+' · '+j.team); }
           }
           if(!$('#saMine').classList.contains('hidden')) saRenderMine();
