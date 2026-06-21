@@ -1181,8 +1181,9 @@ async function importJobsFromRows(rows){
       ibass_acct_no:g.ibass_acct_no,job_order_no:g.job_order_no,vas_no:g.vas_no,play_type:g.play_type,ref_no:g.ref_no,new_ref:g.new_ref,
       dispatch_status:g.dispatch_status,driver:g.driver,tech1:g.tech1,mapping_team:g.mapping_team,mapping_remarks:g.mapping_remarks,dispatched_remarks:g.dispatched_remarks,
       in_charge:g.in_charge,source_of_sales:g.source_of_sales,referral_name:g.referral_name,special_note:g.special_note };
-    const clean={}; Object.keys(o).forEach(k=>{ if(o[k]!==undefined&&o[k]!=='') clean[k]=o[k]; });
-    out.push(clean);
+    // keep identical keys across all rows (PostgREST bulk insert requires it); blanks → null
+    Object.keys(o).forEach(k=>{ if(o[k]===undefined||o[k]==='') o[k]=null; });
+    out.push(o);
   });
   const skipped=rows.length-out.length;
   if(!out.length){ alert('Walang valid na row na na-import.\n\nTiyaking may laman ang FIRST NAME/SUBSCRIBER, PRIMARY NO., o JOB ORDER NO. sa bawat row.'); return; }
