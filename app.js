@@ -397,11 +397,16 @@ async function sendTeamChat(code){
 }
 const PER_HEAD=955;       // bawat driver / technician na naka-declare sa Start shift
 const GAS_PER_TEAM=400;   // gasolina kada na-deploy na team
+const CONSOLE_COST=1415;  // bawat dashboard user na nag-login ngayong araw
 async function renderExpenses(){
   const date=manilaToday(), H={apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`};
   let cloudExp=[], att=[];
   try{ const r=await fetch(`${SUPA_URL}/rest/v1/expenses?select=*&work_date=eq.${date}&order=created_at.desc`,{headers:H}); cloudExp=r.ok?await r.json():[]; }catch(e){}
   try{ const r=await fetch(`${SUPA_URL}/rest/v1/attendance?select=username,crew_driver,crew_tech1,crew_tech2,time_in&work_date=eq.${date}&order=time_in.desc`,{headers:H}); att=r.ok?await r.json():[]; }catch(e){}
+  // Dashboard (console) users who logged in today × ₱1,415
+  let dashUsers=[]; try{ const r=await fetch(`${SUPA_URL}/rest/v1/dashboard_users?select=username,last_login`,{headers:H}); dashUsers=r.ok?await r.json():[]; }catch(e){}
+  const consoleUsers=dashUsers.filter(u=>u.last_login && new Date(u.last_login).toLocaleDateString('en-CA',{timeZone:TZ})===date).length;
+  const consoleCost=consoleUsers*CONSOLE_COST;
   // one shift row per team; cost from the crew they declared at Start shift
   const byTeam={}; att.forEach(a=>{ if(/^AHBA_SLI/i.test(a.username)&&!byTeam[a.username]) byTeam[a.username]=a; });
   let heads=0, deployedTeams=0, loggedInTeams=0, pendingTeams=0;
@@ -415,14 +420,14 @@ async function renderExpenses(){
   const gasCost=deployedTeams*GAS_PER_TEAM;
   const deployCost=manpowerCost+gasCost;
   const submitted=cloudExp.reduce((a,b)=>a+Number(b.amount||0),0);
-  const total=deployCost+submitted, BUDGET=50000, pct=Math.round(total/BUDGET*100);
+  const total=deployCost+consoleCost+submitted, BUDGET=50000, pct=Math.round(total/BUDGET*100);
   const set=(id,v)=>{const el=$(id);if(el)el.textContent=v};
   set('#todayExpense',money(total)); set('#budgetPercent',`${pct}% of ${money(BUDGET)}`); set('#donutTotal',`₱${(total/1000).toFixed(1)}k`);
   if($('#budgetBar'))$('#budgetBar').style.width=`${Math.min(pct,100)}%`;
 
-  const cats=['Deployment','Permit','Gas','Parking','Violation','Other'];
-  const cols=['#082c28','#18a57b','#ff765f','#e9a93d','#4285f4','#b0bab7'];
-  const values=cats.map(c=> c==='Deployment'? deployCost : cloudExp.filter(e=>e.category===c).reduce((a,b)=>a+Number(b.amount||0),0));
+  const cats=['Deployment','Console','Permit','Gas','Parking','Violation','Other'];
+  const cols=['#082c28','#6a5acd','#18a57b','#ff765f','#e9a93d','#4285f4','#b0bab7'];
+  const values=cats.map(c=> c==='Deployment'? deployCost : c==='Console'? consoleCost : cloudExp.filter(e=>e.category===c).reduce((a,b)=>a+Number(b.amount||0),0));
   const sum=values.reduce((a,b)=>a+b,0)||1; let acc=0;
   const stops=values.map((v,i)=>{const s=acc;acc+=v/sum*100;return `${cols[i]} ${s}% ${acc}%`}).join(',');
   if($('#expenseDonut'))$('#expenseDonut').style.background=`conic-gradient(${stops})`;
@@ -431,12 +436,13 @@ async function renderExpenses(){
   if($('#expenseBody')){
     const manpowerRow=`<tr><td>—</td><td><strong>${deployedTeams} teams · ${heads} crew</strong></td><td>Deployment</td><td>Manpower — ${heads} declared crew × ₱${PER_HEAD.toLocaleString('en-PH')} (driver/technician)</td><td>—</td><td><strong>${money(manpowerCost)}</strong></td><td><span class="status completed">Auto</span></td></tr>`;
     const gasRow=`<tr><td>—</td><td><strong>${deployedTeams} teams deployed</strong></td><td>Gas</td><td>Gasoline — ${deployedTeams} deployed teams × ₱${GAS_PER_TEAM.toLocaleString('en-PH')}</td><td>—</td><td><strong>${money(gasCost)}</strong></td><td><span class="status completed">Auto</span></td></tr>`;
+    const consoleRow=`<tr><td>—</td><td><strong>${consoleUsers} console login(s)</strong></td><td>Console</td><td>Dashboard access — ${consoleUsers} user(s) logged in today × ₱${CONSOLE_COST.toLocaleString('en-PH')}</td><td>—</td><td><strong>${money(consoleCost)}</strong></td><td><span class="status completed">Auto</span></td></tr>`;
     const pendingRow=pendingTeams?`<tr style="opacity:.7"><td>—</td><td><strong>${pendingTeams} team(s)</strong></td><td>Deployment</td><td>Logged in but not yet counted — no load activity / awaiting dispatcher verification</td><td>—</td><td><strong>${money(0)}</strong></td><td><span class="status pending">Pending</span></td></tr>`:'';
     const expRows=cloudExp.map(e=>`<tr><td>${e.created_at?fmtTime(e.created_at):''}</td><td><strong>${e.team||'—'}</strong></td><td>${e.category||''}</td><td>${e.description||''}</td><td>${e.job_id||'—'}</td><td><strong>${money(e.amount)}</strong></td><td><span class="status ${e.status==='Approved'?'completed':'pending'}">${e.status||'Pending'}</span></td></tr>`).join('');
-    $('#expenseBody').innerHTML=manpowerRow+gasRow+pendingRow+expRows;
+    $('#expenseBody').innerHTML=manpowerRow+gasRow+consoleRow+pendingRow+expRows;
   }
   if($('#expenseSummary'))$('#expenseSummary').innerHTML=[
-    ['Today’s total',money(total)],['Deployed / logged in',`${deployedTeams} / ${loggedInTeams}`],['Manpower (crew × ₱955)',money(manpowerCost)],['Gasoline (teams × ₱400)',money(gasCost)]
+    ['Today’s total',money(total)],['Manpower (crew × ₱955)',money(manpowerCost)],['Gasoline (teams × ₱400)',money(gasCost)],['Console (users × ₱1,415)',money(consoleCost)]
   ].map(([l,v])=>`<div class="small-stat"><span>${l}</span><strong>${v}</strong></div>`).join('');
   const week=[14200,19800,17650,22100,15800,20400,total],days=['Thu','Fri','Sat','Sun','Mon','Tue','Today'];
   if($('#weeklyChart'))$('#weeklyChart').innerHTML=week.map((v,i)=>`<div class="bar-col ${i===6?'today':''}"><span style="height:${v/Math.max(...week,1)*100}%" title="${money(v)}"></span><b>${days[i]}</b></div>`).join('');
@@ -1106,20 +1112,7 @@ async function changeMyDisplayName(){
     showToast('Display name updated');
   }catch(e){ showToast('Could not update display name'); }
 }
-async function dashRecover(){
-  const u='SUPERADMIN', sec=($('#drSecret').value||'').trim(), pw=($('#drPass').value||'').trim();
-  if(!sec){ dgErr('#drErr','Enter the admin secret.'); return; }
-  if(pw.length<8){ dgErr('#drErr','New password must be at least 8 characters.'); return; }
-  const btn=$('#drBtn'); btn.disabled=true; btn.textContent='Resetting…';
-  try{
-    await callAdminFn({admin_secret:sec,action:'reset',target:'dash',username:u,new_password:pw});
-    localStorage.setItem('ahba_admin_secret',sec); dgErr('#drErr','');
-    showToast('Password reset. Sign in with the new password.');
-    $('#dashRecover').style.display='none'; $('#dashLoginForm').style.display='';
-    $('#dlUser').value=u; $('#dlPass').value='';
-  }catch(e){ dgErr('#drErr','Reset failed: '+e.message); }
-  btn.disabled=false; btn.textContent='Reset password';
-}
+// (Superadmin self-recovery removed — superadmin password is renewed in Supabase.)
 
 // ---------- Announcements (broadcast to mobile) ----------
 function openAnnounce(){ loadAnnRecent(); openModal($('#announceModal')); }
@@ -1364,8 +1357,6 @@ function init(){
   $('#dashChangePw')?.addEventListener('click',()=>{ closePopovers&&closePopovers(); showDashGate('#dashPwGate'); });
   $('#dashChangeName')?.addEventListener('click',()=>{ closePopovers&&closePopovers(); changeMyDisplayName(); });
   $('#cuCreate')?.addEventListener('click',createDashUser);
-  $('#dashForgot')?.addEventListener('click',()=>{ const r=$('#dashRecover'); r.style.display=r.style.display==='none'?'block':'none'; });
-  $('#drBtn')?.addEventListener('click',dashRecover);
   startDashAuth();
 }
 document.addEventListener('DOMContentLoaded',init);
