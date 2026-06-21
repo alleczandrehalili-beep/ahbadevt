@@ -618,6 +618,21 @@
       btn.disabled=false; btn.textContent='Save as Negative';
     }
 
+    // ---------- cancel job (→ Cancelled column on dashboard) ----------
+    async function cancelJob(id){
+      const job=jobs.find(j=>j.id===id); if(!job)return;
+      const reason=prompt('I-cancel ang job order na ito?\nPupunta ito sa Cancelled sa dashboard.\n\nDahilan (optional):');
+      if(reason===null) return;   // dismissed
+      const now=new Date().toISOString();
+      const hist=appendHist(job.history, 'Cancelled (by '+myTeam+')'+(reason.trim()?': '+reason.trim():''));
+      const patch={status:'cancelled', updated_at:now, history:hist};
+      try{
+        const {error}=await sb.from('jobs').update(patch).eq('id',id); if(error) throw error;
+        Object.assign(job, patch);
+        toast('Job cancelled'); setSync('live','Synced'); render();
+      }catch(e){ toast('Failed: '+e.message); }
+    }
+
     // ---------- complete with payment ----------
     function openComplete(jobId){
       $('#payModal').dataset.job=jobId; $('#payJob').textContent='For '+jobId;
@@ -697,14 +712,16 @@
         const activeJob=!['completed','negative'].includes(j.status);
         const expBtn=activeJob?`<button class="addphoto" style="margin-top:10px;color:#a4690f;border-color:#f0d9a8;background:#fff8eb" data-exp="${j.id}">+ Add expense for this job</button>`:'';
         const negBtn=activeJob?`<button class="addphoto" style="margin-top:8px;color:#c2503a;border-color:#f0c4b9;background:#fff3f0" data-neg="${j.id}">⚠ Mark as Negative</button>`:'';
+        const cancelBtn=activeJob?`<button class="addphoto" style="margin-top:8px;color:#7a7f7d;border-color:#d8dcd9;background:#f5f6f5" data-cancel="${j.id}">✖ Cancel job</button>`:'';
         return `<div class="job"><div class="job-head"><div><span class="job-id">${j.id}</span><h3>${j.subscriber||'—'}${prio}</h3><p class="plan">${j.service_type||''} · ${j.plan||''}</p></div><span class="badge b-${j.status}">${statusLabel(j.status)}</span></div>
         <div class="job-meta"><div class="row">${svg('pin')}<span>${addr||'—'}</span></div><div class="row">${svg('clock')}<span>${(j.schedule||'Today').replace('Today, ','Today · ')}</span></div>${contact}${acct}${svc}${src}${drem}${note}${negRemark}</div>
-        ${extra}${actions}${expBtn}${negBtn}</div>`;
+        ${extra}${actions}${expBtn}${negBtn}${cancelBtn}</div>`;
       }).join('');
       el.querySelectorAll('[data-next]').forEach(b=>b.onclick=()=>advance(b.dataset.id,b.dataset.next));
       el.querySelectorAll('[data-up]').forEach(inp=>inp.onchange=()=>{const id=inp.dataset.up,files=inp.files;uploadPhotos(id,files,inp.dataset.label);inp.value='';});
       el.querySelectorAll('[data-exp]').forEach(b=>b.onclick=()=>openMobileExpense(b.dataset.exp));
       el.querySelectorAll('[data-neg]').forEach(b=>b.onclick=()=>openNegative(b.dataset.neg));
+      el.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>cancelJob(b.dataset.cancel));
     }
 
     function startApp(){
