@@ -1129,16 +1129,39 @@ function downloadImportTemplate(){
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([out],{type:'application/octet-stream'})); a.download='AHBA_import_template.xlsx'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),8000);
   showToast('Template downloaded — fill it in, then Import Excel');
 }
+// Finds the sheet + header row that best matches our known columns (handles title rows / extra sheets)
+function parseWorkbook(wb){
+  let best={score:-1};
+  wb.SheetNames.forEach(sn=>{
+    const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:''});
+    for(let h=0;h<Math.min(aoa.length,15);h++){
+      const hdr=aoa[h]||[]; let score=0; hdr.forEach(c=>{ if(IMPORT_HMAP[normHdr(c)]) score++; });
+      if(score>best.score) best={score,sheet:sn,headerRow:h,aoa};
+    }
+  });
+  if(!best.aoa||best.score<2) return {rows:[],headers:(best.aoa&&best.aoa[0])||[],score:best.score};
+  const hdr=best.aoa[best.headerRow]; const rows=[];
+  for(let i=best.headerRow+1;i<best.aoa.length;i++){
+    const r=best.aoa[i]; if(!r||!r.some(c=>String(c).trim()!=='')) continue;
+    const obj={}; hdr.forEach((h,ci)=>{ obj[h]= r[ci]!==undefined? r[ci] : ''; });
+    rows.push(obj);
+  }
+  return {rows,headers:hdr,score:best.score,sheet:best.sheet};
+}
 function handleImportFile(file){
   if(typeof XLSX==='undefined'){showToast('Excel library still loading — try again');return}
   const reader=new FileReader();
   reader.onload=e=>{
-    let rows=[];
-    try{ const wb=XLSX.read(e.target.result,{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]]; rows=XLSX.utils.sheet_to_json(ws,{defval:''}); }
+    let parsed;
+    try{ const wb=XLSX.read(e.target.result,{type:'array'}); parsed=parseWorkbook(wb); }
     catch(err){ showToast('Could not read file: '+err.message); return; }
-    if(!rows.length){ showToast('The sheet is empty'); return; }
-    if(!confirm(`Import ${rows.length} row(s) as new job orders, straight to For Dispatch?`)) return;
-    importJobsFromRows(rows);
+    if(!parsed.rows.length){
+      const seen=(parsed.headers||[]).filter(Boolean).join(', ').slice(0,300);
+      alert('Walang nakitang tugmang column.\n\nMga header na nakita: '+(seen||'(wala)')+'\n\nGamitin ang "Template" button para sa tamang format, o tiyaking may column gaya ng FIRST NAME / SUBSCRIBER / PRIMARY NO. / JOB ORDER NO.');
+      return;
+    }
+    if(!confirm(`Sheet "${parsed.sheet}" · ${parsed.rows.length} row(s) detected.\n\nImport as new job orders straight to For Dispatch?`)) return;
+    importJobsFromRows(parsed.rows);
   };
   reader.readAsArrayBuffer(file);
 }
@@ -1161,17 +1184,19 @@ async function importJobsFromRows(rows){
     const clean={}; Object.keys(o).forEach(k=>{ if(o[k]!==undefined&&o[k]!=='') clean[k]=o[k]; });
     out.push(clean);
   });
-  if(!out.length){ showToast('No valid rows found (check the column headers)'); return; }
+  const skipped=rows.length-out.length;
+  if(!out.length){ alert('Walang valid na row na na-import.\n\nTiyaking may laman ang FIRST NAME/SUBSCRIBER, PRIMARY NO., o JOB ORDER NO. sa bawat row.'); return; }
   showToast(`Importing ${out.length} job order(s)…`);
   try{
     for(let i=0;i<out.length;i+=100){
       const r=await fetch(`${SUPA_URL}/rest/v1/jobs`,{method:'POST',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify(out.slice(i,i+100))});
-      if(!r.ok){ const t=await r.text(); throw new Error(t.slice(0,160)); }
+      if(!r.ok){ const t=await r.text(); throw new Error(t.slice(0,200)); }
     }
-    showToast(`Imported ${out.length} job order(s) → For Dispatch`);
-    if(window.AHBACloud&&AHBACloud.getJobs){ AHBACloud.getJobs().then(cj=>{ jobs=cj; renderOverview(); }); }
-    switchPage('dispatch');
-  }catch(e){ showToast('Import failed: '+(e.message||e)); }
+    // refresh from cloud so the new jobs appear on the board
+    if(window.AHBACloud&&AHBACloud.getJobs){ try{ jobs=await AHBACloud.getJobs(); localStorage.setItem('fieldflow_jobs',JSON.stringify(jobs)); }catch(e){} }
+    switchPage('dispatch'); renderOverview();
+    alert(`✅ Imported ${out.length} job order(s) → For Dispatch.`+(skipped?`\n${skipped} blank/invalid row(s) skipped.`:''));
+  }catch(e){ alert('Import failed: '+(e.message||e)); }
 }
 
 function init(){
