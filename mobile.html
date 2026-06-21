@@ -281,7 +281,8 @@
           <div class="field"><label>City *</label><input id="sa_city"></div>
 
           <div class="form-sec">Service</div>
-          <div class="field"><label>Plan / Ref no.</label><input id="sa_plan"></div>
+          <div class="field"><label>Plan</label><input id="sa_plan"></div>
+          <div class="field"><label>Reference no.</label><input id="sa_ref_no"></div>
           <div class="field"><label>1P / 2P</label><select id="sa_play_type"><option>1-PLAY</option><option>2-PLAY</option></select></div>
           <div class="field"><label>Source of sales</label><select id="sa_source_of_sales"><option>Referral</option><option>Organic</option></select></div>
           <div class="field"><label>Referral name</label><input id="sa_referral_name"></div>
@@ -374,6 +375,7 @@
     let myRole = 'technician'; // 'technician' | 'sales_agent'
     let myName = '';           // display name
     let saDocs = {id:[], billing:[], premise:[]};
+    const saStatus = {};   // jobId -> last known status (for sales realtime change detection)
     const headerName = () => myRole==='sales_agent' ? (myTeam+' · '+(myName||'Sales')) : (myName?(myTeam+' · '+myName):myTeam);
     const PHOTO_LABELS = ['SUBS HOUSE','NAP QR CODE','NAP STENCIL','PORT LOCATION & TAGGING','S-CLAMP AT THE J-HOOK ABOVE THE NAP','MIDSPAN BEFORE THE HOUSE','HOUSE BRACKET','LAYOUT OF THE DROP CABLE ON SUBS PREMISES BEFORE CPE','NIU LOCATION WITH CORRECT TAGGING','INSIDE THE NIU BOX WITH PROPER LOOPING','ACTUAL LOCATION OF THE MODEM NIU','SAR'];
     const PHOTOS_REQUIRED = PHOTO_LABELS.length;
@@ -457,6 +459,14 @@
     function playBeep(){ try{ const ctx=audioCtx(); if(!ctx)return; const o=ctx.createOscillator(),g=ctx.createGain(); o.type='sine'; o.frequency.setValueAtTime(880,ctx.currentTime); o.frequency.setValueAtTime(1170,ctx.currentTime+0.12); o.connect(g); g.connect(ctx.destination); g.gain.setValueAtTime(0.0001,ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.35,ctx.currentTime+0.02); g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+0.35); o.start(); o.stop(ctx.currentTime+0.36);}catch(e){} }
     // New-load sound — distinct ascending 4-note chime
     function playLoadSound(){ try{ const ctx=audioCtx(); if(!ctx)return; [523,659,784,1047].forEach((f,i)=>{ const o=ctx.createOscillator(),g=ctx.createGain(); o.type='triangle'; o.frequency.value=f; o.connect(g); g.connect(ctx.destination); const t=ctx.currentTime+i*0.15; g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.4,t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+0.17); o.start(t); o.stop(t+0.19); }); if(navigator.vibrate)navigator.vibrate([200,80,200]); }catch(e){} }
+    // Helper: play a sequence of notes [freq, startOffset, dur]
+    function playSeq(notes,type){ try{ const ctx=audioCtx(); if(!ctx)return; notes.forEach(([f,off,dur])=>{ const o=ctx.createOscillator(),g=ctx.createGain(); o.type=type||'sine'; o.frequency.value=f; o.connect(g); g.connect(ctx.destination); const t=ctx.currentTime+off; g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.4,t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+dur); o.start(t); o.stop(t+dur+0.02); }); }catch(e){} }
+    // Sales: JO VALIDATED — quick two-tone rising "ding-dong"
+    function playValidatedSound(){ playSeq([[880,0,0.16],[1318,0.16,0.26]],'sine'); if(navigator.vibrate)navigator.vibrate([120,60,120]); }
+    // Sales: JO COMPLETED/SUCCESS — bright ascending major arpeggio + sparkle
+    function playCompletedSound(){ playSeq([[523,0,0.14],[659,0.13,0.14],[784,0.26,0.14],[1047,0.39,0.34]],'sine'); if(navigator.vibrate)navigator.vibrate([90,50,90,50,200]); }
+    // Sales: JO NEGATIVE — somber descending low tones (clearly different)
+    function playNegativeSound(){ playSeq([[392,0,0.22],[311,0.22,0.24],[233,0.46,0.40]],'sawtooth'); if(navigator.vibrate)navigator.vibrate([300,120,300]); }
     // ---------- Web Push (notifications even when app is closed) ----------
     const VAPID_PUBLIC='BMhNkASCHb5OSL3uw6p8OXnqF10IfPGqAyGlLg2utnoIISvlI0NrR5QgJcbPqEDtrzItqRVmOLwkkU7bHAP-MXc';
     function urlB64ToU8(b){ const p='='.repeat((4-b.length%4)%4); const s=(b+p).replace(/-/g,'+').replace(/_/g,'/'); const raw=atob(s); const a=new Uint8Array(raw.length); for(let i=0;i<raw.length;i++)a[i]=raw.charCodeAt(i); return a; }
@@ -570,7 +580,9 @@
     }
 
     // ---------- sales agent ----------
-    function startSA(){ $('#teamName').textContent=headerName(); show('saView'); saSwitch('new'); saRenderDocs(); startComms(); }
+    function startSA(){ $('#teamName').textContent=headerName(); show('saView'); saSwitch('new'); saRenderDocs(); startComms(); primeSalesStatus(); startSalesWatch(); }
+    // Load current statuses once at startup so we can detect future changes (without sounding on first load)
+    async function primeSalesStatus(){ try{ const {data}=await sb.from('jobs').select('id,status').eq('created_by',myTeam); (data||[]).forEach(j=>{ saStatus[j.id]=j.status; }); }catch(e){} }
 
     // ---------- SECURITY (gate-out validation) ----------
     function startSecurity(){ $('#teamName').textContent=headerName(); show('secView'); loadSecTeams(); clearInterval(startSecurity._t); startSecurity._t=setInterval(loadSecTeams,20000); }
@@ -634,18 +646,46 @@
       });
     }
     function saReset(){
-      ['first_name','middle_name','last_name','primary_no','other_contact_no','house_no','street_name','village','brgy','plan','source_of_sales','referral_name','special_note'].forEach(k=>{const el=$('#sa_'+k);if(el)el.value='';});
+      ['first_name','middle_name','last_name','primary_no','other_contact_no','house_no','street_name','village','brgy','plan','ref_no','source_of_sales','referral_name','special_note'].forEach(k=>{const el=$('#sa_'+k);if(el)el.value='';});
       if($('#sa_city')) $('#sa_city').value='QUEZON CITY';
       saDocs={id:[],billing:[],premise:[]}; saRenderDocs();
     }
     async function saRenderMine(){
       const el=$('#saMineList'); el.innerHTML=`<div class="empty">Loading…</div>`;
       try{
-        const {data}=await sb.from('jobs').select('id,subscriber,status,area,team,updated_at').eq('created_by',myTeam).order('updated_at',{ascending:false});
+        const {data}=await sb.from('jobs').select('id,subscriber,status,area,team,plan,ref_no,negative_remark,updated_at').eq('created_by',myTeam).order('updated_at',{ascending:false});
         const rows=data||[];
+        rows.forEach(j=>{ saStatus[j.id]=j.status; });   // seed status map for change detection
         if(!rows.length){ el.innerHTML=`<div class="empty">${svg('inbox')}No submissions yet.<br>Encode a new job order to get started.</div>`; return; }
-        el.innerHTML=rows.map(j=>`<div class="submitted"><h4>${j.subscriber||'—'}</h4><p>${j.id} · ${j.area||''}${j.team?' · '+j.team:''}</p><span class="badge b-${j.status}">${saStatusLabel(j.status)}</span></div>`).join('');
+        el.innerHTML=rows.map(j=>{
+          const esc=s=>(s||'').replace(/</g,'&lt;');
+          const assigned = j.team
+            ? `<div class="row" style="color:#0e7a59;font-weight:700">${svg('truck')}<span>Assigned to: ${esc(j.team)}</span></div>`
+            : `<div class="row" style="color:#9aa6a2">${svg('truck')}<span>Awaiting team assignment</span></div>`;
+          const neg = (j.status==='negative'&&j.negative_remark) ? `<div class="row" style="color:#c2503a">${svg('note')}<span>${esc(j.negative_remark)}</span></div>` : '';
+          const meta=[j.plan&&('Plan: '+esc(j.plan)), j.ref_no&&('Ref: '+esc(j.ref_no)), esc(j.area)].filter(Boolean).join(' · ');
+          return `<div class="submitted"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><h4>${esc(j.subscriber)||'—'}</h4><span class="badge b-${j.status}">${saStatusLabel(j.status)}</span></div><p>${j.id}${meta?' · '+meta:''}</p><div class="job-meta">${assigned}${neg}</div></div>`;
+        }).join('');
       }catch(e){ el.innerHTML=`<div class="empty">Could not load submissions.</div>`; }
+    }
+    // Realtime watch on the sales agent's OWN submitted orders (status + distinct sounds)
+    let saChan=null;
+    function startSalesWatch(){
+      if(saChan) sb.removeChannel(saChan);
+      saChan=sb.channel('sa-'+myTeam).on('postgres_changes',
+        {event:'*',schema:'public',table:'jobs',filter:'created_by=eq.'+myTeam},
+        p=>{
+          const j=p.new||{}; if(!j.id) return;
+          const prev=saStatus[j.id]; const now=j.status; saStatus[j.id]=now;
+          if(p.eventType==='UPDATE' && prev && now && prev!==now){
+            const subj=j.subscriber||j.id;
+            if(prev==='for_validation' && (now==='pending'||now==='assigned')){ playValidatedSound(); notify('✅ Job order validated', subj+(j.team?(' · assigned to '+j.team):'')); }
+            else if(now==='completed'){ playCompletedSound(); notify('🎉 Job order completed', subj); }
+            else if(now==='negative'){ playNegativeSound(); notify('⚠️ Job order negative', subj+(j.negative_remark?(' · '+j.negative_remark):'')); }
+            else if(now==='assigned' && j.team){ playValidatedSound(); notify('👷 Team assigned', subj+' · '+j.team); }
+          }
+          if(!$('#saMine').classList.contains('hidden')) saRenderMine();
+        }).subscribe();
     }
     async function saSubmit(){
       clearErr('#saErr');
@@ -659,7 +699,7 @@
       const full=[fn,v('sa_middle_name'),ln].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
       const addr=[v('sa_house_no'),v('sa_street_name'),v('sa_village'),brgy,city].filter(Boolean).join(', ');
       const jobId='WO-'+new Date().getFullYear()+'-'+Date.now().toString().slice(-6);
-      const job={id:jobId,subscriber:full,service_type:'Installation',plan:v('sa_plan'),area:city,address:addr,status:'for_validation',wait_time:'Just now',priority:'Normal',schedule:manilaDate()+', 9:00 AM',team:null,created_by:myTeam,
+      const job={id:jobId,subscriber:full,service_type:'Installation',plan:v('sa_plan'),ref_no:v('sa_ref_no'),area:city,address:addr,status:'for_validation',wait_time:'Just now',priority:'Normal',schedule:manilaDate()+', 9:00 AM',team:null,created_by:myTeam,
         first_name:fn,middle_name:v('sa_middle_name'),last_name:ln,primary_no:pno,other_contact_no:v('sa_other_contact_no'),
         house_no:v('sa_house_no'),street_name:v('sa_street_name'),village:v('sa_village'),brgy:brgy,city:city,
         play_type:v('sa_play_type'),source_of_sales:v('sa_source_of_sales'),referral_name:v('sa_referral_name'),
