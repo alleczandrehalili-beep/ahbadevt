@@ -18,6 +18,10 @@ const teams=names.map((name,i)=>({id:i+1,name,code:name,short:String(i+1).padSta
 // Supabase (read-only here) for the Accounts panel
 const SUPA_URL='https://avjzkfxgzeyxtihkofed.supabase.co';
 const SUPA_KEY='sb_publishable_2JM51zp2r5GUICznc6Nz4Q_B4UFS1da';
+// Authorization token for REST calls: logged-in dashboard user's JWT (falls back to public key pre-login).
+// Once RLS is locked to authenticated-only, all data calls must carry this user token.
+window.__ahbaTok = window.__ahbaTok || null;
+function dashTok(){ return window.__ahbaTok || SUPA_KEY; }
 
 let jobs=JSON.parse(localStorage.getItem('fieldflow_jobs')||'null')||[
  {id:'WO-2026-1048',subscriber:'Maria Santos',type:'Installation',plan:'Fiber Unli 400 Mbps',area:'Quezon City',address:'Project 4, Quezon City',status:'pending',wait:'42 min',priority:'Urgent',schedule:'Today, 10:00 AM',team:null},
@@ -57,7 +61,7 @@ function statusLabel(s){return s.split('-').map(x=>x[0].toUpperCase()+x.slice(1)
 function todayTotal(){return expenses.reduce((a,b)=>a+Number(b.amount),0)}
 function showToast(msg){$('#toast span').textContent=msg;$('#toast').classList.add('show');clearTimeout(showToast._t);showToast._t=setTimeout(()=>$('#toast').classList.remove('show'),2600)}
 // Fire a phone push (Web Push) to a team or audience via the send-push Edge Function
-function pushNotify(payload){ try{ fetch(`${SUPA_URL}/functions/v1/send-push`,{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`},body:JSON.stringify(payload)}).catch(()=>{}); }catch(e){} }
+function pushNotify(payload){ try{ fetch(`${SUPA_URL}/functions/v1/send-push`,{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()},body:JSON.stringify(payload)}).catch(()=>{}); }catch(e){} }
 
 function dayStr(d){return new Date(d).toLocaleDateString('en-CA',{timeZone:TZ});}
 function timeAgo(ts){ if(!ts)return''; const s=(Date.now()-new Date(ts))/1000; if(s<60)return Math.max(1,Math.round(s))+'s'; if(s<3600)return Math.round(s/60)+'m'; if(s<86400)return Math.round(s/3600)+'h'; return Math.round(s/86400)+'d'; }
@@ -111,7 +115,7 @@ let shiftByTeam={};   // { AHBA_SLI001: {account,driver,tech1,tech2,online,time_
 async function loadTeamShifts(){
   const date=manilaToday();
   try{
-    const r=await fetch(`${SUPA_URL}/rest/v1/attendance?select=username,time_in,time_out,work_account,crew_driver,crew_tech1,crew_tech2,deployed_verified&work_date=eq.${date}&order=time_in.desc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const r=await fetch(`${SUPA_URL}/rest/v1/attendance?select=username,time_in,time_out,work_account,crew_driver,crew_tech1,crew_tech2,deployed_verified&work_date=eq.${date}&order=time_in.desc`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}});
     const rows=r.ok?await r.json():[];
     const m={};
     rows.forEach(a=>{ if(!m[a.username]) m[a.username]={account:a.work_account||'',driver:a.crew_driver||'',tech1:a.crew_tech1||'',tech2:a.crew_tech2||'',online:!!(a.time_in&&!a.time_out),time_in:a.time_in,verified:a.deployed_verified===true,verified_by:a.verified_by||'',verified_at:a.verified_at||''}; });
@@ -136,7 +140,7 @@ async function verifyTeamDeployed(code,val){
   const who=currentOperator(), now=new Date().toISOString();
   const payload=val?{deployed_verified:true,verified_by:who,verified_at:now}:{deployed_verified:false,verified_by:null,verified_at:null};
   try{
-    await fetch(`${SUPA_URL}/rest/v1/attendance?username=eq.${code}&work_date=eq.${date}`,{method:'PATCH',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify(payload)});
+    await fetch(`${SUPA_URL}/rest/v1/attendance?username=eq.${code}&work_date=eq.${date}`,{method:'PATCH',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok(),'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify(payload)});
     await loadTeamShifts();
     renderTeams($('#teamSearch')?.value||'');
     if($('#expensesPage')?.classList.contains('active')) renderExpenses();
@@ -159,7 +163,7 @@ function initMap(){
 }
 async function fetchTechLocations(){
   try{
-    const r=await fetch(`${SUPA_URL}/rest/v1/technicians?select=username,area,lat,lng,location_at`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const r=await fetch(`${SUPA_URL}/rest/v1/technicians?select=username,area,lat,lng,location_at`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}});
     const rows=r.ok?await r.json():[];
     techIndex={}; rows.forEach(t=>{techIndex[t.username]=t}); return rows;
   }catch(e){return Object.values(techIndex)}
@@ -398,7 +402,7 @@ async function loadTeamGate(code){
   const el=$('#tdGate'); if(!el)return; el.innerHTML='Loading…';
   const date=manilaToday();
   try{
-    const r=await fetch(`${SUPA_URL}/rest/v1/gate_logs?select=*&team=eq.${encodeURIComponent(code)}&work_date=eq.${date}&order=checked_at.desc&limit=1`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const r=await fetch(`${SUPA_URL}/rest/v1/gate_logs?select=*&team=eq.${encodeURIComponent(code)}&work_date=eq.${date}&order=checked_at.desc&limit=1`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}});
     const g=(r.ok?await r.json():[])[0];
     if(!g){ el.innerHTML='<span style="color:#b97a16">⏳ Hindi pa na-validate ng Security ngayong araw.</span>'; return; }
     const crew=[g.crew_driver,g.crew_tech1,g.crew_tech2].filter(Boolean).join(', ');
@@ -415,7 +419,7 @@ async function loadTeamTrack(code){
   const el=$('#tdTrack'); if(!el)return; el.innerHTML='Loading…';
   const date=manilaToday();
   try{
-    const r=await fetch(`${SUPA_URL}/rest/v1/location_history?select=lat,lng,area,reason,created_at&username=eq.${encodeURIComponent(code)}&work_date=eq.${date}&order=created_at.asc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const r=await fetch(`${SUPA_URL}/rest/v1/location_history?select=lat,lng,area,reason,created_at&username=eq.${encodeURIComponent(code)}&work_date=eq.${date}&order=created_at.asc`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}});
     const rows=r.ok?await r.json():[];
     if(!rows.length){ el.innerHTML='<span style="color:#9aa6a2">No location trail recorded today.</span>'; return; }
     el.innerHTML=rows.map(p=>{
@@ -429,7 +433,7 @@ async function loadTeamTrack(code){
 async function loadTeamChat(code){
   const el=$('#tdChat'); if(!el)return; el.innerHTML='Loading…';
   try{
-    const r=await fetch(`${SUPA_URL}/rest/v1/team_messages?select=*&team=eq.${encodeURIComponent(code)}&order=created_at.asc&limit=200`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const r=await fetch(`${SUPA_URL}/rest/v1/team_messages?select=*&team=eq.${encodeURIComponent(code)}&order=created_at.asc&limit=200`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}});
     const rows=r.ok?await r.json():[];
     el.innerHTML=rows.length?rows.map(m=>{
       const disp=m.role==='dispatch';
@@ -451,7 +455,7 @@ const PER_HEAD=955;       // bawat driver / technician na naka-declare sa Start 
 const GAS_PER_TEAM=400;   // gasolina kada na-deploy na team
 const CONSOLE_COST=1415;  // bawat dashboard user na nag-login ngayong araw
 async function renderExpenses(){
-  const date=manilaToday(), H={apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`};
+  const date=manilaToday(), H={apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()};
   let cloudExp=[], att=[];
   try{ const r=await fetch(`${SUPA_URL}/rest/v1/expenses?select=*&work_date=eq.${date}&order=created_at.desc`,{headers:H}); cloudExp=r.ok?await r.json():[]; }catch(e){}
   try{ const r=await fetch(`${SUPA_URL}/rest/v1/attendance?select=username,crew_driver,crew_tech1,crew_tech2,time_in&work_date=eq.${date}&order=time_in.desc`,{headers:H}); att=r.ok?await r.json():[]; }catch(e){}
@@ -565,7 +569,7 @@ function switchPage(page){$$('.page').forEach(p=>p.classList.remove('active'));$
 let valJobs=[], valDocs={};
 async function refreshValBadge(){
   try{
-    const r=await fetch(`${SUPA_URL}/rest/v1/jobs?select=id&status=eq.for_validation`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const r=await fetch(`${SUPA_URL}/rest/v1/jobs?select=id&status=eq.for_validation`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}});
     const n=r.ok?(await r.json()).length:0; const b=$('#valBadge');
     if(b){ b.textContent=n; b.style.display=n?'':'none'; }
   }catch(e){}
@@ -574,7 +578,7 @@ async function renderValidation(){
   const body=$('#validationBody'); if(!body)return;
   body.innerHTML=`<tr><td colspan="7" class="empty-cell">Loading…</td></tr>`;
   try{
-    const r=await fetch(`${SUPA_URL}/rest/v1/jobs?status=eq.for_validation&select=*&order=updated_at.asc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const r=await fetch(`${SUPA_URL}/rest/v1/jobs?status=eq.for_validation&select=*&order=updated_at.asc`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}});
     valJobs=r.ok?await r.json():[];
   }catch(e){valJobs=[]}
   valDocs=await fetchDocsFor(valJobs.map(j=>j.id));
@@ -584,7 +588,7 @@ async function renderValidation(){
   // approved/rejected today
   try{
     const today=manilaToday();
-    const r2=await fetch(`${SUPA_URL}/rest/v1/jobs?select=status,validated_at,updated_at&or=(status.eq.pending,status.eq.rejected)`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const r2=await fetch(`${SUPA_URL}/rest/v1/jobs?select=status,validated_at,updated_at&or=(status.eq.pending,status.eq.rejected)`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}});
     const rows=r2.ok?await r2.json():[];
     $('#valApproved').textContent=rows.filter(x=>x.status==='pending'&&x.validated_at&&new Date(x.validated_at).toLocaleDateString('en-CA',{timeZone:TZ})===today).length;
     $('#valRejected').textContent=rows.filter(x=>x.status==='rejected'&&x.updated_at&&new Date(x.updated_at).toLocaleDateString('en-CA',{timeZone:TZ})===today).length;
@@ -601,7 +605,7 @@ async function fetchDocsFor(ids){
   if(!ids.length)return{};
   try{
     const q=ids.map(encodeURIComponent).join(',');
-    const r=await fetch(`${SUPA_URL}/rest/v1/job_docs?select=job_id,category,path&job_id=in.(${q})`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const r=await fetch(`${SUPA_URL}/rest/v1/job_docs?select=job_id,category,path&job_id=in.(${q})`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}});
     const rows=r.ok?await r.json():[]; const m={}; rows.forEach(x=>{(m[x.job_id]=m[x.job_id]||[]).push(x)}); return m;
   }catch(e){return{}}
 }
@@ -633,7 +637,7 @@ async function decideValidation(jobId,approve){
     ? {status:'pending', validated:true, validated_at:new Date().toISOString(), updated_at:new Date().toISOString(), load_date:manilaToday()}
     : {status:'rejected', updated_at:new Date().toISOString(), special_note:(($('#valReason').value||'').trim()?('REJECTED: '+$('#valReason').value.trim()):'REJECTED')};
   try{
-    await fetch(`${SUPA_URL}/rest/v1/jobs?id=eq.${encodeURIComponent(jobId)}`,{method:'PATCH',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify(body)});
+    await fetch(`${SUPA_URL}/rest/v1/jobs?id=eq.${encodeURIComponent(jobId)}`,{method:'PATCH',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok(),'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify(body)});
     closeModals(); showToast(approve?`${jobId} approved → sent to dispatch`:`${jobId} rejected`); renderValidation();
   }catch(e){showToast('Action failed: '+e.message)}
 }
@@ -641,7 +645,7 @@ async function decideValidation(jobId,approve){
 // ---------- Accounts (technician login accounts) ----------
 async function fetchTechnicians(){
   try{
-    const r=await fetch(`${SUPA_URL}/rest/v1/technicians?select=*&order=username.asc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const r=await fetch(`${SUPA_URL}/rest/v1/technicians?select=*&order=username.asc`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}});
     return r.ok?await r.json():[];
   }catch(e){return[]}
 }
@@ -685,7 +689,7 @@ async function resetNow(){
   if(!sec){showToast('Enter the admin secret');return}
   const btn=$('#resetNow'); btn.disabled=true; btn.textContent='Resetting…';
   try{
-    const r=await fetch(`${SUPA_URL}/functions/v1/admin-reset`,{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`},body:JSON.stringify({username,new_password:np,admin_secret:sec})});
+    const r=await fetch(`${SUPA_URL}/functions/v1/admin-reset`,{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()},body:JSON.stringify({username,new_password:np,admin_secret:sec})});
     let out={}; try{out=await r.json()}catch(e){}
     if(!r.ok||out.error) throw new Error(out.error||('HTTP '+r.status));
     localStorage.setItem('ahba_admin_secret',sec);
@@ -701,7 +705,7 @@ async function resetNow(){
 // ---------- Attendance (time-in / time-out) ----------
 async function fetchAttendance(date){
   try{
-    const r=await fetch(`${SUPA_URL}/rest/v1/attendance?select=*&work_date=eq.${date}&order=time_in.desc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const r=await fetch(`${SUPA_URL}/rest/v1/attendance?select=*&work_date=eq.${date}&order=time_in.desc`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}});
     return r.ok?await r.json():[];
   }catch(e){return[]}
 }
@@ -729,7 +733,7 @@ async function renderGateLog(date){
   const body=$('#gateBody'); if(!body)return;
   body.innerHTML=`<tr><td colspan="9" class="empty-cell">Loading…</td></tr>`;
   try{
-    const r=await fetch(`${SUPA_URL}/rest/v1/gate_logs?select=*&work_date=eq.${date}&order=checked_at.asc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const r=await fetch(`${SUPA_URL}/rest/v1/gate_logs?select=*&work_date=eq.${date}&order=checked_at.asc`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}});
     gateRows=r.ok?await r.json():[];
   }catch(e){ gateRows=[]; }
   const ok=gateRows.filter(g=>g.crew_ok).length, disc=gateRows.length-ok;
@@ -767,7 +771,7 @@ const photoBase = p => `${SUPA_URL}/storage/v1/object/public/job-photos/${p}`;
 let compJobs=[], compPhotos={};
 async function fetchCompleted(date){
   try{
-    const r=await fetch(`${SUPA_URL}/rest/v1/jobs?status=eq.completed&select=*&order=updated_at.desc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const r=await fetch(`${SUPA_URL}/rest/v1/jobs?status=eq.completed&select=*&order=updated_at.desc`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}});
     const all=r.ok?await r.json():[];
     return all.filter(j=>j.updated_at && new Date(j.updated_at).toLocaleDateString('en-CA',{timeZone:TZ})===date);
   }catch(e){return[]}
@@ -776,7 +780,7 @@ async function fetchPhotosFor(ids){
   if(!ids.length)return{};
   try{
     const q=ids.map(encodeURIComponent).join(',');
-    const r=await fetch(`${SUPA_URL}/rest/v1/job_photos?select=job_id,path,label&job_id=in.(${q})`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const r=await fetch(`${SUPA_URL}/rest/v1/job_photos?select=job_id,path,label&job_id=in.(${q})`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}});
     const rows=r.ok?await r.json():[]; const m={}; rows.forEach(x=>{(m[x.job_id]=m[x.job_id]||[]).push({path:x.path,label:x.label||''})}); return m;
   }catch(e){return{}}
 }
@@ -813,7 +817,7 @@ function openGallery(jobId){
 }
 async function validateJob(jobId){
   try{
-    await fetch(`${SUPA_URL}/rest/v1/jobs?id=eq.${encodeURIComponent(jobId)}`,{method:'PATCH',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({validated:true,validated_at:new Date().toISOString()})});
+    await fetch(`${SUPA_URL}/rest/v1/jobs?id=eq.${encodeURIComponent(jobId)}`,{method:'PATCH',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok(),'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({validated:true,validated_at:new Date().toISOString()})});
     showToast(`${jobId} validated`); renderCompleted();
   }catch(e){showToast('Could not validate')}
 }
@@ -904,10 +908,10 @@ async function clearCloud(){
   showToast('Clearing photos from cloud…');
   try{
     for(let i=0;i<allPaths.length;i+=100){
-      await fetch(`${SUPA_URL}/storage/v1/object/job-photos`,{method:'DELETE',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({prefixes:allPaths.slice(i,i+100)})});
+      await fetch(`${SUPA_URL}/storage/v1/object/job-photos`,{method:'DELETE',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok(),'Content-Type':'application/json'},body:JSON.stringify({prefixes:allPaths.slice(i,i+100)})});
     }
     const q=compJobs.map(j=>encodeURIComponent(j.id)).join(',');
-    await fetch(`${SUPA_URL}/rest/v1/job_photos?job_id=in.(${q})`,{method:'DELETE',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,Prefer:'return=minimal'}});
+    await fetch(`${SUPA_URL}/rest/v1/job_photos?job_id=in.(${q})`,{method:'DELETE',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok(),Prefer:'return=minimal'}});
     showToast('Cloud photos cleared'); renderCompleted();
   }catch(e){showToast('Clear failed: '+e.message)}
 }
@@ -945,7 +949,7 @@ async function renderHistory(){
   const from=fromEl.value, to=toEl.value;
   body.innerHTML=`<tr><td colspan="8" class="empty-cell">Loading…</td></tr>`;
   await loadAgentNames();
-  let all=[]; try{ const r=await fetch(`${SUPA_URL}/rest/v1/jobs?select=*&order=updated_at.desc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}}); all=r.ok?await r.json():[]; }catch(e){}
+  let all=[]; try{ const r=await fetch(`${SUPA_URL}/rest/v1/jobs?select=*&order=updated_at.desc`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}}); all=r.ok?await r.json():[]; }catch(e){}
   const dayOf=j=> j.load_date?String(j.load_date).slice(0,10) : (j.updated_at?new Date(j.updated_at).toLocaleDateString('en-CA',{timeZone:TZ}):'');
   histJobs=all.filter(j=>{const d=dayOf(j);return d&&d>=from&&d<=to;});
   $('#histTotal').textContent=histJobs.length;
@@ -1002,7 +1006,7 @@ async function markReceived(jobId){
   const who=currentOperator(), now=new Date().toISOString();
   const hist=appendHistory(j.history, `Remittance received (${j.payment_mode||''} ${j.payment_amount!=null?money(j.payment_amount):''}${j.ar_no?' · AR '+j.ar_no:''}) by ${who}`);
   try{
-    await fetch(`${SUPA_URL}/rest/v1/jobs?id=eq.${encodeURIComponent(jobId)}`,{method:'PATCH',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({remittance_received:true,remittance_received_by:who,remittance_received_at:now,history:hist,updated_at:now})});
+    await fetch(`${SUPA_URL}/rest/v1/jobs?id=eq.${encodeURIComponent(jobId)}`,{method:'PATCH',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok(),'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({remittance_received:true,remittance_received_by:who,remittance_received_at:now,history:hist,updated_at:now})});
     j.remittance_received=true; j.remittance_received_by=who; j.remittance_received_at=now; j.history=hist;
     renderRemittance(); showToast(`${jobId}: remittance received`);
   }catch(e){ showToast('Could not mark received'); }
@@ -1026,7 +1030,7 @@ function exportRemittance(){
 // ---------- Add Job Order (console intake → Validator, mirrors sales agent) ----------
 let ordDocs={id:[],billing:[],premise:[]};
 let _sbc=null;
-function sbc(){ if(!_sbc && window.supabase?.createClient) _sbc=window.supabase.createClient(SUPA_URL,SUPA_KEY); return _sbc; }
+function sbc(){ if(typeof dashAuth!=='undefined' && dashAuth) return dashAuth; /* authenticated client */ if(!_sbc && window.supabase?.createClient) _sbc=window.supabase.createClient(SUPA_URL,SUPA_KEY); return _sbc; }
 function compressImage(file,maxDim=1000,targetKB=90){
   return new Promise(resolve=>{
     if(!file || !(file.type||'').startsWith('image/')){ resolve(file); return; }
@@ -1089,22 +1093,31 @@ async function submitOrder(e){
 const PAGE_KEYS=[['overview','Overview'],['validation','Validator'],['dispatch','Dispatch'],['teams','Field Teams'],['workorders','Work Orders'],['expenses','Expenses'],['accounts','Accounts'],['attendance','Attendance'],['completed','Completed'],['remittance','Remittance'],['history','Load History']];
 let dashAuth=null; window.dashUser=null;
 const dashEmailFor=u=>u.trim().toLowerCase()+'@ahbadash.app';
-const DH=()=>({apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json'});
+const DH=()=>({apikey:SUPA_KEY,Authorization:'Bearer '+dashTok(),'Content-Type':'application/json'});
 function dgErr(id,msg){const e=$(id); if(!e)return; e.textContent=msg||''; e.classList.toggle('show',!!msg);}
 function startDashAuth(){
   if(!window.supabase?.createClient){ console.warn('supabase-js not loaded'); return; }
   dashAuth=window.supabase.createClient(SUPA_URL,SUPA_KEY);
+  // keep the REST token + realtime auth in sync with the session (handles token refresh)
+  dashAuth.auth.onAuthStateChange((_e,session)=>{ window.__ahbaTok = session?.access_token || null; setRealtimeAuth(window.__ahbaTok); });
   dashAuth.auth.getSession().then(({data})=>{
+    window.__ahbaTok = data.session?.access_token || null;
     if(data.session&&data.session.user) onDashLogin(data.session.user.email);
     else showDashGate('#dashGate');
   });
 }
+// Apply the user token to realtime clients so live updates work under authenticated-only RLS
+function setRealtimeAuth(tok){
+  try{ if(window.AHBACloud&&AHBACloud.realtime) AHBACloud.realtime.realtime.setAuth(tok||SUPA_KEY); }catch(e){}
+  try{ if(window.__cwClient) window.__cwClient.realtime.setAuth(tok||SUPA_KEY); }catch(e){}
+}
 function showDashGate(which){ ['#dashGate','#dashPwGate'].forEach(g=>{const el=$(g); if(el)el.style.display=(g===which)?'flex':'none';}); }
 function hideDashGates(){ ['#dashGate','#dashPwGate'].forEach(g=>{const el=$(g); if(el)el.style.display='none';}); }
 async function fetchDashUser(email){
-  try{ const r=await fetch(`${SUPA_URL}/rest/v1/dashboard_users?email=eq.${encodeURIComponent(email)}&select=*`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}}); const rows=r.ok?await r.json():[]; return rows[0]||null; }catch(e){ return null; }
+  try{ const r=await fetch(`${SUPA_URL}/rest/v1/dashboard_users?email=eq.${encodeURIComponent(email)}&select=*`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}}); const rows=r.ok?await r.json():[]; return rows[0]||null; }catch(e){ return null; }
 }
 async function onDashLogin(email){
+  try{ const {data:s}=await dashAuth.auth.getSession(); window.__ahbaTok=s.session?.access_token||null; setRealtimeAuth(window.__ahbaTok); }catch(e){}
   const u=await fetchDashUser(email);
   if(!u){ dgErr('#dlErr','This account is not registered as a dashboard user.'); try{await dashAuth.auth.signOut();}catch(e){} showDashGate('#dashGate'); return; }
   window.dashUser=u;
@@ -1128,7 +1141,7 @@ let accessUsers=[];
 async function renderAccess(){
   const wrap=$('#accessWrap'); if(!wrap)return;
   wrap.innerHTML='Loading…';
-  try{ const r=await fetch(`${SUPA_URL}/rest/v1/dashboard_users?select=*&order=is_super.desc,username.asc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}}); accessUsers=r.ok?await r.json():[]; }catch(e){accessUsers=[];}
+  try{ const r=await fetch(`${SUPA_URL}/rest/v1/dashboard_users?select=*&order=is_super.desc,username.asc`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}}); accessUsers=r.ok?await r.json():[]; }catch(e){accessUsers=[];}
   const head=`<tr><th>User</th><th>Role</th>${PAGE_KEYS.map(p=>`<th style="text-align:center;font-size:9px">${p[1]}</th>`).join('')}<th></th></tr>`;
   const rows=accessUsers.map(u=>{
     if(u.is_super) return `<tr><td><strong>${u.display_name||u.username}</strong><span>${u.username}</span></td><td>Superadmin</td><td colspan="${PAGE_KEYS.length}" style="text-align:center;color:#11825f">Full access (all sections)</td><td style="white-space:nowrap"><button class="assign-btn" data-renamedash="${u.username}">Rename</button> <button class="assign-btn" data-resetdash="${u.username}">Reset PW</button></td></tr>`;
@@ -1155,7 +1168,7 @@ function getAdminSecret(){
   return s;
 }
 async function callAdminFn(payload){
-  const r=await fetch(`${SUPA_URL}/functions/v1/admin-reset`,{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`},body:JSON.stringify(payload)});
+  const r=await fetch(`${SUPA_URL}/functions/v1/admin-reset`,{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()},body:JSON.stringify(payload)});
   let out={}; try{out=await r.json()}catch(e){}
   if(!r.ok||out.error) throw new Error(out.error||('HTTP '+r.status));
   return out;
@@ -1222,7 +1235,7 @@ async function showCwTeams(){
   $('#dcTitle').textContent='Team messages'; if($('#dcHeadAv'))$('#dcHeadAv').textContent='💬'; if($('#dcSub'))$('#dcSub').textContent='Tap a team to chat';
   const el=$('#dcTeams'); el.innerHTML='<div style="padding:20px;text-align:center;color:#9aa6a2;font-size:12px">Loading…</div>';
   try{
-    const r=await fetch(`${SUPA_URL}/rest/v1/team_messages?select=team,body,role,created_at&order=created_at.desc&limit=400`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const r=await fetch(`${SUPA_URL}/rest/v1/team_messages?select=team,body,role,created_at&order=created_at.desc&limit=400`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}});
     const rows=r.ok?await r.json():[];
     const last={}; rows.forEach(m=>{ if(!last[m.team]) last[m.team]=m; });
     const arr=Object.keys(last).sort((a,b)=>new Date(last[b].created_at)-new Date(last[a].created_at));
@@ -1237,7 +1250,7 @@ async function openCwThread(code){
   $('#dcTitle').textContent=code; if($('#dcHeadAv'))$('#dcHeadAv').textContent=code.slice(-3); if($('#dcSub'))$('#dcSub').textContent=(teamCrew(code)||'Field team');
   const el=$('#dcMsgs'); el.innerHTML='<div style="color:#9aa6a2;font-size:11px;text-align:center;padding:14px">Loading…</div>';
   try{
-    const r=await fetch(`${SUPA_URL}/rest/v1/team_messages?select=*&team=eq.${encodeURIComponent(code)}&order=created_at.asc&limit=200`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const r=await fetch(`${SUPA_URL}/rest/v1/team_messages?select=*&team=eq.${encodeURIComponent(code)}&order=created_at.asc&limit=200`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}});
     renderCwMsgs(r.ok?await r.json():[]);
   }catch(e){ el.innerHTML='<div style="color:#c2503a;font-size:11px;padding:14px">Could not load.</div>'; }
 }
@@ -1252,6 +1265,7 @@ async function sendCw(){
 function startDashChat(){
   if(cwChan||!window.supabase?.createClient) return;
   const cl=window.supabase.createClient(SUPA_URL,SUPA_KEY);
+  window.__cwClient=cl; try{ cl.realtime.setAuth(window.__ahbaTok||SUPA_KEY); }catch(e){}
   cwChan=cl.channel('dash-team-chat').on('postgres_changes',{event:'INSERT',schema:'public',table:'team_messages'},p=>{
     const m=p.new; if(!m||m.role!=='team') return;   // only field-team messages notify the console
     playBeepDash();
@@ -1268,7 +1282,7 @@ function openAnnounce(){ loadAnnRecent(); openModal($('#announceModal')); }
 async function loadAnnRecent(){
   const el=$('#annRecent'); if(!el)return; el.innerHTML='Loading…';
   try{
-    const r=await fetch(`${SUPA_URL}/rest/v1/announcements?select=*&order=created_at.desc&limit=20`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const r=await fetch(`${SUPA_URL}/rest/v1/announcements?select=*&order=created_at.desc&limit=20`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok()}});
     const rows=r.ok?await r.json():[];
     el.innerHTML=rows.length?rows.map(a=>`<div style="border-bottom:1px dashed #eef1ed;padding:6px 0"><b>${(a.title||'Announcement')}</b> <span class="status ${a.audience==='sales'?'assigned':a.audience==='technician'?'en-route':'completed'}" style="font-size:7px">${a.audience||'all'}</span><div style="color:#586965;margin:2px 0;white-space:pre-wrap">${(a.body||'').replace(/</g,'&lt;')}</div><div style="color:#9aa6a2;font-size:9px">${fmtWhen(a.created_at)} <button class="assign-btn" data-delann="${a.id}" style="margin-left:6px">Delete</button></div></div>`).join(''):'<span style="color:#9aa6a2">No announcements yet.</span>';
     $$('#annRecent [data-delann]').forEach(b=>b.onclick=()=>delAnnounce(b.dataset.delann));
@@ -1393,7 +1407,7 @@ async function importJobsFromRows(rows){
   showToast(`Importing ${out.length} job order(s)…`);
   try{
     for(let i=0;i<out.length;i+=100){
-      const r=await fetch(`${SUPA_URL}/rest/v1/jobs`,{method:'POST',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify(out.slice(i,i+100))});
+      const r=await fetch(`${SUPA_URL}/rest/v1/jobs`,{method:'POST',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok(),'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify(out.slice(i,i+100))});
       if(!r.ok){ const t=await r.text(); throw new Error(t.slice(0,200)); }
     }
     // refresh from cloud so the new jobs appear on the board
@@ -1456,7 +1470,7 @@ function init(){
   $$('#orderModal [data-doc]').forEach(inp=>inp.onchange=()=>{ const cat=inp.dataset.doc; ordDocs[cat]=[...inp.files]; const b=$(`#orderModal [data-cnt="${cat}"]`); if(b)b.textContent=`${ordDocs[cat].length} file(s)`; });
   $$('#orderModal input[inputmode="numeric"]').forEach(el=>el.oninput=()=>{el.value=el.value.replace(/\D/g,'').slice(0,11)});
   $('#expenseForm').onsubmit=e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
-    fetch(`${SUPA_URL}/rest/v1/expenses`,{method:'POST',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({team:f.team,category:f.category,description:f.description,amount:Number(f.amount),job_id:f.workOrder||null,status:'Pending',work_date:manilaToday()})}).then(()=>setTimeout(renderExpenses,400)).catch(()=>{});
+    fetch(`${SUPA_URL}/rest/v1/expenses`,{method:'POST',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+dashTok(),'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({team:f.team,category:f.category,description:f.description,amount:Number(f.amount),job_id:f.workOrder||null,status:'Pending',work_date:manilaToday()})}).then(()=>setTimeout(renderExpenses,400)).catch(()=>{});
     e.target.reset();closeModals();showToast('Expense recorded for approval')};
 
   // Search + filters

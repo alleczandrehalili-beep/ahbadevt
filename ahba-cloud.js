@@ -6,17 +6,21 @@
   const configured = /^https:\/\/.+\.supabase\.co$/.test(config.url || '') &&
     config.anonKey && !config.anonKey.startsWith('YOUR_');
 
-  const headers = {
-    apikey: config.anonKey,
-    Authorization: `Bearer ${config.anonKey}`,
-    'Content-Type': 'application/json'
-  };
+  // Authorization uses the logged-in dashboard user's JWT (set by app.js on login);
+  // falls back to the public key before login. Required once RLS is authenticated-only.
+  function authHeaders() {
+    return {
+      apikey: config.anonKey,
+      Authorization: 'Bearer ' + (window.__ahbaTok || config.anonKey),
+      'Content-Type': 'application/json'
+    };
+  }
 
   async function request(path, options = {}) {
     if (!configured) return null;
     const response = await fetch(`${config.url}/rest/v1/${path}`, {
       ...options,
-      headers: {...headers, ...(options.headers || {})}
+      headers: {...authHeaders(), ...(options.headers || {})}
     });
     if (!response.ok) {
       // Surface the real reason (RLS = 401/403, missing table = 404, bad column = 400)
@@ -146,6 +150,8 @@
     refresh();
     if (window.supabase?.createClient) {
       const realtime = window.supabase.createClient(config.url, config.anonKey);
+      window.AHBACloud.realtime = realtime;
+      try { realtime.realtime.setAuth(window.__ahbaTok || config.anonKey); } catch (e) {}
       realtime
         .channel('ahba-dashboard-jobs')
         .on('postgres_changes', {event: '*', schema: 'public', table: 'jobs'}, refresh)
@@ -154,7 +160,7 @@
     setInterval(refresh, 15000);
   }
 
-  window.AHBACloud = {configured, getJobs, upsertJobs, startDashboard, setStatus};
+  window.AHBACloud = {configured, getJobs, upsertJobs, startDashboard, setStatus, realtime: null};
 
   document.addEventListener('DOMContentLoaded', () => {
     if (!configured || typeof jobs === 'undefined') {
