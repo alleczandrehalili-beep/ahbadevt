@@ -627,7 +627,10 @@
         const thumb=has?`<div class="thumbs">${arr.map(p=>`<img src="${pubUrl(p)}" alt="">`).join('')}</div>`:'';
         return `<div class="pslot ${has?'done':''}"><div class="pslot-head"><span>${i+1}. ${l}</span><span class="pchk ${has?'ok':'need'}">${has?'✓':'•'}</span></div>${thumb}<div style="display:flex;gap:6px;margin-top:6px"><label class="addphoto pmini">${svg('camera')} Camera<input type="file" accept="image/*" capture="environment" hidden data-up="${id}" data-label="${lab}"></label><label class="addphoto pmini">${svg('note')} Album<input type="file" accept="image/*" hidden data-up="${id}" data-label="${lab}"></label></div></div>`;
       }).join('');
-      return `<div class="photos"><div class="photos-head"><span>Proof photos (${PHOTOS_REQUIRED} required)</span><span class="count ${done>=PHOTOS_REQUIRED?'ok':'need'}">${done}/${PHOTOS_REQUIRED}</span></div><div class="pslots">${rows}</div></div>`;
+      return `<div class="photos"><div class="photos-head"><span>Proof photos (${PHOTOS_REQUIRED} required)</span><span class="count ${done>=PHOTOS_REQUIRED?'ok':'need'}">${done}/${PHOTOS_REQUIRED}</span></div>
+        <label class="addphoto" style="margin:4px 0 8px;background:#e9f6f0;border-color:#a8e6c9;color:#0e7a55;font-weight:800">📁 Mabilisang upload — pumili ng marami mula sa album<input type="file" accept="image/*" multiple hidden data-bulk="${id}"></label>
+        <div style="font-size:10px;color:#8a9894;margin:-4px 0 6px">Mapupunta ang mga napili sa mga natitirang slot ayon sa pagkakasunod (1→12).</div>
+        <div class="pslots">${rows}</div></div>`;
     }
     let knownJobIds=null;   // for detecting newly-arrived loads (sound)
     async function refresh(){
@@ -678,25 +681,39 @@
         img.src=url;
       });
     }
+    // Upload one image to a given label
+    async function uploadOne(jobId, file, label){
+      const blob=await compressImage(file);
+      const safe=(label||'photo').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'').slice(0,40);
+      const path=`${jobId}/${safe}_${Date.now()}_${Math.random().toString(36).slice(2,7)}.jpg`;
+      const {error}=await sb.storage.from('job-photos').upload(path, blob, {contentType:'image/jpeg', upsert:false});
+      if(error) throw error;
+      await sb.from('job_photos').insert({job_id:jobId, team:myTeam, path, label:label||''});
+      (photoData[jobId]=photoData[jobId]||[]).push({path,label:label||''});
+    }
+    // Bulk: pick many photos at once → auto-assign to the remaining empty slots in order, upload in parallel
+    async function uploadBulk(jobId, fileList){
+      const files=[...fileList]; if(!files.length)return;
+      const done=labelsDone(jobId);
+      const empty=PHOTO_LABELS.filter(l=>!done.has(l));
+      if(!empty.length){ toast('Kumpleto na ang 12 — walang bakanteng slot'); return; }
+      const pairs=files.slice(0,empty.length).map((f,i)=>({f,label:empty[i]}));
+      const extra=files.length-pairs.length;
+      toast(`Ina-upload ang ${pairs.length} litrato…`);
+      let ok=0;
+      await Promise.all(pairs.map(async ({f,label})=>{ try{ await uploadOne(jobId,f,label); ok++; }catch(e){ console.warn('bulk',e.message); } }));
+      render();
+      toast(`${photoCount(jobId)}/${PHOTOS_REQUIRED} kumpleto${extra>0?` · ${extra} sobra (puno na)`:''}${ok<pairs.length?` · ${pairs.length-ok} nabigo`:''}`);
+    }
     async function uploadPhotos(jobId, fileList, label){
       const files=[...fileList]; if(!files.length)return;
       label=label||'';
       toast(`Uploading ${label||'photo'}…`);
       let ok=0;
-      for(const f of files){
-        try{
-          const blob=await compressImage(f);
-          const safe=(label||'photo').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'').slice(0,40);
-          const path=`${jobId}/${safe}_${Date.now()}_${Math.random().toString(36).slice(2,7)}.jpg`;
-          const {error}=await sb.storage.from('job-photos').upload(path, blob, {contentType:'image/jpeg', upsert:false});
-          if(error) throw error;
-          await sb.from('job_photos').insert({job_id:jobId, team:myTeam, path, label});
-          (photoData[jobId]=photoData[jobId]||[]).push({path,label}); ok++;
-          render();
-        }catch(e){ console.warn('upload',e.message); }
-      }
-      toast(ok===files.length?`${ok} photo${ok>1?'s':''} added`:`${ok}/${files.length} uploaded — try the rest again`);
+      // upload all selected (for this label) in parallel
+      await Promise.all(files.map(async f=>{ try{ await uploadOne(jobId,f,label); ok++; }catch(e){ console.warn('upload',e.message); } }));
       render();
+      toast(ok===files.length?`${ok} photo${ok>1?'s':''} added`:`${ok}/${files.length} uploaded — try the rest again`);
     }
 
     // ---------- technician expense ----------
@@ -845,6 +862,7 @@
       }).join('');
       el.querySelectorAll('[data-next]').forEach(b=>b.onclick=()=>advance(b.dataset.id,b.dataset.next));
       el.querySelectorAll('[data-up]').forEach(inp=>inp.onchange=()=>{const id=inp.dataset.up,files=inp.files;uploadPhotos(id,files,inp.dataset.label);inp.value='';});
+      el.querySelectorAll('[data-bulk]').forEach(inp=>inp.onchange=()=>{const id=inp.dataset.bulk,files=inp.files;uploadBulk(id,files);inp.value='';});
       el.querySelectorAll('[data-exp]').forEach(b=>b.onclick=()=>openMobileExpense(b.dataset.exp));
       el.querySelectorAll('[data-neg]').forEach(b=>b.onclick=()=>openNegative(b.dataset.neg));
       el.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>cancelJob(b.dataset.cancel));
