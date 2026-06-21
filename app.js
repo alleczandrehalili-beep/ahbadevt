@@ -645,8 +645,8 @@ async function fetchPhotosFor(ids){
   if(!ids.length)return{};
   try{
     const q=ids.map(encodeURIComponent).join(',');
-    const r=await fetch(`${SUPA_URL}/rest/v1/job_photos?select=job_id,path&job_id=in.(${q})`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
-    const rows=r.ok?await r.json():[]; const m={}; rows.forEach(x=>{(m[x.job_id]=m[x.job_id]||[]).push(x.path)}); return m;
+    const r=await fetch(`${SUPA_URL}/rest/v1/job_photos?select=job_id,path,label&job_id=in.(${q})`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const rows=r.ok?await r.json():[]; const m={}; rows.forEach(x=>{(m[x.job_id]=m[x.job_id]||[]).push({path:x.path,label:x.label||''})}); return m;
   }catch(e){return{}}
 }
 async function renderCompleted(){
@@ -675,7 +675,7 @@ function openGallery(jobId){
   const j=compJobs.find(x=>x.id===jobId)||{}; const paths=compPhotos[jobId]||[];
   $('#photoTitle').textContent=`${jobId} · ${j.subscriber||''}`;
   $('#photoSub').textContent=`${j.team||''} · ${j.area||''}${j.primary_no?' · '+j.primary_no:''}${j.job_order_no?' · JO '+j.job_order_no:''} · ${paths.length} photo${paths.length===1?'':'s'}`;
-  $('#photoGrid').innerHTML=paths.length?paths.map((p,i)=>`<a class="ph" href="${photoBase(p)}" target="_blank" rel="noopener" title="Photo ${i+1} — open in new window"><img src="${photoBase(p)}" alt="proof ${i+1}" loading="lazy"></a>`).join(''):'<div class="none">No photos uploaded for this job.</div>';
+  $('#photoGrid').innerHTML=paths.length?paths.map((p,i)=>`<a class="ph" href="${photoBase(p.path)}" target="_blank" rel="noopener" title="${(p.label||('Photo '+(i+1)))} — open in new window" style="position:relative"><img src="${photoBase(p.path)}" alt="${p.label||('proof '+(i+1))}" loading="lazy"><span style="position:absolute;left:0;right:0;bottom:0;background:rgba(8,44,40,.78);color:#fff;font-size:7.5px;font-weight:700;padding:3px 4px;line-height:1.2">${p.label||('#'+(i+1))}</span></a>`).join(''):'<div class="none">No photos uploaded for this job.</div>';
   $$('#photoGrid .ph').forEach(a=>a.onclick=e=>{e.preventDefault();window.open(a.href,'_blank','noopener,noreferrer');});
   const vb=$('#validateBtn'); vb.style.display=j.validated?'none':''; vb.onclick=()=>{validateJob(jobId);closeModals();};
   openModal($('#photoModal'));
@@ -750,8 +750,11 @@ async function exportZip(){
     let name=safeName(j.subscriber || [j.first_name,j.last_name].filter(Boolean).join(' '));
     if(used[name]){ used[name]++; name=`${name} (${used[name]})`; } else used[name]=1;
     const folder=photosRoot.folder(`${name} - ${j.id}`);
+    const lblUsed={};
     for(let i=0;i<paths.length;i++){
-      try{ const blob=await (await fetch(photoBase(paths[i]))).blob(); folder.file(`${name}_${String(i+1).padStart(2,'0')}.jpg`, blob); }
+      const p=paths[i]; const lbl=safeName(p.label||('Photo '+(i+1)));
+      lblUsed[lbl]=(lblUsed[lbl]||0)+1; const suffix=lblUsed[lbl]>1?` (${lblUsed[lbl]})`:'';
+      try{ const blob=await (await fetch(photoBase(p.path))).blob(); folder.file(`${name} - ${lbl}${suffix}.jpg`, blob); }
       catch(e){ console.warn('zip fetch',e.message); }
     }
   }
@@ -764,7 +767,7 @@ async function exportZip(){
 async function clearCloud(){
   const date=$('#compDate').value||manilaToday();
   if(!compJobs.length){showToast('Nothing to clear for this day');return}
-  const allPaths=compJobs.flatMap(j=>compPhotos[j.id]||[]);
+  const allPaths=compJobs.flatMap(j=>(compPhotos[j.id]||[]).map(p=>p.path));
   if(!allPaths.length){showToast('No photos to clear');return}
   if(!confirm(`Delete ${allPaths.length} photo(s) from the cloud for ${date}?\n\nDownload the ZIP archive FIRST. Job records are kept — only the images are removed. This cannot be undone.`))return;
   showToast('Clearing photos from cloud…');
