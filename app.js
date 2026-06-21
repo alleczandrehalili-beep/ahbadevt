@@ -207,11 +207,15 @@ function renderJobs(){
     else { list=jobs.filter(j=>keys.split(',').includes(j.status)&&loadToday(j.load_date)); }
     return `<div class="board-column" data-drop="${keys}"><div class="column-head"><strong>${label}</strong><span>${list.length}</span></div>${list.map(jobCard).join('')||'<div class="job-card empty"><p>No jobs in this stage.</p></div>'}</div>`;
   }).join('');
+  // All four counts come from ONE set: unique loads with today's load_date.
+  // → Incomplete + Cancelled + Completed (+ still-active) always reconcile to Total Turn-Ins.
+  const todayLoads=[...new Map(jobs.filter(j=>j.load_date&&String(j.load_date).slice(0,10)===today).map(j=>[j.id,j])).values()];
+  const cntBy=s=>todayLoads.filter(j=>j.status===s).length;
   const stats=[
-    ['Total Turn-Ins', jobs.filter(j=>loadToday(j.load_date)).length, '#4285f4'],   // lahat ng load na naipasok ngayong araw
-    ['Incomplete',     jobs.filter(j=>j.status==='negative').length, '#c2503a'],     // negative loads
-    ['Cancelled',      jobs.filter(j=>j.status==='cancelled'&&isToday(j.updatedAt)).length, '#7a8088'],
-    ['Completed',      jobs.filter(j=>j.status==='completed'&&isToday(j.updatedAt)).length, '#11825f']
+    ['Total Turn-Ins', todayLoads.length, '#4285f4'],   // unique loads na pumasok para sa araw
+    ['Incomplete',     cntBy('negative'),  '#c2503a'],
+    ['Cancelled',      cntBy('cancelled'), '#7a8088'],
+    ['Completed',      cntBy('completed'), '#11825f']
   ];
   $('#dispatchStats').innerHTML=stats.map(([l,n,c])=>`<div class="small-stat" style="border-left:4px solid ${c}"><span>${l}</span><strong style="color:${c}">${n}</strong></div>`).join('');
   bindAssignButtons();
