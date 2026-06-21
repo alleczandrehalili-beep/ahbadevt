@@ -292,9 +292,20 @@
           <div class="small-stat"><span>Records this day</span><strong id="attTotal">0</strong></div>
           <div class="small-stat"><span>Total hours logged</span><strong id="attHours">0h</strong></div>
         </div>
-        <article class="panel full-table">
-          <div class="filter-row"><div><h2 style="font:800 13px Manrope;margin:0">Daily log</h2><p style="font-size:10px;color:#8a9894;margin:4px 0 0">Time-in is recorded on sign-in; time-out on "Time out &amp; sign out".</p></div></div>
+        <article class="panel full-table" style="margin-bottom:14px">
+          <div class="filter-row"><div><h2 style="font:800 13px Manrope;margin:0">Daily log</h2><p style="font-size:10px;color:#8a9894;margin:4px 0 0">Time-in is recorded on sign-in; time-out on "Time out &amp; sign out".</p></div><button class="secondary-btn" id="attExport"><i data-icon="arrow"></i>Export attendance</button></div>
           <div class="table-wrap"><table><thead><tr><th>Technician</th><th>Date</th><th>Time in</th><th>Time out</th><th>Hours</th><th>Status</th></tr></thead><tbody id="attendanceBody"></tbody></table></div>
+        </article>
+
+        <div class="dispatch-stats">
+          <div class="small-stat"><span>Vehicles dispatched (gate-out)</span><strong id="gateCount">0</strong></div>
+          <div class="small-stat"><span>Crew OK</span><strong id="gateOk">0</strong></div>
+          <div class="small-stat"><span>With discrepancy</span><strong id="gateDisc">0</strong></div>
+          <div class="small-stat"><span>Earliest gate-out</span><strong id="gateFirst">—</strong></div>
+        </div>
+        <article class="panel full-table">
+          <div class="filter-row"><div><h2 style="font:800 13px Manrope;margin:0">🚐 Security gate-out · Vehicle log</h2><p style="font-size:10px;color:#8a9894;margin:4px 0 0">Plate no., odometer at oras ng paglabas — na-validate ng Security.</p></div><button class="secondary-btn" id="gateExport"><i data-icon="arrow"></i>Export vehicle log</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Gate-out time</th><th>Team</th><th>Account</th><th>Plate no.</th><th>Odometer (km)</th><th>Driver</th><th>Crew</th><th>Crew OK</th><th>Validated by</th></tr></thead><tbody id="gateBody"></tbody></table></div>
         </article>
       </section>
 

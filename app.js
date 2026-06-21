@@ -720,6 +720,46 @@ async function renderAttendance(){
     const status=r.time_out?'<span class="status completed">Timed out</span>':'<span class="status en-route">Timed in</span>';
     return `<tr><td><strong>${r.username}</strong></td><td>${r.work_date}</td><td>${fmtTime(r.time_in)}</td><td>${r.time_out?fmtTime(r.time_out):'—'}</td><td>${fmtDur(r.time_in,r.time_out)}</td><td>${status}</td></tr>`;
   }).join('');
+  attRows=rows;            // keep for export
+  renderGateLog(date);
+}
+// ---- Security gate-out / vehicle log (on the Attendance page) ----
+let attRows=[], gateRows=[];
+async function renderGateLog(date){
+  const body=$('#gateBody'); if(!body)return;
+  body.innerHTML=`<tr><td colspan="9" class="empty-cell">Loading…</td></tr>`;
+  try{
+    const r=await fetch(`${SUPA_URL}/rest/v1/gate_logs?select=*&work_date=eq.${date}&order=checked_at.asc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    gateRows=r.ok?await r.json():[];
+  }catch(e){ gateRows=[]; }
+  const ok=gateRows.filter(g=>g.crew_ok).length, disc=gateRows.length-ok;
+  const set=(id,v)=>{const el=$(id);if(el)el.textContent=v};
+  set('#gateCount',gateRows.length); set('#gateOk',ok); set('#gateDisc',disc);
+  set('#gateFirst', gateRows.length?fmtTime(gateRows[0].checked_at):'—');
+  if(!gateRows.length){ body.innerHTML=`<tr><td colspan="9" class="empty-cell">No gate-out records for this day.</td></tr>`; return; }
+  body.innerHTML=gateRows.map(g=>{
+    const crew=[g.crew_tech1,g.crew_tech2].filter(Boolean).join(', ');
+    const okb=g.crew_ok?'<span class="status completed">OK</span>':`<span class="status pending">Diff</span>`;
+    return `<tr><td><strong>${fmtTime(g.checked_at)}</strong></td><td><strong>${g.team||'—'}</strong></td><td>${g.account||'—'}</td><td><strong>${g.plate_no||'—'}</strong></td><td>${g.odometer!=null?g.odometer:'—'}</td><td>${g.crew_driver||'—'}</td><td>${crew||'—'}</td><td>${okb}${g.crew_remarks?` <span style="color:#c2503a;font-size:9px">${g.crew_remarks}</span>`:''}</td><td>${g.security_user||'—'}</td></tr>`;
+  }).join('');
+}
+function exportAttendance(){
+  if(typeof XLSX==='undefined'){showToast('Excel library still loading');return}
+  if(!attRows.length){showToast('Nothing to export');return}
+  const date=$('#attDate')?.value||manilaToday();
+  const rows=attRows.map(r=>({'TECHNICIAN':r.username,'DATE':r.work_date,'TIME IN':r.time_in?fmtWhen(r.time_in):'','TIME OUT':r.time_out?fmtWhen(r.time_out):'','HOURS':fmtDur(r.time_in,r.time_out),'STATUS':r.time_out?'Timed out':'Timed in','ACCOUNT':r.work_account||'','DRIVER':r.crew_driver||'','TECH 1':r.crew_tech1||'','TECH 2':r.crew_tech2||''}));
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Attendance');
+  const out=XLSX.write(wb,{type:'array',bookType:'xlsx'}); const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([out],{type:'application/octet-stream'})); a.download=`AHBA_attendance_${date}.xlsx`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),9000);
+  showToast('Attendance exported');
+}
+function exportGateLog(){
+  if(typeof XLSX==='undefined'){showToast('Excel library still loading');return}
+  if(!gateRows.length){showToast('No vehicle log to export');return}
+  const date=$('#attDate')?.value||manilaToday();
+  const rows=gateRows.map(g=>({'GATE-OUT TIME':fmtWhen(g.checked_at),'TEAM':g.team||'','ACCOUNT':g.account||'','PLATE NO.':g.plate_no||'','ODOMETER (KM)':(g.odometer!=null?g.odometer:''),'DRIVER':g.crew_driver||'','TECH 1':g.crew_tech1||'','TECH 2':g.crew_tech2||'','CREW OK':g.crew_ok?'YES':'NO','REMARKS':g.crew_remarks||'','VALIDATED BY':g.security_user||'','DATE':g.work_date||date}));
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Vehicle log');
+  const out=XLSX.write(wb,{type:'array',bookType:'xlsx'}); const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([out],{type:'application/octet-stream'})); a.download=`AHBA_vehicle_log_${date}.xlsx`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),9000);
+  showToast('Vehicle log exported');
 }
 
 // ---------- Completed jobs · proof photos · validation · export ----------
@@ -1444,6 +1484,8 @@ function init(){
   $('#clearBtn')?.addEventListener('click',clearCloud);
   $('#histExport')?.addEventListener('click',exportHistoryExcel);
   $('#remExport')?.addEventListener('click',exportRemittance);
+  $('#attExport')?.addEventListener('click',exportAttendance);
+  $('#gateExport')?.addEventListener('click',exportGateLog);
 
   // Validator badge (count of pending sales-agent submissions)
   refreshValBadge(); setInterval(refreshValBadge,30000);
