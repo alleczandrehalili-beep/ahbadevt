@@ -240,10 +240,20 @@ function negReleased(negAt){
   return Date.now()>=release.getTime();
 }
 function processNegativeReturns(){
-  jobs.filter(j=>j.status==='negative'&&negReleased(j.negative_at)).forEach(j=>{
-    j.status='pending'; j.team=null; j.priority='1st Load'; j.load_date=manilaToday();
-    j.history=appendHistory(j.history,'Auto-returned 5:00 AM → For Dispatch (1st Load)');
-    if(window.AHBASync) window.AHBASync(j);
+  const today=manilaToday();
+  jobs.forEach(j=>{
+    // Incomplete (negative) → back to For Dispatch at 5:00 AM next day, as 1st Load
+    if(j.status==='negative' && negReleased(j.negative_at)){
+      j.status='pending'; j.team=null; j.priority='1st Load'; j.load_date=today;
+      j.history=appendHistory(j.history,'End of day: Incomplete → For Dispatch (1st Load)');
+      if(window.AHBASync) window.AHBASync(j);
+    }
+    // Leftover For Dispatch from a previous day → carry forward to today as priority (1st Load)
+    else if(j.status==='pending' && j.load_date && String(j.load_date).slice(0,10)<today){
+      j.priority='1st Load'; j.load_date=today;
+      j.history=appendHistory(j.history,'Carried to next day (For Dispatch, 1st Load)');
+      if(window.AHBASync) window.AHBASync(j);
+    }
   });
 }
 function unassignJob(jobId){
