@@ -414,7 +414,25 @@
     function askNotify(){ try{ if('Notification' in window && Notification.permission==='default') Notification.requestPermission(); }catch(e){} }
     function notify(title, body){
       try{ if('Notification' in window && Notification.permission==='granted'){ new Notification(title,{body, icon:'icon-192.png'}); } }catch(e){}
+      try{ if(navigator.vibrate) navigator.vibrate([120,60,120]); }catch(e){}
       toast(title+(body?(' · '+body):''));
+    }
+    // ---------- Web Push (notifications even when app is closed) ----------
+    const VAPID_PUBLIC='BMhNkASCHb5OSL3uw6p8OXnqF10IfPGqAyGlLg2utnoIISvlI0NrR5QgJcbPqEDtrzItqRVmOLwkkU7bHAP-MXc';
+    function urlB64ToU8(b){ const p='='.repeat((4-b.length%4)%4); const s=(b+p).replace(/-/g,'+').replace(/_/g,'/'); const raw=atob(s); const a=new Uint8Array(raw.length); for(let i=0;i<raw.length;i++)a[i]=raw.charCodeAt(i); return a; }
+    async function registerPush(){
+      try{
+        if(!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+        const reg=await navigator.serviceWorker.register('sw.js');
+        if(!('Notification' in window)) return;
+        let perm=Notification.permission;
+        if(perm==='default') perm=await Notification.requestPermission();
+        if(perm!=='granted') return;
+        let sub=await reg.pushManager.getSubscription();
+        if(!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:urlB64ToU8(VAPID_PUBLIC)});
+        const j=sub.toJSON();
+        await sb.from('push_subscriptions').upsert({team:myTeam, role:(myRole==='sales_agent'?'sales':'technician'), endpoint:sub.endpoint, p256dh:j.keys.p256dh, auth:j.keys.auth}, {onConflict:'endpoint'});
+      }catch(e){ console.warn('push',e.message); }
     }
 
     // ---------- team chat ----------
@@ -454,7 +472,7 @@
     function updateAnnBadge(){ const b=$('#annBadge'); if(!b)return; b.textContent=annUnread; b.classList.toggle('hidden', annUnread<=0); }
 
     function startComms(){
-      askNotify(); loadChat(); loadAnn();
+      askNotify(); registerPush(); loadChat(); loadAnn();
       if(chatChan) sb.removeChannel(chatChan);
       chatChan=sb.channel('chat-'+myTeam).on('postgres_changes',{event:'INSERT',schema:'public',table:'team_messages',filter:'team=eq.'+myTeam},p=>{
         const m=p.new; chatMsgs.push(m);
@@ -561,7 +579,7 @@
         const {error}=await sb.from('jobs').insert(job); if(error) throw error;
         for(const cat of ['id','billing','premise']){
           for(let i=0;i<saDocs[cat].length;i++){
-            const blob=await compressImage(saDocs[cat][i],1400,250);
+            const blob=await compressImage(saDocs[cat][i],1000,90);
             const path=`${jobId}/docs/${cat}_${Date.now()}_${i}.jpg`;
             const {error:e2}=await sb.storage.from('job-photos').upload(path,blob,{contentType:'image/jpeg',upsert:false}); if(e2) throw e2;
             await sb.from('job_docs').insert({job_id:jobId, category:cat, path});
@@ -613,19 +631,22 @@
       if(error){ job.status=prev; render(); setSync('error','Sync error'); toast('Could not save: '+error.message); }
       else { job.history=hist; setSync('live','Synced'); toast(`${id} → ${statusLabel(next)}`); logTrack('status:'+next, job.area||job.city); }
     }
-    // Compress/resize a photo so each upload stays small (~120 KB) to save cloud space.
-    function compressImage(file, maxDim=1000, targetKB=120){
+    // Compress/resize a photo to the smallest readable size (~60 KB) to save cloud space + data.
+    function compressImage(file, maxDim=900, targetKB=60){
       return new Promise(resolve=>{
         if(!file || !(file.type||'').startsWith('image/')){ resolve(file); return; }
         const img=new Image(); const url=URL.createObjectURL(file);
         img.onload=async ()=>{
           let w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
-          const scale=Math.min(1, maxDim/Math.max(w,h)); w=Math.round(w*scale); h=Math.round(h*scale);
-          const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
-          cv.getContext('2d').drawImage(img,0,0,w,h);
-          const toBlob=q=>new Promise(r=>cv.toBlob(b=>r(b),'image/jpeg',q));
-          let q=0.6, blob=await toBlob(q);
-          while(blob && blob.size>targetKB*1024 && q>0.3){ q=Math.round((q-0.1)*10)/10; blob=await toBlob(q); }
+          let scale=Math.min(1, maxDim/Math.max(w,h)); w=Math.round(w*scale); h=Math.round(h*scale);
+          const draw=(ww,hh)=>{const cv=document.createElement('canvas');cv.width=ww;cv.height=hh;cv.getContext('2d').drawImage(img,0,0,ww,hh);return cv;};
+          let cv=draw(w,h);
+          const toBlob=(c,q)=>new Promise(r=>c.toBlob(b=>r(b),'image/jpeg',q));
+          let q=0.5, blob=await toBlob(cv,q);
+          // step quality down to 0.3
+          while(blob && blob.size>targetKB*1024 && q>0.3){ q=Math.round((q-0.05)*100)/100; blob=await toBlob(cv,q); }
+          // still too big? shrink dimensions once more and retry at low quality
+          if(blob && blob.size>targetKB*1024 && Math.max(w,h)>640){ w=Math.round(w*0.75); h=Math.round(h*0.75); cv=draw(w,h); blob=await toBlob(cv,0.4); }
           URL.revokeObjectURL(url); resolve(blob||file);
         };
         img.onerror=()=>{ URL.revokeObjectURL(url); resolve(file); };

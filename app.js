@@ -56,6 +56,8 @@ function save(){localStorage.setItem('fieldflow_jobs',JSON.stringify(jobs));loca
 function statusLabel(s){return s.split('-').map(x=>x[0].toUpperCase()+x.slice(1)).join(' ')}
 function todayTotal(){return expenses.reduce((a,b)=>a+Number(b.amount),0)}
 function showToast(msg){$('#toast span').textContent=msg;$('#toast').classList.add('show');clearTimeout(showToast._t);showToast._t=setTimeout(()=>$('#toast').classList.remove('show'),2600)}
+// Fire a phone push (Web Push) to a team or audience via the send-push Edge Function
+function pushNotify(payload){ try{ fetch(`${SUPA_URL}/functions/v1/send-push`,{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`},body:JSON.stringify(payload)}).catch(()=>{}); }catch(e){} }
 
 function dayStr(d){return new Date(d).toLocaleDateString('en-CA',{timeZone:TZ});}
 function timeAgo(ts){ if(!ts)return''; const s=(Date.now()-new Date(ts))/1000; if(s<60)return Math.max(1,Math.round(s))+'s'; if(s<3600)return Math.round(s/60)+'m'; if(s<86400)return Math.round(s/3600)+'h'; return Math.round(s/86400)+'d'; }
@@ -392,6 +394,7 @@ async function sendTeamChat(code){
   const who=(window.dashUser&&(window.dashUser.display_name||window.dashUser.username))||'Dispatcher';
   try{
     await fetch(`${SUPA_URL}/rest/v1/team_messages`,{method:'POST',headers:DH(),body:JSON.stringify({team:code,sender:who,role:'dispatch',body:v})});
+    pushNotify({team:code,title:'Message from Dispatch',body:v});
     loadTeamChat(code);
   }catch(e){ showToast('Send failed'); }
 }
@@ -484,7 +487,7 @@ async function openAssign(jobId){
   $('#assignmentList').innerHTML=html;
   $$('#assignmentList [data-team]').forEach(b=>b.onclick=()=>assignTeam(jobId,b.dataset.team));
 }
-function assignTeam(jobId,team){const j=jobs.find(x=>x.id===jobId);const joVal=(($('#assignJONum')&&$('#assignJONum').value)||'').trim();const joFinal=j.job_order_no||joVal;if(!joFinal){showToast('Enter the J.O. Number first');$('#assignJONum')&&$('#assignJONum').focus();return;}if(!j.job_order_no)j.job_order_no=joVal;const rem=(($('#assignRemarks')&&$('#assignRemarks').value)||'').trim();if(rem)j.dispatched_remarks=rem;j.team=team;j.status='assigned';j.load_date=manilaToday();j.dispatch_count=(j.dispatch_count||0)+1;j.history=appendHistory(j.history,`Dispatched to ${team} (#${j.dispatch_count})${j.job_order_no?' · JO '+j.job_order_no:''}`);save();closeModals();renderJobs();showToast(`${team} assigned to ${jobId}`);if(window.AHBASync)window.AHBASync(j)}
+function assignTeam(jobId,team){const j=jobs.find(x=>x.id===jobId);const joVal=(($('#assignJONum')&&$('#assignJONum').value)||'').trim();const joFinal=j.job_order_no||joVal;if(!joFinal){showToast('Enter the J.O. Number first');$('#assignJONum')&&$('#assignJONum').focus();return;}if(!j.job_order_no)j.job_order_no=joVal;const rem=(($('#assignRemarks')&&$('#assignRemarks').value)||'').trim();if(rem)j.dispatched_remarks=rem;j.team=team;j.status='assigned';j.load_date=manilaToday();j.dispatch_count=(j.dispatch_count||0)+1;j.history=appendHistory(j.history,`Dispatched to ${team} (#${j.dispatch_count})${j.job_order_no?' · JO '+j.job_order_no:''}`);save();closeModals();renderJobs();showToast(`${team} assigned to ${jobId}`);if(window.AHBASync)window.AHBASync(j);pushNotify({team,title:'New load assigned',body:(j.subscriber||jobId)})}
 function openModal(modal){$('#modalBackdrop').classList.add('show');modal.showModal()}
 function closeModals(){$$('dialog[open]').forEach(d=>d.close());$('#modalBackdrop').classList.remove('show')}
 
@@ -935,17 +938,19 @@ function exportRemittance(){
 let ordDocs={id:[],billing:[],premise:[]};
 let _sbc=null;
 function sbc(){ if(!_sbc && window.supabase?.createClient) _sbc=window.supabase.createClient(SUPA_URL,SUPA_KEY); return _sbc; }
-function compressImage(file,maxDim=1400,targetKB=250){
+function compressImage(file,maxDim=1000,targetKB=90){
   return new Promise(resolve=>{
     if(!file || !(file.type||'').startsWith('image/')){ resolve(file); return; }
     const img=new Image(); const url=URL.createObjectURL(file);
     img.onload=async()=>{
       let w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
-      const scale=Math.min(1,maxDim/Math.max(w,h)); w=Math.round(w*scale); h=Math.round(h*scale);
-      const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(img,0,0,w,h);
-      const toBlob=q=>new Promise(r=>cv.toBlob(b=>r(b),'image/jpeg',q));
-      let q=0.6, blob=await toBlob(q);
-      while(blob && blob.size>targetKB*1024 && q>0.3){ q=Math.round((q-0.1)*10)/10; blob=await toBlob(q); }
+      let scale=Math.min(1,maxDim/Math.max(w,h)); w=Math.round(w*scale); h=Math.round(h*scale);
+      const draw=(ww,hh)=>{const c=document.createElement('canvas');c.width=ww;c.height=hh;c.getContext('2d').drawImage(img,0,0,ww,hh);return c;};
+      let cv=draw(w,h);
+      const toBlob=(c,q)=>new Promise(r=>c.toBlob(b=>r(b),'image/jpeg',q));
+      let q=0.5, blob=await toBlob(cv,q);
+      while(blob && blob.size>targetKB*1024 && q>0.3){ q=Math.round((q-0.05)*100)/100; blob=await toBlob(cv,q); }
+      if(blob && blob.size>targetKB*1024 && Math.max(w,h)>720){ w=Math.round(w*0.75); h=Math.round(h*0.75); cv=draw(w,h); blob=await toBlob(cv,0.4); }
       URL.revokeObjectURL(url); resolve(blob||file);
     };
     img.onerror=()=>{ URL.revokeObjectURL(url); resolve(file); };
@@ -1132,6 +1137,7 @@ async function postAnnounce(){
   const btn=$('#annPost'); btn.disabled=true; btn.textContent='Posting…';
   try{
     await fetch(`${SUPA_URL}/rest/v1/announcements`,{method:'POST',headers:DH(),body:JSON.stringify({audience,title,body,created_by:who})});
+    pushNotify({audience,title:'📢 '+(title||'Announcement'),body});
     $('#annTitle').value=''; $('#annBody').value=''; showToast('Announcement posted'); loadAnnRecent();
   }catch(e){ showToast('Post failed'); }
   btn.disabled=false; btn.textContent='Post announcement';
