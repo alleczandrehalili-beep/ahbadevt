@@ -199,7 +199,7 @@ function renderJobs(){
   const today=manilaToday();
   const isToday=d=>d && new Date(d).toLocaleDateString('en-CA',{timeZone:TZ})===today;
   const loadToday=d=>!d || String(d).slice(0,10)===today;   // today's working set (clears daily)
-  const stages=[['pending','For Dispatch'],['assigned','Dispatched'],['en-route','Travel'],['on-site,in-progress','On Site'],['negative','Negative'],['completed','Completed'],['cancelled','Cancelled']];
+  const stages=[['pending','For Dispatch'],['assigned','Acknowledged'],['en-route','Travel'],['on-site,in-progress','On Site'],['negative','Incomplete'],['completed','Completed'],['cancelled','Cancelled']];
   $('#dispatchBoard').innerHTML=stages.map(([keys,label])=>{
     let list;
     if(keys==='negative'){ list=jobs.filter(j=>j.status==='negative'); }
@@ -207,8 +207,13 @@ function renderJobs(){
     else { list=jobs.filter(j=>keys.split(',').includes(j.status)&&loadToday(j.load_date)); }
     return `<div class="board-column" data-drop="${keys}"><div class="column-head"><strong>${label}</strong><span>${list.length}</span></div>${list.map(jobCard).join('')||'<div class="job-card empty"><p>No jobs in this stage.</p></div>'}</div>`;
   }).join('');
-  const counts=[['Waiting',pending.length],['Assigned',jobs.filter(j=>j.status==='assigned').length],['On the road',jobs.filter(j=>j.status==='en-route').length],['In service',jobs.filter(j=>['on-site','in-progress'].includes(j.status)).length]];
-  $('#dispatchStats').innerHTML=counts.map(([l,n])=>`<div class="small-stat"><span>${l}</span><strong>${n}</strong></div>`).join('');
+  const stats=[
+    ['Total Turn-Ins', jobs.filter(j=>loadToday(j.load_date)).length, '#4285f4'],   // lahat ng load na naipasok ngayong araw
+    ['Incomplete',     jobs.filter(j=>j.status==='negative').length, '#c2503a'],     // negative loads
+    ['Cancelled',      jobs.filter(j=>j.status==='cancelled'&&isToday(j.updatedAt)).length, '#7a8088'],
+    ['Completed',      jobs.filter(j=>j.status==='completed'&&isToday(j.updatedAt)).length, '#11825f']
+  ];
+  $('#dispatchStats').innerHTML=stats.map(([l,n,c])=>`<div class="small-stat" style="border-left:4px solid ${c}"><span>${l}</span><strong style="color:${c}">${n}</strong></div>`).join('');
   bindAssignButtons();
   wireDispatchDnD();
   applyJobTableFilter();
