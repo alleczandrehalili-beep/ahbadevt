@@ -165,9 +165,12 @@ async function fetchTechLocations(){
 async function renderTeamLocations(){
   initMap(); if(!leafMap)return;
   const rows=await fetchTechLocations();
+  const today=manilaToday();
   const seen={};
   rows.forEach(t=>{
     if(t.lat==null||t.lng==null)return;
+    // map shows TODAY's positions only — auto-clears at the start of each new day
+    if(!t.location_at || new Date(t.location_at).toLocaleDateString('en-CA',{timeZone:TZ})!==today) return;
     const online=isOnline(t);
     if(mapFilter==='active'&&!online)return;
     seen[t.username]=1;
@@ -351,7 +354,46 @@ function openTeamDetail(code){
     vb.textContent=s.verified?'✓ Verified — tap to remove':'Verify as deployed';
     vb.onclick=()=>verifyTeamDeployed(code,!s.verified);
   }
+  loadTeamTrack(code); loadTeamChat(code);
+  const sb=$('#tdChatSend'), inp=$('#tdChatInput');
+  if(sb){ sb.onclick=()=>sendTeamChat(code); }
+  if(inp){ inp.value=''; inp.onkeydown=e=>{ if(e.key==='Enter') sendTeamChat(code); }; }
   openModal($('#teamDetailModal'));
+}
+async function loadTeamTrack(code){
+  const el=$('#tdTrack'); if(!el)return; el.innerHTML='Loading…';
+  const date=manilaToday();
+  try{
+    const r=await fetch(`${SUPA_URL}/rest/v1/location_history?select=lat,lng,area,reason,created_at&username=eq.${encodeURIComponent(code)}&work_date=eq.${date}&order=created_at.asc`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const rows=r.ok?await r.json():[];
+    if(!rows.length){ el.innerHTML='<span style="color:#9aa6a2">No location trail recorded today.</span>'; return; }
+    el.innerHTML=rows.map(p=>{
+      const t=fmtTime(p.created_at); const place=p.area||(p.lat!=null?`${(+p.lat).toFixed(4)}, ${(+p.lng).toFixed(4)}`:'—');
+      const r2=(p.reason||'auto').replace('status:','• ');
+      const maps=p.lat!=null?` · <a href="https://maps.google.com/?q=${p.lat},${p.lng}" target="_blank" rel="noopener" style="color:#178262">map</a>`:'';
+      return `<div style="border-bottom:1px dashed #eef1ed;padding:5px 0"><b>${t}</b> — ${place} <span style="color:#9aa6a2">${r2}</span>${maps}</div>`;
+    }).join('');
+  }catch(e){ el.innerHTML='<span style="color:#c2503a">Could not load travel history.</span>'; }
+}
+async function loadTeamChat(code){
+  const el=$('#tdChat'); if(!el)return; el.innerHTML='Loading…';
+  try{
+    const r=await fetch(`${SUPA_URL}/rest/v1/team_messages?select=*&team=eq.${encodeURIComponent(code)}&order=created_at.asc&limit=200`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const rows=r.ok?await r.json():[];
+    el.innerHTML=rows.length?rows.map(m=>{
+      const disp=m.role==='dispatch';
+      return `<div style="align-self:${disp?'flex-end':'flex-start'};max-width:82%"><div style="background:${disp?'#18a57b':'#fff'};color:${disp?'#fff':'#26352f'};border:1px solid ${disp?'#18a57b':'#e3e8e2'};padding:7px 10px;border-radius:11px;font-size:12px">${(m.body||'').replace(/</g,'&lt;')}</div><div style="font-size:8px;color:#9aa6a2;margin-top:2px;text-align:${disp?'right':'left'}">${disp?(m.sender||'Dispatcher'):(m.sender||code)} · ${fmtWhen(m.created_at)}</div></div>`;
+    }).join(''):'<span style="color:#9aa6a2;font-size:11px">No messages yet. Send an instruction to this team.</span>';
+    el.scrollTop=el.scrollHeight;
+  }catch(e){ el.innerHTML='<span style="color:#c2503a">Could not load messages.</span>'; }
+}
+async function sendTeamChat(code){
+  const inp=$('#tdChatInput'); const v=(inp.value||'').trim(); if(!v)return; inp.value='';
+  const who=(window.dashUser&&(window.dashUser.display_name||window.dashUser.username))||'Dispatcher';
+  try{
+    await fetch(`${SUPA_URL}/rest/v1/team_messages`,{method:'POST',headers:DH(),body:JSON.stringify({team:code,sender:who,role:'dispatch',body:v})});
+    loadTeamChat(code);
+  }catch(e){ showToast('Send failed'); }
 }
 const PER_HEAD=955;       // bawat driver / technician na naka-declare sa Start shift
 const GAS_PER_TEAM=400;   // gasolina kada na-deploy na team
@@ -1079,6 +1121,33 @@ async function dashRecover(){
   btn.disabled=false; btn.textContent='Reset password';
 }
 
+// ---------- Announcements (broadcast to mobile) ----------
+function openAnnounce(){ loadAnnRecent(); openModal($('#announceModal')); }
+async function loadAnnRecent(){
+  const el=$('#annRecent'); if(!el)return; el.innerHTML='Loading…';
+  try{
+    const r=await fetch(`${SUPA_URL}/rest/v1/announcements?select=*&order=created_at.desc&limit=20`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const rows=r.ok?await r.json():[];
+    el.innerHTML=rows.length?rows.map(a=>`<div style="border-bottom:1px dashed #eef1ed;padding:6px 0"><b>${(a.title||'Announcement')}</b> <span class="status ${a.audience==='sales'?'assigned':a.audience==='technician'?'en-route':'completed'}" style="font-size:7px">${a.audience||'all'}</span><div style="color:#586965;margin:2px 0;white-space:pre-wrap">${(a.body||'').replace(/</g,'&lt;')}</div><div style="color:#9aa6a2;font-size:9px">${fmtWhen(a.created_at)} <button class="assign-btn" data-delann="${a.id}" style="margin-left:6px">Delete</button></div></div>`).join(''):'<span style="color:#9aa6a2">No announcements yet.</span>';
+    $$('#annRecent [data-delann]').forEach(b=>b.onclick=()=>delAnnounce(b.dataset.delann));
+  }catch(e){ el.innerHTML='<span style="color:#c2503a">Could not load.</span>'; }
+}
+async function postAnnounce(){
+  const audience=$('#annAudience').value, title=($('#annTitle').value||'').trim(), body=($('#annBody').value||'').trim();
+  if(!body){ showToast('Type a message'); return; }
+  const who=(window.dashUser&&(window.dashUser.display_name||window.dashUser.username))||'Dispatcher';
+  const btn=$('#annPost'); btn.disabled=true; btn.textContent='Posting…';
+  try{
+    await fetch(`${SUPA_URL}/rest/v1/announcements`,{method:'POST',headers:DH(),body:JSON.stringify({audience,title,body,created_by:who})});
+    $('#annTitle').value=''; $('#annBody').value=''; showToast('Announcement posted'); loadAnnRecent();
+  }catch(e){ showToast('Post failed'); }
+  btn.disabled=false; btn.textContent='Post announcement';
+}
+async function delAnnounce(id){
+  if(!confirm('Delete this announcement?'))return;
+  try{ await fetch(`${SUPA_URL}/rest/v1/announcements?id=eq.${encodeURIComponent(id)}`,{method:'DELETE',headers:DH()}); loadAnnRecent(); }catch(e){ showToast('Delete failed'); }
+}
+
 // ---------- Import work orders from Excel → For Dispatch ----------
 const IMPORT_HMAP={};
 [['firstname','first_name'],['middlename','middle_name'],['lastname','last_name'],
@@ -1252,6 +1321,8 @@ function init(){
   $$('#jobFilters button').forEach(b=>b.onclick=()=>{$$('#jobFilters button').forEach(x=>x.classList.remove('active'));b.classList.add('active');applyJobTableFilter()});
 
   $('#autoAssignBtn').onclick=()=>{const pending=jobs.find(j=>j.status==='pending');pending?openAssign(pending.id):showToast('No unassigned jobs in the queue')};
+  $('#announceBtn')?.addEventListener('click',openAnnounce);
+  $('#annPost')?.addEventListener('click',postAnnounce);
   $('#importTemplateBtn')?.addEventListener('click',downloadImportTemplate);
   $('#importXlsxBtn')?.addEventListener('click',()=>$('#importXlsxInput').click());
   $('#importXlsxInput')?.addEventListener('change',e=>{ if(e.target.files[0]) handleImportFile(e.target.files[0]); e.target.value=''; });
