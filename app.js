@@ -1088,6 +1088,92 @@ async function dashRecover(){
   btn.disabled=false; btn.textContent='Reset password';
 }
 
+// ---------- Import work orders from Excel → For Dispatch ----------
+const IMPORT_HMAP={};
+[['firstname','first_name'],['middlename','middle_name'],['lastname','last_name'],
+ ['subscriber','subscriber'],['pangalan','subscriber'],['name','subscriber'],['subscribername','subscriber'],['fullname','subscriber'],
+ ['primaryno','primary_no'],['primarycontactno','primary_no'],['contactno','primary_no'],['contactnumber','primary_no'],['contact','primary_no'],['mobile','primary_no'],['mobileno','primary_no'],['cellno','primary_no'],
+ ['othercontactno','other_contact_no'],['othercontact','other_contact_no'],['secondaryno','other_contact_no'],['alternateno','other_contact_no'],
+ ['houseno','house_no'],['housenumber','house_no'],
+ ['streetname','street_name'],['street','street_name'],
+ ['villagesubdivision','village'],['village','village'],['subdivision','village'],
+ ['brgy','brgy'],['barangay','brgy'],
+ ['city','city'],['citymunicipality','city'],['municipality','city'],
+ ['ibassacctno','ibass_acct_no'],['ibassaccount','ibass_acct_no'],['ibassaccountno','ibass_acct_no'],['acctno','ibass_acct_no'],['accountno','ibass_acct_no'],['account','ibass_acct_no'],
+ ['joborderno','job_order_no'],['jobordernumber','job_order_no'],['jono','job_order_no'],['jonumber','job_order_no'],['jo','job_order_no'],
+ ['vasno','vas_no'],['vas','vas_no'],
+ ['1por2p','play_type'],['playtype','play_type'],['play','play_type'],['1p2p','play_type'],
+ ['plan','plan'],['planrefno','plan'],['planreference','plan'],
+ ['refno','ref_no'],['reference','ref_no'],['referenceno','ref_no'],
+ ['newref','new_ref'],['newreference','new_ref'],['newrefno','new_ref'],
+ ['servicetype','type'],['service','type'],['type','type'],
+ ['priority','priority'],['loadpriority','priority'],
+ ['dispatchstatus','dispatch_status'],
+ ['driver','driver'],
+ ['tech1','tech1'],['technician1','tech1'],['technician','tech1'],
+ ['mappingteam','mapping_team'],['mappingremarks','mapping_remarks'],
+ ['dispatchedremarks','dispatched_remarks'],['dispatchremarks','dispatched_remarks'],
+ ['incharge','in_charge'],
+ ['sourceofsales','source_of_sales'],['source','source_of_sales'],
+ ['referralname','referral_name'],['referral','referral_name'],
+ ['specialnote','special_note'],['note','special_note'],['remarks','special_note'],
+ ['teamassigned','team'],['team','team'],
+ ['date','load_date'],['preferreddate','load_date'],['loaddate','load_date']
+].forEach(([k,v])=>IMPORT_HMAP[k]=v);
+const normHdr=h=>String(h||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+function downloadImportTemplate(){
+  if(typeof XLSX==='undefined'){showToast('Excel library still loading');return}
+  const headers=['FIRST NAME','MIDDLE NAME','LAST NAME','SUBSCRIBER','PRIMARY NO.','OTHER CONTACT NO.','HOUSE NO.','STREET NAME','VILLAGE / SUBDIVISION','BRGY','CITY','IBASS ACCT NO.','JOB ORDER NO.','VAS NO','1P OR 2P','PLAN','REF NO.','NEW REF #','SERVICE TYPE','PRIORITY','DISPATCH STATUS','DRIVER','TECH1','MAPPING TEAM','MAPPING REMARKS','DISPATCHED REMARKS','IN-CHARGE','SOURCE OF SALES','REFERRAL NAME','SPECIAL NOTE','TEAM ASSIGNED'];
+  const ws=XLSX.utils.aoa_to_sheet([headers]); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'NEW LOADS');
+  const out=XLSX.write(wb,{type:'array',bookType:'xlsx'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([out],{type:'application/octet-stream'})); a.download='AHBA_import_template.xlsx'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),8000);
+  showToast('Template downloaded — fill it in, then Import Excel');
+}
+function handleImportFile(file){
+  if(typeof XLSX==='undefined'){showToast('Excel library still loading — try again');return}
+  const reader=new FileReader();
+  reader.onload=e=>{
+    let rows=[];
+    try{ const wb=XLSX.read(e.target.result,{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]]; rows=XLSX.utils.sheet_to_json(ws,{defval:''}); }
+    catch(err){ showToast('Could not read file: '+err.message); return; }
+    if(!rows.length){ showToast('The sheet is empty'); return; }
+    if(!confirm(`Import ${rows.length} row(s) as new job orders, straight to For Dispatch?`)) return;
+    importJobsFromRows(rows);
+  };
+  reader.readAsArrayBuffer(file);
+}
+async function importJobsFromRows(rows){
+  const today=manilaToday(), now=new Date().toISOString();
+  const out=[];
+  rows.forEach((row,idx)=>{
+    const g={}; Object.keys(row).forEach(k=>{ const f=IMPORT_HMAP[normHdr(k)]; if(f && row[k]!==''&&row[k]!=null) g[f]=String(row[k]).trim(); });
+    const full=g.subscriber||[g.first_name,g.middle_name,g.last_name].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
+    if(!full && !g.primary_no && !g.job_order_no) return; // skip blank lines
+    const addr=[g.house_no,g.street_name,g.village,g.brgy,g.city].filter(Boolean).join(', ');
+    const id='WO-'+new Date().getFullYear()+'-'+String(Date.now()).slice(-6)+String(idx);
+    const o={ id, subscriber:full||'Subscriber', service_type:g.type||'Installation', plan:g.plan||'', area:g.city||g.brgy||'', address:addr,
+      status:'pending', wait_time:'Imported', priority:g.priority||'1st Load', schedule:'Today', team:g.team||null, load_date:today, created_by:'IMPORT', created_at:now, updated_at:now,
+      first_name:g.first_name,middle_name:g.middle_name,last_name:g.last_name,primary_no:g.primary_no,other_contact_no:g.other_contact_no,
+      house_no:g.house_no,street_name:g.street_name,village:g.village,brgy:g.brgy,city:g.city,
+      ibass_acct_no:g.ibass_acct_no,job_order_no:g.job_order_no,vas_no:g.vas_no,play_type:g.play_type,ref_no:g.ref_no,new_ref:g.new_ref,
+      dispatch_status:g.dispatch_status,driver:g.driver,tech1:g.tech1,mapping_team:g.mapping_team,mapping_remarks:g.mapping_remarks,dispatched_remarks:g.dispatched_remarks,
+      in_charge:g.in_charge,source_of_sales:g.source_of_sales,referral_name:g.referral_name,special_note:g.special_note };
+    const clean={}; Object.keys(o).forEach(k=>{ if(o[k]!==undefined&&o[k]!=='') clean[k]=o[k]; });
+    out.push(clean);
+  });
+  if(!out.length){ showToast('No valid rows found (check the column headers)'); return; }
+  showToast(`Importing ${out.length} job order(s)…`);
+  try{
+    for(let i=0;i<out.length;i+=100){
+      const r=await fetch(`${SUPA_URL}/rest/v1/jobs`,{method:'POST',headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify(out.slice(i,i+100))});
+      if(!r.ok){ const t=await r.text(); throw new Error(t.slice(0,160)); }
+    }
+    showToast(`Imported ${out.length} job order(s) → For Dispatch`);
+    if(window.AHBACloud&&AHBACloud.getJobs){ AHBACloud.getJobs().then(cj=>{ jobs=cj; renderOverview(); }); }
+    switchPage('dispatch');
+  }catch(e){ showToast('Import failed: '+(e.message||e)); }
+}
+
 function init(){
   injectIcons();const d=new Date();$('#todayLabel').textContent=d.toLocaleDateString('en-PH',{timeZone:TZ,weekday:'short',month:'short',day:'numeric'});$$('input[type=date]').forEach(i=>i.value=manilaToday());
   $('#expenseTeam').innerHTML=teams.map(t=>`<option>${t.name}</option>`).join('');
@@ -1149,6 +1235,9 @@ function init(){
   $$('#jobFilters button').forEach(b=>b.onclick=()=>{$$('#jobFilters button').forEach(x=>x.classList.remove('active'));b.classList.add('active');applyJobTableFilter()});
 
   $('#autoAssignBtn').onclick=()=>{const pending=jobs.find(j=>j.status==='pending');pending?openAssign(pending.id):showToast('No unassigned jobs in the queue')};
+  $('#importTemplateBtn')?.addEventListener('click',downloadImportTemplate);
+  $('#importXlsxBtn')?.addEventListener('click',()=>$('#importXlsxInput').click());
+  $('#importXlsxInput')?.addEventListener('change',e=>{ if(e.target.files[0]) handleImportFile(e.target.files[0]); e.target.value=''; });
 
   // Completed view: export + clear
   $('#exportBtn')?.addEventListener('click',exportZip);
