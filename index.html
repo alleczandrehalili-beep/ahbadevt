@@ -70,6 +70,28 @@
     .dg-err{background:#fdecea;color:#c2503a;font-size:11px;border-radius:8px;padding:8px 10px;margin-bottom:6px;display:none}
     .dg-err.show{display:block}
     .access-table input[type=checkbox]{width:16px;height:16px}
+    /* Messenger-style floating chat */
+    .dash-chat-fab{position:fixed;right:22px;bottom:22px;width:56px;height:56px;border-radius:50%;border:0;background:#18a57b;color:#fff;font-size:23px;box-shadow:0 12px 30px rgba(12,37,33,.4);z-index:90;display:flex;align-items:center;justify-content:center;cursor:pointer}
+    .dash-chat-fab #dashChatBadge{position:absolute;top:-2px;right:-2px;background:#ff765f;color:#fff;border-radius:12px;min-width:20px;height:20px;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 5px;border:2px solid #fff}
+    .dash-chat{position:fixed;right:22px;bottom:88px;width:340px;max-width:calc(100vw - 30px);height:480px;max-height:calc(100vh - 120px);background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 24px 60px rgba(8,40,36,.3);z-index:91;display:flex;flex-direction:column;overflow:hidden}
+    .dc-head{background:var(--deep);color:#fff;padding:13px 15px;display:flex;align-items:center;justify-content:space-between;font:800 14px Manrope}
+    .dc-head button{background:rgba(255,255,255,.15);border:0;color:#fff;width:28px;height:28px;border-radius:8px;font-size:14px;cursor:pointer;margin-left:6px}
+    .dc-body{flex:1;overflow-y:auto}
+    .dc-team{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid #eef1ed;cursor:pointer}
+    .dc-team:hover{background:#f6f8f5}
+    .dc-av{width:38px;height:38px;border-radius:50%;background:#123b37;color:#fff;display:flex;align-items:center;justify-content:center;font:800 11px Manrope;flex:none}
+    .dc-tmeta{flex:1;min-width:0}.dc-tmeta strong{font-size:12px;display:block}.dc-tmeta p{margin:2px 0 0;font-size:10px;color:#8a9894;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .dc-team time{font-size:9px;color:#a0aaa8}
+    .dc-ucount{background:#ff765f;color:#fff;border-radius:10px;padding:0 6px;font-size:9px;margin-left:4px}
+    .dc-thread{flex:1;display:flex;flex-direction:column;min-height:0}
+    .dc-msgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:7px;background:#f8f9f7}
+    .dc-msg{max-width:82%}.dc-msg>div{padding:8px 11px;border-radius:12px;font-size:12px}
+    .dc-msg span{font-size:8px;color:#9aa6a2;margin-top:2px;display:block}
+    .dc-msg.me{align-self:flex-end}.dc-msg.me>div{background:#18a57b;color:#fff}.dc-msg.me span{text-align:right}
+    .dc-msg.them{align-self:flex-start}.dc-msg.them>div{background:#fff;border:1px solid #e3e8e2;color:#26352f}
+    .dc-input{display:flex;gap:7px;padding:10px;border-top:1px solid var(--line)}
+    .dc-input input{flex:1;border:1px solid #dfe5df;border-radius:9px;padding:9px 11px;font-size:12px}
+    .dc-input button{background:var(--deep);color:#fff;border:0;border-radius:9px;padding:0 14px;font-weight:700;font-size:12px;cursor:pointer}
   </style>
 </head>
 <body>
@@ -477,6 +499,17 @@
     <div style="padding:6px 25px 14px"><label class="field"><span>Rejection reason (if rejecting)</span><input id="valReason"></label></div>
     <div class="modal-actions"><button type="button" class="secondary-btn close-modal">Close</button><button type="button" class="secondary-btn" id="valReject" style="color:#c2503a;border-color:#f0c4b9">Reject</button><button type="button" class="primary-btn" id="valApprove">Approve → Dispatch</button></div>
   </dialog>
+
+  <!-- Messenger-style floating team chat -->
+  <button id="dashChatFab" class="dash-chat-fab" title="Team messages">💬<span id="dashChatBadge" class="hidden">0</span></button>
+  <div id="dashChatWidget" class="dash-chat hidden">
+    <div class="dc-head"><strong id="dcTitle">Team messages</strong><div><button id="dcBack" class="hidden" title="Back">←</button><button id="dcClose" title="Close">✕</button></div></div>
+    <div id="dcTeams" class="dc-body"></div>
+    <div id="dcThread" class="dc-thread hidden">
+      <div id="dcMsgs" class="dc-msgs"></div>
+      <div class="dc-input"><input id="dcInput" placeholder="Message this team…"><button id="dcSend">Send</button></div>
+    </div>
+  </div>
 
   <div class="toast" id="toast"><i data-icon="check"></i><span>Saved successfully</span></div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>

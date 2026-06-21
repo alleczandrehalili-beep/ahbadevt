@@ -114,6 +114,8 @@
     .thumbs .more{width:46px;height:46px;border-radius:7px;background:#eef1ec;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#647571}
     .addphoto{display:flex;align-items:center;justify-content:center;gap:6px;border:1px dashed #bcd9cd;background:#f2fbf7;color:#127b5d;border-radius:10px;padding:11px;font-weight:700;font-size:12px;cursor:pointer}
     .addphoto svg{width:15px;height:15px}
+    .chat-fab{position:fixed;right:16px;bottom:calc(env(safe-area-inset-bottom) + 18px);width:56px;height:56px;border-radius:50%;border:0;background:#18a57b;color:#fff;font-size:24px;box-shadow:0 10px 26px rgba(12,37,33,.35);z-index:45;display:flex;align-items:center;justify-content:center}
+    .chat-fab #chatFabBadge{position:absolute;top:-3px;right:-3px;background:#ff765f;color:#fff;border-radius:12px;min-width:20px;height:20px;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 5px;border:2px solid #fff}
     .pslots{display:flex;flex-direction:column;gap:8px;margin-top:8px}
     .pslot{border:1px solid #e3e8e2;border-radius:11px;padding:10px}
     .pslot.done{border-color:#a8e6c9;background:#f4fbf7}
@@ -144,6 +146,9 @@
       <button id="mChangePw">Change password</button>
       <button id="mLogout" class="danger">Time out &amp; sign out</button>
     </div>
+
+    <!-- Floating chat button (homepage) -->
+    <button id="chatFab" class="chat-fab hidden" aria-label="Messages with Dispatch">💬<span id="chatFabBadge" class="hidden">0</span></button>
 
     <!-- CHAT (team <-> dispatcher) -->
     <div class="mexp-back hidden" id="chatBack"></div>
@@ -417,6 +422,7 @@
       try{ if(navigator.vibrate) navigator.vibrate([120,60,120]); }catch(e){}
       toast(title+(body?(' · '+body):''));
     }
+    function playBeep(){ try{ const C=window.AudioContext||window.webkitAudioContext; if(!C)return; const ctx=playBeep._c||(playBeep._c=new C()); if(ctx.state==='suspended')ctx.resume(); const o=ctx.createOscillator(),g=ctx.createGain(); o.type='sine'; o.frequency.setValueAtTime(880,ctx.currentTime); o.frequency.setValueAtTime(1170,ctx.currentTime+0.12); o.connect(g); g.connect(ctx.destination); g.gain.setValueAtTime(0.0001,ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.35,ctx.currentTime+0.02); g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+0.35); o.start(); o.stop(ctx.currentTime+0.36);}catch(e){} }
     // ---------- Web Push (notifications even when app is closed) ----------
     const VAPID_PUBLIC='BMhNkASCHb5OSL3uw6p8OXnqF10IfPGqAyGlLg2utnoIISvlI0NrR5QgJcbPqEDtrzItqRVmOLwkkU7bHAP-MXc';
     function urlB64ToU8(b){ const p='='.repeat((4-b.length%4)%4); const s=(b+p).replace(/-/g,'+').replace(/_/g,'/'); const raw=atob(s); const a=new Uint8Array(raw.length); for(let i=0;i<raw.length;i++)a[i]=raw.charCodeAt(i); return a; }
@@ -455,7 +461,7 @@
       const v=$('#chatInput').value.trim(); if(!v)return; $('#chatInput').value='';
       try{ await sb.from('team_messages').insert({team:myTeam, sender:(myName||myTeam), role:'team', body:v}); }catch(e){ toast('Send failed'); }
     }
-    function updateChatBadge(){ const b=$('#chatBadge'); if(!b)return; b.textContent=chatUnread; b.classList.toggle('hidden', chatUnread<=0); }
+    function updateChatBadge(){ [['#chatBadge'],['#chatFabBadge']].forEach(([id])=>{const b=$(id); if(b){ b.textContent=chatUnread; b.classList.toggle('hidden', chatUnread<=0); }}); }
 
     // ---------- announcements ----------
     let annChan=null, annList=[], annSeen=0, annUnread=0;
@@ -476,7 +482,7 @@
       if(chatChan) sb.removeChannel(chatChan);
       chatChan=sb.channel('chat-'+myTeam).on('postgres_changes',{event:'INSERT',schema:'public',table:'team_messages',filter:'team=eq.'+myTeam},p=>{
         const m=p.new; chatMsgs.push(m);
-        if(m.role!=='team'){ if($('#chatModal').classList.contains('hidden')){ chatUnread++; updateChatBadge(); notify('Message from Dispatch', m.body); } }
+        if(m.role!=='team'){ playBeep(); if($('#chatModal').classList.contains('hidden')){ chatUnread++; updateChatBadge(); notify('Message from Dispatch', m.body); } }
         if(!$('#chatModal').classList.contains('hidden')) renderChat();
       }).subscribe();
       if(annChan) sb.removeChannel(annChan);
@@ -499,7 +505,7 @@
     const statusLabel = s => (FLOW[s]?.label)||s;
 
     // ---------- views ----------
-    function show(view){['loginView','pwView','shiftView','appView','saView'].forEach(v=>$('#'+v).classList.toggle('hidden', v!==view));$('#menuBtn').classList.toggle('hidden', view!=='appView'&&view!=='saView');$('#menuPop').classList.add('hidden')}
+    function show(view){['loginView','pwView','shiftView','appView','saView'].forEach(v=>$('#'+v).classList.toggle('hidden', v!==view));const inApp=(view==='appView'||view==='saView');$('#menuBtn').classList.toggle('hidden', !inApp);$('#chatFab')&&$('#chatFab').classList.toggle('hidden', !inApp);$('#menuPop').classList.add('hidden')}
 
     // ---------- shift setup (account + crew) ----------
     // Work accounts (msp- display names). Update by re-uploading mobile.html if the list changes.
@@ -952,6 +958,7 @@
     $('#menuBtn').onclick=e=>{e.stopPropagation();$('#menuPop').classList.toggle('hidden')};
     document.addEventListener('click',()=>$('#menuPop').classList.add('hidden'));
     $('#menuPop').onclick=e=>e.stopPropagation();
+    $('#chatFab').onclick=openChat;
     $('#mChat').onclick=()=>{$('#menuPop').classList.add('hidden');openChat()};
     $('#mAnnounce').onclick=()=>{$('#menuPop').classList.add('hidden');openAnn()};
     $('#chatSend').onclick=sendChat;

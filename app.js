@@ -1119,6 +1119,57 @@ async function changeMyDisplayName(){
 }
 // (Superadmin self-recovery removed — superadmin password is renewed in Supabase.)
 
+// ---------- Messenger-style team chat widget + global notifications ----------
+let cwTeam=null, cwUnread={}, cwChan=null;
+function playBeepDash(){ try{ const C=window.AudioContext||window.webkitAudioContext; if(!C)return; const ctx=playBeepDash._c||(playBeepDash._c=new C()); if(ctx.state==='suspended')ctx.resume(); const o=ctx.createOscillator(),g=ctx.createGain(); o.type='sine'; o.frequency.setValueAtTime(880,ctx.currentTime); o.frequency.setValueAtTime(1170,ctx.currentTime+0.12); o.connect(g); g.connect(ctx.destination); g.gain.setValueAtTime(0.0001,ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.3,ctx.currentTime+0.02); g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+0.35); o.start(); o.stop(ctx.currentTime+0.36);}catch(e){} }
+function dcTotalUnread(){ return Object.values(cwUnread).reduce((a,b)=>a+(b||0),0); }
+function updateDcBadge(){ const t=dcTotalUnread(); const b=$('#dashChatBadge'); if(b){ b.textContent=t; b.classList.toggle('hidden',t<=0); } }
+function openChatWidget(){ try{ if('Notification'in window&&Notification.permission==='default')Notification.requestPermission(); }catch(e){} $('#dashChatWidget').classList.remove('hidden'); showCwTeams(); }
+function closeChatWidget(){ $('#dashChatWidget').classList.add('hidden'); }
+async function showCwTeams(){
+  cwTeam=null; $('#dcThread').classList.add('hidden'); $('#dcTeams').classList.remove('hidden'); $('#dcBack').classList.add('hidden'); $('#dcTitle').textContent='Team messages';
+  const el=$('#dcTeams'); el.innerHTML='<div style="padding:20px;text-align:center;color:#9aa6a2;font-size:12px">Loading…</div>';
+  try{
+    const r=await fetch(`${SUPA_URL}/rest/v1/team_messages?select=team,body,role,created_at&order=created_at.desc&limit=400`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const rows=r.ok?await r.json():[];
+    const last={}; rows.forEach(m=>{ if(!last[m.team]) last[m.team]=m; });
+    const arr=Object.keys(last).sort((a,b)=>new Date(last[b].created_at)-new Date(last[a].created_at));
+    if(!arr.length){ el.innerHTML='<div style="padding:24px;text-align:center;color:#9aa6a2;font-size:12px">No conversations yet.<br>Open a team in Field Teams to start, or assign a load.</div>'; return; }
+    el.innerHTML=arr.map(t=>{ const m=last[t]; const u=cwUnread[t]||0; return `<div class="dc-team" data-cw="${t}"><div class="dc-av">${t.slice(-3)}</div><div class="dc-tmeta"><strong>${t}${u?`<span class="dc-ucount">${u}</span>`:''}</strong><p>${m.role==='dispatch'?'You: ':''}${(m.body||'').replace(/</g,'&lt;').slice(0,42)}</p></div><time>${timeAgo(m.created_at)}</time></div>`; }).join('');
+    $$('#dcTeams [data-cw]').forEach(d=>d.onclick=()=>openCwThread(d.dataset.cw));
+  }catch(e){ el.innerHTML='<div style="padding:20px;color:#c2503a;font-size:12px">Could not load.</div>'; }
+}
+async function openCwThread(code){
+  cwTeam=code; cwUnread[code]=0; updateDcBadge();
+  $('#dcTeams').classList.add('hidden'); $('#dcThread').classList.remove('hidden'); $('#dcBack').classList.remove('hidden'); $('#dcTitle').textContent=code;
+  const el=$('#dcMsgs'); el.innerHTML='<div style="color:#9aa6a2;font-size:11px;text-align:center;padding:14px">Loading…</div>';
+  try{
+    const r=await fetch(`${SUPA_URL}/rest/v1/team_messages?select=*&team=eq.${encodeURIComponent(code)}&order=created_at.asc&limit=200`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    renderCwMsgs(r.ok?await r.json():[]);
+  }catch(e){ el.innerHTML='<div style="color:#c2503a;font-size:11px;padding:14px">Could not load.</div>'; }
+}
+function renderCwMsgs(rows){
+  const el=$('#dcMsgs'); el.innerHTML=rows.length?rows.map(m=>{const d=m.role==='dispatch';return `<div class="dc-msg ${d?'me':'them'}"><div>${(m.body||'').replace(/</g,'&lt;')}</div><span>${d?(m.sender||'You'):(m.sender||cwTeam)} · ${fmtWhen(m.created_at)}</span></div>`;}).join(''):'<div style="color:#9aa6a2;font-size:11px;text-align:center;padding:14px">No messages yet.</div>'; el.scrollTop=el.scrollHeight;
+}
+async function sendCw(){
+  const inp=$('#dcInput'); const v=(inp.value||'').trim(); if(!v||!cwTeam)return; inp.value='';
+  const who=(window.dashUser&&(window.dashUser.display_name||window.dashUser.username))||'Dispatcher';
+  try{ await fetch(`${SUPA_URL}/rest/v1/team_messages`,{method:'POST',headers:DH(),body:JSON.stringify({team:cwTeam,sender:who,role:'dispatch',body:v})}); pushNotify({team:cwTeam,title:'Message from Dispatch',body:v}); openCwThread(cwTeam); }catch(e){ showToast('Send failed'); }
+}
+function startDashChat(){
+  if(cwChan||!window.supabase?.createClient) return;
+  const cl=window.supabase.createClient(SUPA_URL,SUPA_KEY);
+  cwChan=cl.channel('dash-team-chat').on('postgres_changes',{event:'INSERT',schema:'public',table:'team_messages'},p=>{
+    const m=p.new; if(!m||m.role!=='team') return;   // only field-team messages notify the console
+    playBeepDash();
+    const widgetOpen=!$('#dashChatWidget').classList.contains('hidden');
+    if(widgetOpen && cwTeam===m.team){ openCwThread(m.team); }
+    else { cwUnread[m.team]=(cwUnread[m.team]||0)+1; updateDcBadge(); if(widgetOpen) showCwTeams(); }
+    showToast('💬 '+m.team+': '+(m.body||'').slice(0,45));
+    try{ if('Notification'in window&&Notification.permission==='granted') new Notification('💬 '+m.team,{body:m.body,icon:'favicon.png'}); }catch(e){}
+  }).subscribe();
+}
+
 // ---------- Announcements (broadcast to mobile) ----------
 function openAnnounce(){ loadAnnRecent(); openModal($('#announceModal')); }
 async function loadAnnRecent(){
@@ -1322,6 +1373,12 @@ function init(){
   $('#autoAssignBtn').onclick=()=>{const pending=jobs.find(j=>j.status==='pending');pending?openAssign(pending.id):showToast('No unassigned jobs in the queue')};
   $('#announceBtn')?.addEventListener('click',openAnnounce);
   $('#annPost')?.addEventListener('click',postAnnounce);
+  $('#dashChatFab')?.addEventListener('click',()=>{ const w=$('#dashChatWidget'); w.classList.contains('hidden')?openChatWidget():closeChatWidget(); });
+  $('#dcClose')?.addEventListener('click',closeChatWidget);
+  $('#dcBack')?.addEventListener('click',showCwTeams);
+  $('#dcSend')?.addEventListener('click',sendCw);
+  $('#dcInput')?.addEventListener('keydown',e=>{ if(e.key==='Enter') sendCw(); });
+  startDashChat();
   $('#importTemplateBtn')?.addEventListener('click',downloadImportTemplate);
   $('#importXlsxBtn')?.addEventListener('click',()=>$('#importXlsxInput').click());
   $('#importXlsxInput')?.addEventListener('change',e=>{ if(e.target.files[0]) handleImportFile(e.target.files[0]); e.target.value=''; });
