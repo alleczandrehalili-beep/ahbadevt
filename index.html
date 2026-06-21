@@ -73,9 +73,16 @@
     /* Messenger-style floating chat */
     .dash-chat-fab{position:fixed;right:22px;bottom:22px;width:56px;height:56px;border-radius:50%;border:0;background:#18a57b;color:#fff;font-size:23px;box-shadow:0 12px 30px rgba(12,37,33,.4);z-index:90;display:flex;align-items:center;justify-content:center;cursor:pointer}
     .dash-chat-fab #dashChatBadge{position:absolute;top:-2px;right:-2px;background:#ff765f;color:#fff;border-radius:12px;min-width:20px;height:20px;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 5px;border:2px solid #fff}
-    .dash-chat{position:fixed;right:22px;bottom:88px;width:340px;max-width:calc(100vw - 30px);height:480px;max-height:calc(100vh - 120px);background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 24px 60px rgba(8,40,36,.3);z-index:91;display:flex;flex-direction:column;overflow:hidden}
-    .dc-head{background:var(--deep);color:#fff;padding:13px 15px;display:flex;align-items:center;justify-content:space-between;font:800 14px Manrope}
-    .dc-head button{background:rgba(255,255,255,.15);border:0;color:#fff;width:28px;height:28px;border-radius:8px;font-size:14px;cursor:pointer;margin-left:6px}
+    .dash-chat{position:fixed;right:22px;bottom:88px;width:360px;max-width:calc(100vw - 24px);height:520px;max-height:calc(100vh - 120px);background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 24px 60px rgba(8,40,36,.3);z-index:91;display:flex;flex-direction:column;overflow:hidden;transition:height .18s ease}
+    .dash-chat.min{height:52px!important}
+    .dash-chat.min .dc-body,.dash-chat.min .dc-thread{display:none!important}
+    .dc-head{background:var(--deep);color:#fff;padding:11px 14px;display:flex;align-items:center;justify-content:space-between;font:800 14px Manrope;cursor:pointer;flex:none}
+    .dc-head .dc-h-left{display:flex;align-items:center;gap:9px;min-width:0}
+    .dc-head .dc-h-av{width:30px;height:30px;border-radius:50%;background:var(--lime);color:var(--deep);display:flex;align-items:center;justify-content:center;font:800 11px Manrope;flex:none}
+    .dc-head strong{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .dc-head .dc-h-sub{font:500 9px 'DM Sans';color:#9fc7bd;display:block;margin-top:1px}
+    .dc-head button{background:rgba(255,255,255,.16);border:0;color:#fff;width:28px;height:28px;border-radius:8px;font-size:15px;cursor:pointer;margin-left:6px;display:inline-flex;align-items:center;justify-content:center}
+    .dc-head button:hover{background:rgba(255,255,255,.28)}
     .dc-body{flex:1;overflow-y:auto}
     .dc-team{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid #eef1ed;cursor:pointer}
     .dc-team:hover{background:#f6f8f5}
@@ -240,7 +247,7 @@
       </section>
 
       <section id="dispatchPage" class="page">
-        <div class="page-toolbar"><div><h2>Dispatch board</h2><p>Assign jobs and balance the workload across 20 teams.</p></div><div class="toolbar-actions"><button class="secondary-btn" id="importTemplateBtn"><i data-icon="arrow"></i>Template</button><button class="secondary-btn" id="importXlsxBtn"><i data-icon="clipboard"></i>Import Excel</button><input type="file" id="importXlsxInput" accept=".xlsx,.xls,.csv" hidden><button class="secondary-btn" id="autoAssignBtn"><i data-icon="spark"></i>Suggest best team</button><button class="primary-btn" data-action="new-order"><i data-icon="plus"></i>Add job</button></div></div>
+        <div class="page-toolbar"><div><h2>Dispatch board</h2><p>Assign jobs and balance the workload across 20 teams.</p></div><div class="toolbar-actions"><div class="search-box" style="min-width:190px"><i data-icon="search"></i><input id="dispatchSearch" placeholder="Search subscriber name"></div><button class="secondary-btn" id="importTemplateBtn"><i data-icon="arrow"></i>Template</button><button class="secondary-btn" id="importXlsxBtn"><i data-icon="clipboard"></i>Import Excel</button><input type="file" id="importXlsxInput" accept=".xlsx,.xls,.csv" hidden><button class="secondary-btn" id="autoAssignBtn"><i data-icon="spark"></i>Suggest best team</button><button class="primary-btn" data-action="new-order"><i data-icon="plus"></i>Add job</button></div></div>
         <div class="dispatch-stats" id="dispatchStats"></div>
         <div class="dispatch-board" id="dispatchBoard"></div>
       </section>
@@ -503,7 +510,10 @@
   <!-- Messenger-style floating team chat -->
   <button id="dashChatFab" class="dash-chat-fab" title="Team messages">💬<span id="dashChatBadge" class="hidden">0</span></button>
   <div id="dashChatWidget" class="dash-chat hidden">
-    <div class="dc-head"><strong id="dcTitle">Team messages</strong><div><button id="dcBack" class="hidden" title="Back">←</button><button id="dcClose" title="Close">✕</button></div></div>
+    <div class="dc-head" id="dcHead">
+      <div class="dc-h-left"><button id="dcBack" class="hidden" title="Back">←</button><span class="dc-h-av" id="dcHeadAv">💬</span><div style="min-width:0"><strong id="dcTitle">Team messages</strong><span class="dc-h-sub" id="dcSub">Tap a team to chat</span></div></div>
+      <div style="flex:none"><button id="dcMin" title="Minimize">—</button><button id="dcClose" title="Close">✕</button></div>
+    </div>
     <div id="dcTeams" class="dc-body"></div>
     <div id="dcThread" class="dc-thread hidden">
       <div id="dcMsgs" class="dc-msgs"></div>

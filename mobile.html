@@ -422,7 +422,15 @@
       try{ if(navigator.vibrate) navigator.vibrate([120,60,120]); }catch(e){}
       toast(title+(body?(' · '+body):''));
     }
-    function playBeep(){ try{ const C=window.AudioContext||window.webkitAudioContext; if(!C)return; const ctx=playBeep._c||(playBeep._c=new C()); if(ctx.state==='suspended')ctx.resume(); const o=ctx.createOscillator(),g=ctx.createGain(); o.type='sine'; o.frequency.setValueAtTime(880,ctx.currentTime); o.frequency.setValueAtTime(1170,ctx.currentTime+0.12); o.connect(g); g.connect(ctx.destination); g.gain.setValueAtTime(0.0001,ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.35,ctx.currentTime+0.02); g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+0.35); o.start(); o.stop(ctx.currentTime+0.36);}catch(e){} }
+    function audioCtx(){ const C=window.AudioContext||window.webkitAudioContext; if(!C)return null; const ctx=playBeep._c||(playBeep._c=new C()); if(ctx.state==='suspended')ctx.resume(); return ctx; }
+    // Unlock audio on any user tap so realtime events (new load/chat) can play sound
+    function primeAudio(){ try{ const ctx=audioCtx(); if(ctx&&ctx.state==='suspended')ctx.resume(); }catch(e){} }
+    document.addEventListener('pointerdown', primeAudio);
+    document.addEventListener('click', primeAudio);
+    // Chat sound — short rising two-tone beep
+    function playBeep(){ try{ const ctx=audioCtx(); if(!ctx)return; const o=ctx.createOscillator(),g=ctx.createGain(); o.type='sine'; o.frequency.setValueAtTime(880,ctx.currentTime); o.frequency.setValueAtTime(1170,ctx.currentTime+0.12); o.connect(g); g.connect(ctx.destination); g.gain.setValueAtTime(0.0001,ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.35,ctx.currentTime+0.02); g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+0.35); o.start(); o.stop(ctx.currentTime+0.36);}catch(e){} }
+    // New-load sound — distinct ascending 4-note chime
+    function playLoadSound(){ try{ const ctx=audioCtx(); if(!ctx)return; [523,659,784,1047].forEach((f,i)=>{ const o=ctx.createOscillator(),g=ctx.createGain(); o.type='triangle'; o.frequency.value=f; o.connect(g); g.connect(ctx.destination); const t=ctx.currentTime+i*0.15; g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.4,t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+0.17); o.start(t); o.stop(t+0.19); }); if(navigator.vibrate)navigator.vibrate([200,80,200]); }catch(e){} }
     // ---------- Web Push (notifications even when app is closed) ----------
     const VAPID_PUBLIC='BMhNkASCHb5OSL3uw6p8OXnqF10IfPGqAyGlLg2utnoIISvlI0NrR5QgJcbPqEDtrzItqRVmOLwkkU7bHAP-MXc';
     function urlB64ToU8(b){ const p='='.repeat((4-b.length%4)%4); const s=(b+p).replace(/-/g,'+').replace(/_/g,'/'); const raw=atob(s); const a=new Uint8Array(raw.length); for(let i=0;i<raw.length;i++)a[i]=raw.charCodeAt(i); return a; }
@@ -621,8 +629,19 @@
       }).join('');
       return `<div class="photos"><div class="photos-head"><span>Proof photos (${PHOTOS_REQUIRED} required)</span><span class="count ${done>=PHOTOS_REQUIRED?'ok':'need'}">${done}/${PHOTOS_REQUIRED}</span></div><div class="pslots">${rows}</div></div>`;
     }
+    let knownJobIds=null;   // for detecting newly-arrived loads (sound)
     async function refresh(){
-      try{ jobs=await loadJobs(); await loadPhotos(); render(); setSync('live','Synced'); }
+      try{
+        jobs=await loadJobs(); await loadPhotos();
+        // Detect brand-new load(s) for this team → distinct sound + notification
+        const ids=new Set(jobs.map(j=>j.id));
+        if(knownJobIds){
+          const fresh=jobs.filter(j=>!knownJobIds.has(j.id) && !['completed','cancelled'].includes(j.status));
+          if(fresh.length){ playLoadSound(); notify('🆕 New load', fresh[0].subscriber||fresh[0].id); }
+        }
+        knownJobIds=ids;
+        render(); setSync('live','Synced');
+      }
       catch(err){ setSync('error','Sync error'); console.warn('sync:',err.message) }
     }
     async function advance(id,next){
@@ -833,14 +852,10 @@
 
     function startApp(){
       $('#teamName').textContent=headerName();
-      show('appView'); setSync('syncing','Connecting…'); signature='';
+      show('appView'); setSync('syncing','Connecting…'); signature=''; knownJobIds=null; primeAudio();
       refresh();
       if(realtimeChan) sb.removeChannel(realtimeChan);
-      realtimeChan = sb.channel('ahba-tech-'+myTeam).on('postgres_changes',{event:'*',schema:'public',table:'jobs'},p=>{
-        const nw=p.new;
-        if(nw && nw.team===myTeam && nw.status==='assigned' && (!p.old || p.old.status!=='assigned')) notify('New load assigned', (nw.subscriber||nw.id));
-        refresh();
-      }).subscribe();
+      realtimeChan = sb.channel('ahba-tech-'+myTeam).on('postgres_changes',{event:'*',schema:'public',table:'jobs'},()=>refresh()).subscribe();
       clearInterval(startApp._t); startApp._t=setInterval(refresh,15000);
       clearInterval(startApp._loc); startApp._loc=setInterval(()=>captureLocation(false),600000); // refresh GPS every 10 min
       clearInterval(startApp._track); startApp._track=setInterval(()=>logTrack('auto'),1200000); // travel trail every 20 min

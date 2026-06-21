@@ -217,6 +217,19 @@ function renderJobs(){
   bindAssignButtons();
   wireDispatchDnD();
   applyJobTableFilter();
+  applyDispatchSearch();
+}
+function applyDispatchSearch(){
+  const q=($('#dispatchSearch')?.value||'').toLowerCase().trim();
+  $$('#dispatchBoard .board-column').forEach(col=>{
+    let shown=0;
+    col.querySelectorAll('.job-card[data-detail]').forEach(c=>{ const hit=!q||(c.dataset.name||'').includes(q); c.style.display=hit?'':'none'; if(hit)shown++; });
+    const empty=col.querySelector('.job-card.empty'); if(empty) empty.style.display=q?'none':'';
+    // show a "no match" hint when searching and nothing matched in this column
+    let hint=col.querySelector('.search-empty');
+    if(q && !shown){ if(!hint){ hint=document.createElement('div'); hint.className='job-card empty search-empty'; hint.innerHTML='<p>No match</p>'; col.appendChild(hint); } hint.style.display=''; }
+    else if(hint){ hint.style.display='none'; }
+  });
 }
 function appendHistory(h,line){const t=new Date().toLocaleString('en-PH',{timeZone:TZ,month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});return ((h||'')+`\n[${t}] ${line}`).trim();}
 // A negative job is released back to dispatch at 5:00 AM (Manila) the NEXT day.
@@ -308,7 +321,7 @@ function jobCard(j){
   const crew=[j.crew_driver||s.driver, j.crew_tech1||s.tech1, j.crew_tech2||s.tech2].filter(Boolean).join(', ');
   const acctLine=acct?`<span>🚐 ${acct}</span>`:'';
   const crewLine=crew?`<span>👤 ${crew}</span>`:'';
-  return `<article class="job-card compact" data-detail="${j.id}"${drag}>
+  return `<article class="job-card compact" data-detail="${j.id}" data-name="${(j.subscriber||'').toLowerCase().replace(/"/g,'')}"${drag}>
     <div class="job-top"><span class="job-id">${j.id}</span>${prio}</div>
     <h3>${j.subscriber||'—'}</h3>
     <div class="jc-meta">
@@ -1129,10 +1142,12 @@ let cwTeam=null, cwUnread={}, cwChan=null;
 function playBeepDash(){ try{ const C=window.AudioContext||window.webkitAudioContext; if(!C)return; const ctx=playBeepDash._c||(playBeepDash._c=new C()); if(ctx.state==='suspended')ctx.resume(); const o=ctx.createOscillator(),g=ctx.createGain(); o.type='sine'; o.frequency.setValueAtTime(880,ctx.currentTime); o.frequency.setValueAtTime(1170,ctx.currentTime+0.12); o.connect(g); g.connect(ctx.destination); g.gain.setValueAtTime(0.0001,ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.3,ctx.currentTime+0.02); g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+0.35); o.start(); o.stop(ctx.currentTime+0.36);}catch(e){} }
 function dcTotalUnread(){ return Object.values(cwUnread).reduce((a,b)=>a+(b||0),0); }
 function updateDcBadge(){ const t=dcTotalUnread(); const b=$('#dashChatBadge'); if(b){ b.textContent=t; b.classList.toggle('hidden',t<=0); } }
-function openChatWidget(){ try{ if('Notification'in window&&Notification.permission==='default')Notification.requestPermission(); }catch(e){} $('#dashChatWidget').classList.remove('hidden'); showCwTeams(); }
-function closeChatWidget(){ $('#dashChatWidget').classList.add('hidden'); }
+function openChatWidget(){ try{ if('Notification'in window&&Notification.permission==='default')Notification.requestPermission(); }catch(e){} const w=$('#dashChatWidget'); w.classList.remove('hidden'); w.classList.remove('min'); showCwTeams(); }
+function closeChatWidget(){ $('#dashChatWidget').classList.add('hidden'); $('#dashChatWidget').classList.remove('min'); }
+function minimizeChat(){ $('#dashChatWidget').classList.add('min'); }
 async function showCwTeams(){
-  cwTeam=null; $('#dcThread').classList.add('hidden'); $('#dcTeams').classList.remove('hidden'); $('#dcBack').classList.add('hidden'); $('#dcTitle').textContent='Team messages';
+  cwTeam=null; $('#dcThread').classList.add('hidden'); $('#dcTeams').classList.remove('hidden'); $('#dcBack').classList.add('hidden');
+  $('#dcTitle').textContent='Team messages'; if($('#dcHeadAv'))$('#dcHeadAv').textContent='💬'; if($('#dcSub'))$('#dcSub').textContent='Tap a team to chat';
   const el=$('#dcTeams'); el.innerHTML='<div style="padding:20px;text-align:center;color:#9aa6a2;font-size:12px">Loading…</div>';
   try{
     const r=await fetch(`${SUPA_URL}/rest/v1/team_messages?select=team,body,role,created_at&order=created_at.desc&limit=400`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
@@ -1146,7 +1161,8 @@ async function showCwTeams(){
 }
 async function openCwThread(code){
   cwTeam=code; cwUnread[code]=0; updateDcBadge();
-  $('#dcTeams').classList.add('hidden'); $('#dcThread').classList.remove('hidden'); $('#dcBack').classList.remove('hidden'); $('#dcTitle').textContent=code;
+  $('#dcTeams').classList.add('hidden'); $('#dcThread').classList.remove('hidden'); $('#dcBack').classList.remove('hidden');
+  $('#dcTitle').textContent=code; if($('#dcHeadAv'))$('#dcHeadAv').textContent=code.slice(-3); if($('#dcSub'))$('#dcSub').textContent=(teamCrew(code)||'Field team');
   const el=$('#dcMsgs'); el.innerHTML='<div style="color:#9aa6a2;font-size:11px;text-align:center;padding:14px">Loading…</div>';
   try{
     const r=await fetch(`${SUPA_URL}/rest/v1/team_messages?select=*&team=eq.${encodeURIComponent(code)}&order=created_at.asc&limit=200`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
@@ -1327,6 +1343,7 @@ function init(){
 
   // Metric cards → clickable shortcuts
   $$('[data-go]').forEach(b=>b.onclick=()=>switchPage(b.dataset.go));
+  $('#dispatchSearch')?.addEventListener('input',applyDispatchSearch);
 
   // Live shift clock (updates every second)
   updateShiftClock(); setInterval(updateShiftClock, 1000);
@@ -1379,8 +1396,10 @@ function init(){
   $('#announceBtn')?.addEventListener('click',openAnnounce);
   $('#annPost')?.addEventListener('click',postAnnounce);
   $('#dashChatFab')?.addEventListener('click',()=>{ const w=$('#dashChatWidget'); w.classList.contains('hidden')?openChatWidget():closeChatWidget(); });
-  $('#dcClose')?.addEventListener('click',closeChatWidget);
-  $('#dcBack')?.addEventListener('click',showCwTeams);
+  $('#dcClose')?.addEventListener('click',e=>{e.stopPropagation();closeChatWidget();});
+  $('#dcMin')?.addEventListener('click',e=>{e.stopPropagation();minimizeChat();});
+  $('#dcBack')?.addEventListener('click',e=>{e.stopPropagation();showCwTeams();});
+  $('#dcHead')?.addEventListener('click',()=>{ const w=$('#dashChatWidget'); if(w.classList.contains('min')) w.classList.remove('min'); });
   $('#dcSend')?.addEventListener('click',sendCw);
   $('#dcInput')?.addEventListener('keydown',e=>{ if(e.key==='Enter') sendCw(); });
   startDashChat();
