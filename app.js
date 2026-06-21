@@ -388,11 +388,28 @@ function openTeamDetail(code){
     vb.textContent=s.verified?'✓ Verified — tap to remove':'Verify as deployed';
     vb.onclick=()=>verifyTeamDeployed(code,!s.verified);
   }
-  loadTeamTrack(code); loadTeamChat(code);
+  loadTeamTrack(code); loadTeamChat(code); loadTeamGate(code);
   const sb=$('#tdChatSend'), inp=$('#tdChatInput');
   if(sb){ sb.onclick=()=>sendTeamChat(code); }
   if(inp){ inp.value=''; inp.onkeydown=e=>{ if(e.key==='Enter') sendTeamChat(code); }; }
   openModal($('#teamDetailModal'));
+}
+async function loadTeamGate(code){
+  const el=$('#tdGate'); if(!el)return; el.innerHTML='Loading…';
+  const date=manilaToday();
+  try{
+    const r=await fetch(`${SUPA_URL}/rest/v1/gate_logs?select=*&team=eq.${encodeURIComponent(code)}&work_date=eq.${date}&order=checked_at.desc&limit=1`,{headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}});
+    const g=(r.ok?await r.json():[])[0];
+    if(!g){ el.innerHTML='<span style="color:#b97a16">⏳ Hindi pa na-validate ng Security ngayong araw.</span>'; return; }
+    const crew=[g.crew_driver,g.crew_tech1,g.crew_tech2].filter(Boolean).join(', ');
+    el.innerHTML=`<div style="display:grid;gap:3px">
+      <div><b style="color:#11825f">✓ Gate-out validated</b> · ${fmtWhen(g.checked_at)}</div>
+      <div>🚐 Plate: <b>${g.plate_no||'—'}</b> · Odometer: <b>${g.odometer!=null?g.odometer+' km':'—'}</b></div>
+      <div>👤 Crew: ${crew||'—'} ${g.crew_ok?'<span class="status completed" style="font-size:7px">crew OK</span>':'<span class="status pending" style="font-size:7px">discrepancy</span>'}</div>
+      ${g.crew_remarks?`<div style="color:#c2503a">Remarks: ${g.crew_remarks}</div>`:''}
+      <div style="color:#9aa6a2">Validated by ${g.security_user||'Security'}</div>
+    </div>`;
+  }catch(e){ el.innerHTML='<span style="color:#c2503a">Could not load gate-out.</span>'; }
 }
 async function loadTeamTrack(code){
   const el=$('#tdTrack'); if(!el)return; el.innerHTML='Loading…';
@@ -1156,8 +1173,9 @@ let cwTeam=null, cwUnread={}, cwChan=null;
 function playBeepDash(){ try{ const C=window.AudioContext||window.webkitAudioContext; if(!C)return; const ctx=playBeepDash._c||(playBeepDash._c=new C()); if(ctx.state==='suspended')ctx.resume(); const o=ctx.createOscillator(),g=ctx.createGain(); o.type='sine'; o.frequency.setValueAtTime(880,ctx.currentTime); o.frequency.setValueAtTime(1170,ctx.currentTime+0.12); o.connect(g); g.connect(ctx.destination); g.gain.setValueAtTime(0.0001,ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.3,ctx.currentTime+0.02); g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+0.35); o.start(); o.stop(ctx.currentTime+0.36);}catch(e){} }
 function dcTotalUnread(){ return Object.values(cwUnread).reduce((a,b)=>a+(b||0),0); }
 function updateDcBadge(){ const t=dcTotalUnread(); const b=$('#dashChatBadge'); if(b){ b.textContent=t; b.classList.toggle('hidden',t<=0); } }
-function openChatWidget(){ try{ if('Notification'in window&&Notification.permission==='default')Notification.requestPermission(); }catch(e){} const w=$('#dashChatWidget'); w.classList.remove('hidden'); w.classList.remove('min'); showCwTeams(); }
-function closeChatWidget(){ $('#dashChatWidget').classList.add('hidden'); $('#dashChatWidget').classList.remove('min'); }
+function chatWidgetOpen(){ const w=$('#dashChatWidget'); return w && w.style.display!=='none'; }
+function openChatWidget(){ try{ if('Notification'in window&&Notification.permission==='default')Notification.requestPermission(); }catch(e){} const w=$('#dashChatWidget'); w.classList.remove('min'); w.style.display='flex'; showCwTeams(); }
+function closeChatWidget(){ const w=$('#dashChatWidget'); w.style.display='none'; w.classList.remove('min'); }
 function minimizeChat(){ $('#dashChatWidget').classList.add('min'); }
 async function showCwTeams(){
   cwTeam=null; $('#dcThread').classList.add('hidden'); $('#dcTeams').classList.remove('hidden'); $('#dcBack').classList.add('hidden');
@@ -1197,7 +1215,7 @@ function startDashChat(){
   cwChan=cl.channel('dash-team-chat').on('postgres_changes',{event:'INSERT',schema:'public',table:'team_messages'},p=>{
     const m=p.new; if(!m||m.role!=='team') return;   // only field-team messages notify the console
     playBeepDash();
-    const widgetOpen=!$('#dashChatWidget').classList.contains('hidden');
+    const widgetOpen=chatWidgetOpen();
     if(widgetOpen && cwTeam===m.team){ openCwThread(m.team); }
     else { cwUnread[m.team]=(cwUnread[m.team]||0)+1; updateDcBadge(); if(widgetOpen) showCwTeams(); }
     showToast('💬 '+m.team+': '+(m.body||'').slice(0,45));
@@ -1409,7 +1427,7 @@ function init(){
   $('#autoAssignBtn').onclick=()=>{const pending=jobs.find(j=>j.status==='pending');pending?openAssign(pending.id):showToast('No unassigned jobs in the queue')};
   $('#announceBtn')?.addEventListener('click',openAnnounce);
   $('#annPost')?.addEventListener('click',postAnnounce);
-  $('#dashChatFab')?.addEventListener('click',()=>{ const w=$('#dashChatWidget'); w.classList.contains('hidden')?openChatWidget():closeChatWidget(); });
+  $('#dashChatFab')?.addEventListener('click',()=>{ chatWidgetOpen()?closeChatWidget():openChatWidget(); });
   $('#dcClose')?.addEventListener('click',e=>{e.stopPropagation();closeChatWidget();});
   $('#dcMin')?.addEventListener('click',e=>{e.stopPropagation();minimizeChat();});
   $('#dcBack')?.addEventListener('click',e=>{e.stopPropagation();showCwTeams();});

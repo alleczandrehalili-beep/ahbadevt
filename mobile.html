@@ -147,6 +147,32 @@
       <button id="mLogout" class="danger">Time out &amp; sign out</button>
     </div>
 
+    <!-- SECURITY (gate-out validation) -->
+    <div class="hidden" id="secView">
+      <div class="syncbar live" id="secSync"><span class="sync-dot"></span><span>Security · Gate-out validation</span><span class="stamp" id="secStamp"></span></div>
+      <div style="padding:4px 2px 10px;font-size:12px;color:#586965">I-validate kung nakalabas na ang team, tama ang crew, at i-record ang sasakyan + odometer.</div>
+      <div class="jobs" id="secList"></div>
+    </div>
+
+    <!-- SECURITY gate-out modal -->
+    <div class="mexp-back hidden" id="secBack"></div>
+    <div class="mexp hidden" id="secModal" style="max-height:88vh;overflow:auto">
+      <h3>Gate-out validation</h3>
+      <p class="mexp-sub" id="secTeam"></p>
+      <div style="background:#f4f6f3;border:1px solid var(--line);border-radius:10px;padding:10px;margin:6px 0;font-size:12px">
+        <div><b>Account:</b> <span id="secAccount">—</span></div>
+        <div style="margin-top:4px"><b>Declared crew:</b></div>
+        <div id="secCrew" style="color:#33433f">—</div>
+      </div>
+      <div class="field"><label>Tama ba ang crew na magkasama?</label>
+        <select id="sec_crewok"><option value="yes">Oo — tama ang crew</option><option value="no">Hindi — may pagkakaiba</option></select></div>
+      <div class="field"><label>Remarks (kung may pagkakaiba)</label><input id="sec_remarks" placeholder="hal. walang Tech 2 / iba ang driver"></div>
+      <div class="field"><label>Plate No. ng sasakyan *</label><input id="sec_plate" autocapitalize="characters" placeholder="ABC 1234"></div>
+      <div class="field"><label>Odometer bago umalis * (km)</label><input id="sec_odo" type="number" inputmode="numeric" placeholder="0"></div>
+      <div class="err" id="secErr"></div>
+      <div style="display:flex;gap:8px;margin-top:6px"><button class="btn-ghost" id="secCancel" style="flex:1">Cancel</button><button class="btn-primary" id="secSave" style="flex:1">Record gate-out</button></div>
+    </div>
+
     <!-- Floating chat button (homepage) -->
     <button id="chatFab" class="chat-fab hidden" aria-label="Messages with Dispatch">💬<span id="chatFabBadge" class="hidden">0</span></button>
 
@@ -513,7 +539,7 @@
     const statusLabel = s => (FLOW[s]?.label)||s;
 
     // ---------- views ----------
-    function show(view){['loginView','pwView','shiftView','appView','saView'].forEach(v=>$('#'+v).classList.toggle('hidden', v!==view));const inApp=(view==='appView'||view==='saView');$('#menuBtn').classList.toggle('hidden', !inApp);$('#chatFab')&&$('#chatFab').classList.toggle('hidden', !inApp);$('#menuPop').classList.add('hidden')}
+    function show(view){['loginView','pwView','shiftView','appView','saView','secView'].forEach(v=>$('#'+v).classList.toggle('hidden', v!==view));const inApp=(view==='appView'||view==='saView'||view==='secView');$('#menuBtn').classList.toggle('hidden', !inApp);$('#chatFab')&&$('#chatFab').classList.toggle('hidden', !(view==='appView'||view==='saView'));$('#menuPop').classList.add('hidden')}
 
     // ---------- shift setup (account + crew) ----------
     // Work accounts (msp- display names). Update by re-uploading mobile.html if the list changes.
@@ -545,6 +571,55 @@
 
     // ---------- sales agent ----------
     function startSA(){ $('#teamName').textContent=headerName(); show('saView'); saSwitch('new'); saRenderDocs(); startComms(); }
+
+    // ---------- SECURITY (gate-out validation) ----------
+    function startSecurity(){ $('#teamName').textContent=headerName(); show('secView'); loadSecTeams(); clearInterval(startSecurity._t); startSecurity._t=setInterval(loadSecTeams,20000); }
+    async function loadSecTeams(){
+      const el=$('#secList'); if(!el)return;
+      const date=manilaDate();
+      let att=[], gates=[];
+      try{ const {data}=await sb.from('attendance').select('username,work_account,crew_driver,crew_tech1,crew_tech2,time_in,time_out').eq('work_date',date).order('time_in',{ascending:false}); att=data||[]; }catch(e){}
+      try{ const {data}=await sb.from('gate_logs').select('team,plate_no,odometer,checked_at').eq('work_date',date); gates=data||[]; }catch(e){}
+      const gmap={}; gates.forEach(g=>{ if(!gmap[g.team]) gmap[g.team]=g; });
+      const seen={}, rows=[];
+      att.forEach(a=>{ if(/^AHBA_SLI/i.test(a.username) && !seen[a.username]){ seen[a.username]=1; rows.push(a); } });
+      $('#secStamp').textContent=rows.length+' team(s) in';
+      if(!rows.length){ el.innerHTML=`<div class="empty">${svg('inbox')}Walang naka-time in na team ngayon.<br>Lalabas dito ang mga team na nag-Start shift.</div>`; return; }
+      el.innerHTML=rows.map(a=>{
+        const crew=[a.crew_driver,a.crew_tech1,a.crew_tech2].filter(Boolean).join(', ')||'— walang declared crew —';
+        const g=gmap[a.username];
+        const status=g?`<span class="badge b-completed">✓ ${manilaTime(g.checked_at)}</span>`:`<span class="badge b-pending">Pending</span>`;
+        const info=g?`<div class="job-meta"><div class="row">${svg('truck')}<span>Plate: ${g.plate_no||'—'} · Odo: ${g.odometer!=null?g.odometer:'—'} km</span></div></div>`:'';
+        const btn=g?'':`<button class="act done" data-sec="${a.username}" style="width:100%;margin-top:8px">${svg('check')} Validate gate-out</button>`;
+        return `<div class="job"><div class="job-head"><div><span class="job-id">${a.username}</span><h3>${a.work_account||'—'}</h3><p class="plan">${crew}</p></div>${status}</div>${info}${btn}</div>`;
+      }).join('');
+      el.querySelectorAll('[data-sec]').forEach(b=>b.onclick=()=>openSecCheck(b.dataset.sec, rows.find(r=>r.username===b.dataset.sec)));
+    }
+    function openSecCheck(team,a){
+      const m=$('#secModal'); m.dataset.team=team; m.dataset.driver=a.crew_driver||''; m.dataset.t1=a.crew_tech1||''; m.dataset.t2=a.crew_tech2||''; m.dataset.acct=a.work_account||'';
+      $('#secTeam').textContent='Team '+team;
+      $('#secAccount').textContent=a.work_account||'—';
+      $('#secCrew').textContent=[a.crew_driver&&('Driver: '+a.crew_driver),a.crew_tech1&&('Tech 1: '+a.crew_tech1),a.crew_tech2&&('Tech 2: '+a.crew_tech2)].filter(Boolean).join(' · ')||'walang declared crew';
+      $('#sec_crewok').value='yes'; $('#sec_remarks').value=''; $('#sec_plate').value=''; $('#sec_odo').value=''; clearErr('#secErr');
+      $('#secBack').classList.remove('hidden'); m.classList.remove('hidden');
+    }
+    function closeSec(){ $('#secBack').classList.add('hidden'); $('#secModal').classList.add('hidden'); }
+    async function submitGate(){
+      const m=$('#secModal'); const team=m.dataset.team;
+      const plate=$('#sec_plate').value.trim(), odo=$('#sec_odo').value.trim(), crewok=$('#sec_crewok').value==='yes', rem=$('#sec_remarks').value.trim();
+      if(!plate){ showErr('#secErr','Ilagay ang plate no.'); return; }
+      if(odo===''||isNaN(Number(odo))){ showErr('#secErr','Ilagay ang odometer (numero).'); return; }
+      if(!crewok && !rem){ showErr('#secErr','Ilagay ang remarks kung may pagkakaiba sa crew.'); return; }
+      const btn=$('#secSave'); btn.disabled=true; btn.textContent='Saving…';
+      const now=new Date().toISOString();
+      try{
+        const {error}=await sb.from('gate_logs').insert({team, account:m.dataset.acct, crew_driver:m.dataset.driver, crew_tech1:m.dataset.t1, crew_tech2:m.dataset.t2, crew_ok:crewok, crew_remarks:rem, plate_no:plate, odometer:Number(odo), security_user:myTeam, checked_at:now});
+        if(error) throw error;
+        try{ await sb.from('attendance').update({deployed_verified:true, verified_by:myTeam, verified_at:now}).eq('username',team).eq('work_date',manilaDate()); }catch(e){}
+        toast('Gate-out recorded for '+team); closeSec(); loadSecTeams();
+      }catch(e){ showErr('#secErr','Failed: '+e.message); }
+      btn.disabled=false; btn.textContent='Record gate-out';
+    }
     const saStatusLabel = s => ({for_validation:'For validation',pending:'Approved · for dispatch',rejected:'Rejected',assigned:'Assigned','en-route':'In progress','on-site':'In progress','in-progress':'In progress',completed:'Completed'}[s]||s);
     function saSwitch(view){
       $('#saTabNew').classList.toggle('active',view==='new'); $('#saTabMine').classList.toggle('active',view==='mine');
@@ -902,6 +977,7 @@
       if(fresh){ await clockIn(); } else { await findOpenAttendance(); }
       captureLocation(false);   // grab GPS on entry (prompts for permission first time)
       if(myRole==='sales_agent'){ startSA(); return; }
+      if(myRole==='security'){ startSecurity(); return; }
       // If this team already declared a shift today, skip the setup on refresh/resume.
       if(await resumeShift()){
         try{ if(attendanceId) await sb.from('attendance').update({work_account:shiftAccount,crew_driver:shiftDriver,crew_tech1:shiftTech1,crew_tech2:shiftTech2}).eq('id',attendanceId); }catch(e){}
@@ -991,6 +1067,9 @@
     $('#menuBtn').onclick=e=>{e.stopPropagation();$('#menuPop').classList.toggle('hidden')};
     document.addEventListener('click',()=>$('#menuPop').classList.add('hidden'));
     $('#menuPop').onclick=e=>e.stopPropagation();
+    $('#secSave')?.addEventListener('click',submitGate);
+    $('#secCancel')?.addEventListener('click',closeSec);
+    $('#secBack')?.addEventListener('click',closeSec);
     $('#chatFab').onclick=openChat;
     $('#mChat').onclick=()=>{$('#menuPop').classList.add('hidden');openChat()};
     $('#mAnnounce').onclick=()=>{$('#menuPop').classList.add('hidden');openAnn()};
