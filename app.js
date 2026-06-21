@@ -1099,7 +1099,7 @@ const IMPORT_HMAP={};
  ['villagesubdivision','village'],['village','village'],['subdivision','village'],
  ['brgy','brgy'],['barangay','brgy'],
  ['city','city'],['citymunicipality','city'],['municipality','city'],
- ['ibassacctno','ibass_acct_no'],['ibassaccount','ibass_acct_no'],['ibassaccountno','ibass_acct_no'],['acctno','ibass_acct_no'],['accountno','ibass_acct_no'],['account','ibass_acct_no'],
+ ['ibassacctno','ibass_acct_no'],['ibasacctno','ibass_acct_no'],['ibassaccount','ibass_acct_no'],['ibasaccount','ibass_acct_no'],['ibassaccountno','ibass_acct_no'],['ibasaccountno','ibass_acct_no'],['ibasacct','ibass_acct_no'],['ibassacct','ibass_acct_no'],['acctno','ibass_acct_no'],['accountno','ibass_acct_no'],['account','ibass_acct_no'],
  ['joborderno','job_order_no'],['jobordernumber','job_order_no'],['jono','job_order_no'],['jonumber','job_order_no'],['jo','job_order_no'],
  ['vasno','vas_no'],['vas','vas_no'],
  ['1por2p','play_type'],['playtype','play_type'],['play','play_type'],['1p2p','play_type'],
@@ -1123,7 +1123,7 @@ const IMPORT_HMAP={};
 const normHdr=h=>String(h||'').toLowerCase().replace(/[^a-z0-9]/g,'');
 function downloadImportTemplate(){
   if(typeof XLSX==='undefined'){showToast('Excel library still loading');return}
-  const headers=['FIRST NAME','MIDDLE NAME','LAST NAME','SUBSCRIBER','PRIMARY NO.','OTHER CONTACT NO.','HOUSE NO.','STREET NAME','VILLAGE / SUBDIVISION','BRGY','CITY','IBASS ACCT NO.','JOB ORDER NO.','VAS NO','1P OR 2P','PLAN','REF NO.','NEW REF #','SERVICE TYPE','PRIORITY','DISPATCH STATUS','DRIVER','TECH1','MAPPING TEAM','MAPPING REMARKS','DISPATCHED REMARKS','IN-CHARGE','SOURCE OF SALES','REFERRAL NAME','SPECIAL NOTE','TEAM ASSIGNED'];
+  const headers=['Date','IBAS ACCT NO','1P or 2P','REF NO','PLAN','PRIMARY NO','SECONDARY NO','FIRST NAME','MIDDLE NAME','LAST NAME','HOUSE NO','STREET NAME','VILLAGE/SUBDIVISION','BARANGAY','CITY','SOURCE OF SALES','REFERRAL NAME'];
   const ws=XLSX.utils.aoa_to_sheet([headers]); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'NEW LOADS');
   const out=XLSX.write(wb,{type:'array',bookType:'xlsx'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([out],{type:'application/octet-stream'})); a.download='AHBA_import_template.xlsx'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),8000);
