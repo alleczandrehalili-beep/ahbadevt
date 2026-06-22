@@ -284,7 +284,10 @@
           <div class="form-sec">Service</div>
           <div class="field"><label>Plan</label><input id="sa_plan"></div>
           <div class="field"><label>Reference no.</label><input id="sa_ref_no"></div>
+          <div class="field"><label>Unit type</label><select id="sa_dwelling"><option>SDU</option><option>MDU</option></select></div>
           <div class="field"><label>1P / 2P</label><select id="sa_play_type"><option>1-PLAY</option><option>2-PLAY</option></select></div>
+          <div class="field"><label>Installation fee</label><select id="sa_install_fee"><option>One Time Payment</option><option>Installment</option></select></div>
+          <div class="field"><label>Amount to collect (₱)</label><input id="sa_amount" type="number" inputmode="numeric"></div>
           <div class="field"><label>Source of sales</label><select id="sa_source_of_sales"><option>Referral</option><option>Organic</option></select></div>
           <div class="field"><label>Referral name</label><input id="sa_referral_name"></div>
           <div class="field"><label>Special note</label><textarea id="sa_special_note" rows="2"></textarea></div>
@@ -698,12 +701,17 @@
       ['id','billing','premise'].forEach(cat=>{
         const arr=saDocs[cat];
         const c=document.querySelector(`[data-cnt="${cat}"]`); if(c){c.textContent=arr.length;c.className='count '+(arr.length?'ok':'need');}
-        const t=document.querySelector(`[data-thumbs="${cat}"]`); if(t){t.innerHTML=arr.map(f=>`<img src="${f._url||(f._url=URL.createObjectURL(f))}" alt="">`).join('');}
+        const t=document.querySelector(`[data-thumbs="${cat}"]`);
+        if(t){
+          t.innerHTML=arr.map((f,i)=>`<span style="position:relative;display:inline-block"><img src="${f._url||(f._url=URL.createObjectURL(f))}" alt=""><button type="button" data-remdoc="${cat}" data-remi="${i}" title="Tanggalin" style="position:absolute;top:-6px;right:-6px;background:#c2503a;color:#fff;border:0;border-radius:50%;width:19px;height:19px;font-size:11px;line-height:1;padding:0">✕</button></span>`).join('');
+          t.querySelectorAll('[data-remdoc]').forEach(b=>b.onclick=()=>{ saDocs[b.dataset.remdoc].splice(Number(b.dataset.remi),1); saRenderDocs(); });
+        }
       });
     }
     function saReset(){
-      ['first_name','middle_name','last_name','primary_no','other_contact_no','house_no','street_name','village','brgy','plan','ref_no','source_of_sales','referral_name','special_note'].forEach(k=>{const el=$('#sa_'+k);if(el)el.value='';});
+      ['first_name','middle_name','last_name','primary_no','other_contact_no','house_no','street_name','village','brgy','plan','ref_no','amount','source_of_sales','referral_name','special_note'].forEach(k=>{const el=$('#sa_'+k);if(el)el.value='';});
       if($('#sa_city')) $('#sa_city').value='QUEZON CITY';
+      if($('#sa_dwelling')) $('#sa_dwelling').value='SDU'; if($('#sa_install_fee')) $('#sa_install_fee').value='One Time Payment';
       saDocs={id:[],billing:[],premise:[]}; saRenderDocs();
     }
     async function saRenderMine(){
@@ -760,6 +768,7 @@
         first_name:fn,middle_name:v('sa_middle_name'),last_name:ln,primary_no:pno,other_contact_no:v('sa_other_contact_no'),
         house_no:v('sa_house_no'),street_name:v('sa_street_name'),village:v('sa_village'),brgy:brgy,city:city,
         play_type:v('sa_play_type'),source_of_sales:v('sa_source_of_sales'),referral_name:v('sa_referral_name'),
+        dwelling_type:v('sa_dwelling'),install_fee_type:v('sa_install_fee'),amount_to_collect:(v('sa_amount')!==''?Number(v('sa_amount')):null),
         special_note:v('sa_special_note'),updated_at:new Date().toISOString()};
       try{
         const {error}=await sb.from('jobs').insert(job); if(error) throw error;
@@ -796,7 +805,7 @@
       const done=PHOTO_LABELS.filter(l=>byLabel[l]&&byLabel[l].length).length;
       const rows=PHOTO_LABELS.map((l,i)=>{
         const arr=byLabel[l]||[]; const has=arr.length>0; const lab=l.replace(/"/g,'&quot;');
-        const thumb=has?`<div class="thumbs">${arr.map(p=>`<img src="${pubUrl(p)}" alt="">`).join('')}</div>`:'';
+        const thumb=has?`<div class="thumbs">${arr.map(p=>`<span style="position:relative;display:inline-block"><img src="${pubUrl(p)}" alt=""><button type="button" data-delp="${p}" data-deljob="${id}" title="Burahin" style="position:absolute;top:-6px;right:-6px;background:#c2503a;color:#fff;border:0;border-radius:50%;width:19px;height:19px;font-size:11px;line-height:1;padding:0">✕</button></span>`).join('')}</div>`:'';
         return `<div class="pslot ${has?'done':''}"><div class="pslot-head"><span>${i+1}. ${l}</span><span class="pchk ${has?'ok':'need'}">${has?'✓':'•'}</span></div>${thumb}<div style="display:flex;gap:6px;margin-top:6px"><label class="addphoto pmini">${svg('camera')} Camera<input type="file" accept="image/*" capture="environment" hidden data-up="${id}" data-label="${lab}"></label><label class="addphoto pmini">${svg('note')} Album<input type="file" accept="image/*" hidden data-up="${id}" data-label="${lab}"></label></div></div>`;
       }).join('');
       return `<div class="photos"><div class="photos-head"><span>Proof photos (${PHOTOS_REQUIRED} required)</span><span class="count ${done>=PHOTOS_REQUIRED?'ok':'need'}">${done}/${PHOTOS_REQUIRED}</span></div>
@@ -862,6 +871,16 @@
       if(error) throw error;
       await sb.from('job_photos').insert({job_id:jobId, team:myTeam, path, label:label||''});
       (photoData[jobId]=photoData[jobId]||[]).push({path,label:label||''});
+    }
+    // Delete a wrongly-uploaded proof photo (DB row + storage file), then re-render.
+    async function deletePhoto(jobId, path){
+      if(!confirm('Burahin ang larawang ito? Hindi na ito mababawi.')) return;
+      try{
+        const {error}=await sb.from('job_photos').delete().eq('job_id',jobId).eq('path',path); if(error) throw error;
+        try{ await sb.storage.from('job-photos').remove([path]); }catch(e){}
+        photoData[jobId]=(photoData[jobId]||[]).filter(p=>p.path!==path);
+        toast('Larawan binura'); render();
+      }catch(e){ toast('Delete failed: '+e.message); }
     }
     // Bulk: pick many photos at once → auto-assign to the remaining empty slots in order, upload in parallel
     async function uploadBulk(jobId, fileList){
@@ -1035,6 +1054,7 @@
       el.querySelectorAll('[data-next]').forEach(b=>b.onclick=()=>advance(b.dataset.id,b.dataset.next));
       el.querySelectorAll('[data-up]').forEach(inp=>inp.onchange=()=>{const id=inp.dataset.up,files=inp.files;uploadPhotos(id,files,inp.dataset.label);inp.value='';});
       el.querySelectorAll('[data-bulk]').forEach(inp=>inp.onchange=()=>{const id=inp.dataset.bulk,files=inp.files;uploadBulk(id,files);inp.value='';});
+      el.querySelectorAll('[data-delp]').forEach(b=>b.onclick=()=>deletePhoto(b.dataset.deljob,b.dataset.delp));
       el.querySelectorAll('[data-exp]').forEach(b=>b.onclick=()=>openMobileExpense(b.dataset.exp));
       el.querySelectorAll('[data-neg]').forEach(b=>b.onclick=()=>openNegative(b.dataset.neg));
       el.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>cancelJob(b.dataset.cancel));
