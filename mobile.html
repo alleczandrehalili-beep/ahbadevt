@@ -179,7 +179,8 @@
     <!-- CHAT (team <-> dispatcher) -->
     <div class="mexp-back hidden" id="chatBack"></div>
     <div class="mexp hidden" id="chatModal" style="max-height:80vh;display:flex;flex-direction:column">
-      <h3>💬 Messages with Dispatch</h3>
+      <h3 id="chatTitle">💬 Messages with Dispatch</h3>
+      <div class="field" style="margin:2px 0 4px"><label style="font-size:11px">Send to</label><select id="chatTo"></select></div>
       <div id="chatList" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin:8px 0;min-height:160px"></div>
       <div style="display:flex;gap:8px"><input id="chatInput" placeholder="Type a message…" style="flex:1"><button class="btn-primary" id="chatSend" style="width:auto;padding:0 16px">Send</button></div>
       <button class="btn-ghost" id="chatClose" style="margin-top:8px">Close</button>
@@ -490,23 +491,66 @@
     // ---------- team chat ----------
     let chatChan=null, chatMsgs=[], chatUnread=0;
     function fmtChatTime(ts){ return new Date(ts).toLocaleString('en-PH',{timeZone:TZ,month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }
+    // ----- threaded chat: broadcast (dispatch/team) + private DMs -----
+    const myCode=()=>'T:'+myTeam;                 // this mobile user's canonical chat code
+    const dmPair=peer=>[myCode(),peer].sort();    // sorted pair for a DM thread
+    let chatThread={kind:'bcast'};                // current open thread
+    let chatContacts=[];                          // [{code,label,kind}] for the picker
+    const chatUnreadBy={};                         // threadKey -> unread count
+    function curThreadKey(){ return chatThread.kind==='dm' ? ('dm:'+chatThread.code) : 'bcast'; }
+    function threadKeyOf(m){ if(m.dm_a){ const peer=(m.dm_a===myCode())?m.dm_b:m.dm_a; return 'dm:'+peer; } return 'bcast'; }
+    function codeLabel(code){ const c=chatContacts.find(x=>x.code===code); if(c) return c.label; if(code&&code.startsWith('C:')) return code.slice(2); if(code&&code.startsWith('T:')) return 'Team '+code.slice(2); return code||''; }
+    async function buildChatContacts(){
+      const list=[];
+      try{ const {data}=await sb.from('console_contacts').select('*'); (data||[]).forEach(u=>list.push({code:'C:'+u.username,label:(u.display_name||u.username)+(u.role_label?(' · '+u.role_label):''),kind:'console'})); }catch(e){}
+      if(myRole==='sales_agent'){
+        try{ const {data}=await sb.from('jobs').select('team').eq('created_by',myTeam).not('team','is',null); const seen={}; (data||[]).forEach(j=>{ if(j.team&&!seen[j.team]){ seen[j.team]=1; list.push({code:'T:'+j.team,label:'Team '+j.team,kind:'team'}); } }); }catch(e){}
+      }
+      try{ const me=myCode();
+        const q1=await sb.from('team_messages').select('dm_a,dm_b').eq('dm_a',me).limit(500);
+        const q2=await sb.from('team_messages').select('dm_a,dm_b').eq('dm_b',me).limit(500);
+        const peers={}; [...(q1.data||[]),...(q2.data||[])].forEach(r=>{ const peer=(r.dm_a===me)?r.dm_b:r.dm_a; if(peer) peers[peer]=1; });
+        Object.keys(peers).forEach(code=>{ if(!list.find(x=>x.code===code)) list.push({code,label:codeLabel(code),kind:code.startsWith('C:')?'console':'team'}); });
+      }catch(e){}
+      chatContacts=list; renderChatRecipients();
+    }
+    function renderChatRecipients(){
+      const sel=$('#chatTo'); if(!sel)return;
+      sel.innerHTML=['<option value="">📢 Dispatch (team broadcast)</option>'].concat(
+        chatContacts.map(c=>`<option value="${c.code}">${(c.kind==='console'?'🔒 ':'🔒👷 ')+(c.label||'').replace(/</g,'&lt;')}</option>`)).join('');
+      sel.value=(chatThread.kind==='dm')?chatThread.code:'';
+    }
+    function selectChatThread(val){
+      chatThread = val ? {kind:'dm',code:val} : {kind:'bcast'};
+      $('#chatTitle').textContent = chatThread.kind==='dm' ? ('💬 '+codeLabel(val)) : '💬 Messages with Dispatch';
+      chatUnreadBy[curThreadKey()]=0; recomputeChatBadge(); loadChat();
+    }
     function renderChat(){
       const el=$('#chatList'); if(!el)return;
       el.innerHTML=chatMsgs.length?chatMsgs.map(m=>{
-        const mine=m.role==='team';
-        return `<div style="align-self:${mine?'flex-end':'flex-start'};max-width:80%"><div style="background:${mine?'#18a57b':'#eef1ed'};color:${mine?'#fff':'#26352f'};padding:8px 11px;border-radius:12px;font-size:13px">${(m.body||'').replace(/</g,'&lt;')}</div><div style="font-size:9px;color:#9aa6a2;margin-top:2px;text-align:${mine?'right':'left'}">${m.role==='team'?'You':(m.sender||'Dispatcher')} · ${fmtChatTime(m.created_at)}</div></div>`;
-      }).join(''):'<div style="text-align:center;color:#9aa6a2;font-size:12px;padding:20px">No messages yet. Say hello to dispatch 👋</div>';
+        const mine=(m.role==='team' && m.team===myTeam);
+        const who=mine?'You':(m.sender||(m.role==='dispatch'?'Dispatch':(m.team||'')));
+        return `<div style="align-self:${mine?'flex-end':'flex-start'};max-width:80%"><div style="background:${mine?'#18a57b':'#eef1ed'};color:${mine?'#fff':'#26352f'};padding:8px 11px;border-radius:12px;font-size:13px">${(m.body||'').replace(/</g,'&lt;')}</div><div style="font-size:9px;color:#9aa6a2;margin-top:2px;text-align:${mine?'right':'left'}">${who} · ${fmtChatTime(m.created_at)}</div></div>`;
+      }).join(''):'<div style="text-align:center;color:#9aa6a2;font-size:12px;padding:20px">No messages yet. Say hello 👋</div>';
       el.scrollTop=el.scrollHeight;
     }
     async function loadChat(){
-      try{ const {data}=await sb.from('team_messages').select('*').eq('team',myTeam).order('created_at',{ascending:true}).limit(200); chatMsgs=data||[]; renderChat(); }catch(e){}
+      try{
+        let q=sb.from('team_messages').select('*').order('created_at',{ascending:true}).limit(200);
+        if(chatThread.kind==='dm'){ const [a,b]=dmPair(chatThread.code); q=q.eq('dm_a',a).eq('dm_b',b); }
+        else { q=q.eq('team',myTeam).is('dm_a',null); }
+        const {data}=await q; chatMsgs=data||[]; renderChat();
+      }catch(e){}
     }
-    function openChat(){ chatUnread=0; updateChatBadge(); $('#chatBack').classList.remove('hidden'); $('#chatModal').classList.remove('hidden'); loadChat(); setTimeout(()=>$('#chatInput')?.focus(),100); }
+    function openChat(){ $('#chatBack').classList.remove('hidden'); $('#chatModal').classList.remove('hidden'); buildChatContacts(); chatUnreadBy[curThreadKey()]=0; recomputeChatBadge(); loadChat(); setTimeout(()=>$('#chatInput')?.focus(),100); }
     function closeChat(){ $('#chatBack').classList.add('hidden'); $('#chatModal').classList.add('hidden'); }
     async function sendChat(){
       const v=$('#chatInput').value.trim(); if(!v)return; $('#chatInput').value='';
-      try{ await sb.from('team_messages').insert({team:myTeam, sender:(myName||myTeam), role:'team', body:v}); }catch(e){ toast('Send failed'); }
+      const row={team:myTeam, sender:(myName||myTeam), role:'team', body:v};
+      if(chatThread.kind==='dm'){ const [a,b]=dmPair(chatThread.code); row.dm_a=a; row.dm_b=b; }
+      try{ await sb.from('team_messages').insert(row); }catch(e){ toast('Send failed'); }
     }
+    function recomputeChatBadge(){ chatUnread=Object.values(chatUnreadBy).reduce((a,b)=>a+(b||0),0); updateChatBadge(); }
     function updateChatBadge(){ [['#chatBadge'],['#chatFabBadge']].forEach(([id])=>{const b=$(id); if(b){ b.textContent=chatUnread; b.classList.toggle('hidden', chatUnread<=0); }}); }
 
     // ---------- announcements ----------
@@ -526,10 +570,19 @@
     function startComms(){
       askNotify(); registerPush(); loadChat(); loadAnn();
       if(chatChan) sb.removeChannel(chatChan);
-      chatChan=sb.channel('chat-'+myTeam).on('postgres_changes',{event:'INSERT',schema:'public',table:'team_messages',filter:'team=eq.'+myTeam},p=>{
-        const m=p.new; chatMsgs.push(m);
-        if(m.role!=='team'){ playBeep(); if($('#chatModal').classList.contains('hidden')){ chatUnread++; updateChatBadge(); notify('Message from Dispatch', m.body); } }
-        if(!$('#chatModal').classList.contains('hidden')) renderChat();
+      // No team filter: RLS delivers only messages this user may read (their team
+      // broadcast + their private DMs). We route each one to the right thread.
+      chatChan=sb.channel('chat-all-'+myTeam).on('postgres_changes',{event:'INSERT',schema:'public',table:'team_messages'},p=>{
+        const m=p.new; if(!m) return;
+        const tk=threadKeyOf(m);
+        const mine=(m.role==='team' && m.team===myTeam);   // a message I sent
+        const open=!$('#chatModal').classList.contains('hidden');
+        const onThisThread = open && tk===curThreadKey();
+        if(onThisThread){ chatMsgs.push(m); renderChat(); }
+        if(!mine){
+          playBeep();
+          if(!onThisThread){ chatUnreadBy[tk]=(chatUnreadBy[tk]||0)+1; recomputeChatBadge(); notify('💬 '+(m.sender||'Message'), m.body); }
+        }
       }).subscribe();
       if(annChan) sb.removeChannel(annChan);
       annChan=sb.channel('ann-all').on('postgres_changes',{event:'INSERT',schema:'public',table:'announcements'},p=>{
@@ -1117,6 +1170,7 @@
     $('#mChat').onclick=()=>{$('#menuPop').classList.add('hidden');openChat()};
     $('#mAnnounce').onclick=()=>{$('#menuPop').classList.add('hidden');openAnn()};
     $('#chatSend').onclick=sendChat;
+    $('#chatTo')?.addEventListener('change',e=>selectChatThread(e.target.value));
     $('#chatInput').addEventListener('keydown',e=>{if(e.key==='Enter')sendChat();});
     $('#chatClose').onclick=closeChat; $('#chatBack').onclick=closeChat;
     $('#annClose').onclick=closeAnn; $('#annBack').onclick=closeAnn;
