@@ -529,8 +529,9 @@
       const el=$('#chatList'); if(!el)return;
       el.innerHTML=chatMsgs.length?chatMsgs.map(m=>{
         const mine=(m.role==='team' && m.team===myTeam);
-        const who=mine?'You':(m.sender||(m.role==='dispatch'?'Dispatch':(m.team||'')));
-        return `<div style="align-self:${mine?'flex-end':'flex-start'};max-width:80%"><div style="background:${mine?'#18a57b':'#eef1ed'};color:${mine?'#fff':'#26352f'};padding:8px 11px;border-radius:12px;font-size:13px">${(m.body||'').replace(/</g,'&lt;')}</div><div style="font-size:9px;color:#9aa6a2;margin-top:2px;text-align:${mine?'right':'left'}">${who} · ${fmtChatTime(m.created_at)}</div></div>`;
+        const who=mine?'You':((m.sender||(m.role==='dispatch'?'Dispatch':(m.team||''))));
+        const roleTag=(!mine && m.role==='dispatch' && m.sender_role)?(' · '+String(m.sender_role).replace(/</g,'&lt;')):'';
+        return `<div style="align-self:${mine?'flex-end':'flex-start'};max-width:80%"><div style="background:${mine?'#18a57b':'#eef1ed'};color:${mine?'#fff':'#26352f'};padding:8px 11px;border-radius:12px;font-size:13px">${(m.body||'').replace(/</g,'&lt;')}</div><div style="font-size:9px;color:#9aa6a2;margin-top:2px;text-align:${mine?'right':'left'}">${String(who).replace(/</g,'&lt;')}${roleTag} · ${fmtChatTime(m.created_at)}</div></div>`;
       }).join(''):'<div style="text-align:center;color:#9aa6a2;font-size:12px;padding:20px">No messages yet. Say hello 👋</div>';
       el.scrollTop=el.scrollHeight;
     }
