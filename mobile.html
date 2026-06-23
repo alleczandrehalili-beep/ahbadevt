@@ -364,6 +364,14 @@
     <div style="display:flex;gap:8px;margin-top:6px"><button class="btn-ghost" id="negCancel" style="flex:1">Cancel</button><button class="btn-primary" id="negSave" style="flex:1;background:var(--coral)">Save as Negative</button></div>
   </div>
 
+  <!-- JOB ORDER — full info -->
+  <div class="mexp-back hidden" id="mInfoBack"></div>
+  <div class="mexp hidden" id="mInfoModal" style="max-height:85vh;overflow:auto">
+    <h3 id="mInfoTitle">Job order</h3>
+    <div id="mInfoBody" class="job-meta" style="display:block"></div>
+    <button class="btn-ghost" id="mInfoClose" style="margin-top:10px;width:100%">Close</button>
+  </div>
+
   <div class="mexp-back hidden" id="mexpBack"></div>
   <div class="mexp hidden" id="mexpModal">
     <h3>Add expense</h3>
@@ -788,9 +796,10 @@
           const rejReason = (j.status==='rejected'&&j.special_note) ? `<div class="row" style="color:#c2503a">${svg('note')}<span>${esc(j.special_note)}</span></div>` : '';
           const rejBtn = (j.status==='rejected') ? `<button class="act" data-resub="${j.id}" style="width:100%;margin-top:8px;background:#e9a93d;color:#3a2a00">${svg('note')} Edit &amp; resubmit</button>` : '';
           const meta=[j.plan&&('Plan: '+esc(j.plan)), j.ref_no&&('Ref: '+esc(j.ref_no)), esc(j.area)].filter(Boolean).join(' · ');
-          return `<div class="submitted"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><h4>${esc(j.subscriber)||'—'}</h4><span class="badge b-${j.status}">${saStatusLabel(j.status)}</span></div><p>${j.id}${meta?' · '+meta:''}</p><div class="job-meta">${assigned}${neg}${rejReason}</div>${rejBtn}</div>`;
+          return `<div class="submitted"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><h4>${esc(j.subscriber)||'—'}</h4><span class="badge b-${j.status}">${saStatusLabel(j.status)}</span></div><p>${j.id}${meta?' · '+meta:''}</p><div class="job-meta">${assigned}${neg}${rejReason}</div><button class="act ghost" data-info="${j.id}" style="width:100%;margin-top:8px">ℹ︎ View full info</button>${rejBtn}</div>`;
         }).join('');
         el.querySelectorAll('[data-resub]').forEach(b=>b.onclick=()=>saEditResubmit(b.dataset.resub));
+        el.querySelectorAll('[data-info]').forEach(b=>b.onclick=()=>showJobInfo(b.dataset.info));
       }catch(e){ el.innerHTML=`<div class="empty">Could not load submissions.</div>`; }
     }
     // Edit a REJECTED order and resubmit it for validation (loads info back into the form)
@@ -1087,6 +1096,34 @@
       closeComplete(); toast('Job completed'); setSync('live','Synced'); render(); logTrack('status:completed', job.area||job.city);
     }
     const sameManilaDay = ts => ts && new Date(ts).toLocaleDateString('en-CA',{timeZone:TZ})===manilaDate();
+    // Clickable JO → full info (sales + installer)
+    async function showJobInfo(id){
+      const body=$('#mInfoBody'); if(!body) return;
+      $('#mInfoBack').classList.remove('hidden'); $('#mInfoModal').classList.remove('hidden');
+      body.innerHTML='<div class="empty">Loading…</div>';
+      try{
+        const {data:j}=await sb.from('jobs').select('*').eq('id',id).single();
+        if(!j){ body.innerHTML='<div class="empty">Not found.</div>'; return; }
+        $('#mInfoTitle').textContent=(j.id||'')+' · '+(j.subscriber||'');
+        const esc=s=>(s==null?'':String(s)).replace(/</g,'&lt;');
+        const row=(label,val)=>(val==null||val==='')?'':`<div class="row" style="justify-content:space-between;gap:12px"><span style="color:#9aa6a2">${label}</span><span style="text-align:right;font-weight:600">${esc(val)}</span></div>`;
+        const sec=t=>`<div class="form-sec" style="margin-top:8px">${t}</div>`;
+        const money=v=>(v!=null&&v!=='')?('₱'+Number(v).toLocaleString()):'';
+        body.innerHTML=[
+          sec('Status'), row('Status',saStatusLabel(j.status)), row('Team',j.team), row('Priority',j.priority),
+          sec('Subscriber'), row('Name',j.subscriber), row('Primary no.',j.primary_no), row('Other no.',j.other_contact_no),
+          sec('Address'), row('Address',j.address), row('Barangay',j.brgy), row('City',j.city||j.area),
+          sec('Service'), row('Unit type',j.dwelling_type), row('Plan',j.plan), row('Add-on',j.add_on), row('Reference no.',j.ref_no),
+          row('1P/2P',j.play_type), row('Installation fee',j.install_fee_type), row('Amount to collect',money(j.amount_to_collect)),
+          row('JO Number',j.job_order_no), row('IBAS',j.ibass_acct_no), row('Source',j.source_of_sales), row('Referral',j.referral_name),
+          row('Special note',j.special_note),
+          (j.dispatched_remarks?sec('Dispatcher')+row('Remarks',j.dispatched_remarks):''),
+          (j.negative_remark?sec('Negative')+row('Reason',j.negative_remark):''),
+          (j.payment_mode||j.payment_amount?sec('Payment')+row('Mode',j.payment_mode)+row('Amount',money(j.payment_amount))+row('AR No.',j.ar_no):'')
+        ].join('');
+      }catch(e){ body.innerHTML='<div class="empty">Could not load.</div>'; }
+    }
+    function closeMInfo(){ $('#mInfoBack').classList.add('hidden'); $('#mInfoModal').classList.add('hidden'); }
     function render(){
       const order={'en-route':0,'on-site':1,'in-progress':2,assigned:0,pending:1};
       const todo=jobs.filter(j=>['assigned','pending'].includes(j.status));
@@ -1143,7 +1180,7 @@
         const expBtn=activeJob?`<button class="addphoto" style="margin-top:10px;color:#a4690f;border-color:#f0d9a8;background:#fff8eb" data-exp="${j.id}">+ Add expense for this job</button>`:'';
         const negBtn=activeJob?`<button class="addphoto" style="margin-top:8px;color:#c2503a;border-color:#f0c4b9;background:#fff3f0" data-neg="${j.id}">⚠ Mark as Negative</button>`:'';
         const cancelBtn=activeJob?`<button class="addphoto" style="margin-top:8px;color:#7a7f7d;border-color:#d8dcd9;background:#f5f6f5" data-cancel="${j.id}">✖ Cancel job</button>`:'';
-        return `<div class="job"><div class="job-head"><div><span class="job-id">${j.id}</span><h3>${j.subscriber||'—'}${prio}</h3><p class="plan">${j.service_type||''} · ${j.plan||''}</p></div><span class="badge b-${j.status}">${statusLabel(j.status)}</span></div>
+        return `<div class="job"><div class="job-head"><div><span class="job-id" data-info="${j.id}" style="cursor:pointer;text-decoration:underline">${j.id} ℹ︎</span><h3>${j.subscriber||'—'}${prio}</h3><p class="plan">${j.service_type||''} · ${j.plan||''}</p></div><span class="badge b-${j.status}">${statusLabel(j.status)}</span></div>
         <div class="job-meta"><div class="row">${svg('pin')}<span>${addr||'—'}</span></div><div class="row">${svg('clock')}<span>${(j.schedule||'Today').replace('Today, ','Today · ')}</span></div>${contact}${acct}${svc}${src}${drem}${note}${negRemark}</div>
         ${extra}${actions}${expBtn}${negBtn}${cancelBtn}</div>`;
       }).join('');
@@ -1154,6 +1191,7 @@
       el.querySelectorAll('[data-exp]').forEach(b=>b.onclick=()=>openMobileExpense(b.dataset.exp));
       el.querySelectorAll('[data-neg]').forEach(b=>b.onclick=()=>openNegative(b.dataset.neg));
       el.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>cancelJob(b.dataset.cancel));
+      el.querySelectorAll('[data-info]').forEach(b=>b.onclick=()=>showJobInfo(b.dataset.info));
     }
 
     function startApp(){
@@ -1308,6 +1346,7 @@
     $('#neg_remark')?.addEventListener('change',()=>$('#negOtherWrap').classList.toggle('hidden',$('#neg_remark').value!=='OTHERS'));
     $('#negCancel')?.addEventListener('click',closeNegative);
     $('#negSave')?.addEventListener('click',saveNegative);
+    $('#mInfoClose')?.addEventListener('click',closeMInfo); $('#mInfoBack')?.addEventListener('click',closeMInfo);
     $('#negBack')?.addEventListener('click',closeNegative);
     // sales agent bindings
     document.querySelectorAll('[data-doc]').forEach(inp=>inp.onchange=()=>{const cat=inp.dataset.doc;[...inp.files].forEach(f=>saDocs[cat].push(f));inp.value='';saRenderDocs();});
