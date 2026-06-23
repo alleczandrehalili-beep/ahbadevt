@@ -147,30 +147,47 @@
       <button id="mLogout" class="danger">Time out &amp; sign out</button>
     </div>
 
-    <!-- SECURITY (gate-out validation) -->
+    <!-- SECURITY (vehicle gate validation) -->
     <div class="hidden" id="secView">
-      <div class="syncbar live" id="secSync"><span class="sync-dot"></span><span>Security · Gate-out validation</span><span class="stamp" id="secStamp"></span></div>
-      <div style="padding:4px 2px 10px;font-size:12px;color:#586965">I-validate kung nakalabas na ang team, tama ang crew, at i-record ang sasakyan + odometer.</div>
+      <div class="syncbar live" id="secSync"><span class="sync-dot"></span><span>Security · Vehicle gate (Outgoing / Incoming)</span><span class="stamp" id="secStamp"></span></div>
+      <div style="padding:4px 2px 10px;font-size:12px;color:#586965">I-record ang Outgoing SVC (paglabas: crew, plate, odo, fuel) at Incoming SVC (pagbalik: odo, oras, natitirang fuel, remarks + larawan).</div>
       <div class="jobs" id="secList"></div>
     </div>
 
-    <!-- SECURITY gate-out modal -->
+    <!-- SECURITY gate modal -->
     <div class="mexp-back hidden" id="secBack"></div>
     <div class="mexp hidden" id="secModal" style="max-height:88vh;overflow:auto">
-      <h3>Gate-out validation</h3>
+      <h3 id="secTitle">Gate validation</h3>
       <p class="mexp-sub" id="secTeam"></p>
       <div style="background:#f4f6f3;border:1px solid var(--line);border-radius:10px;padding:10px;margin:6px 0;font-size:12px">
         <div><b>Account:</b> <span id="secAccount">—</span></div>
         <div style="margin-top:4px"><b>Declared crew:</b></div>
         <div id="secCrew" style="color:#33433f">—</div>
       </div>
-      <div class="field"><label>Tama ba ang crew na magkasama?</label>
-        <select id="sec_crewok"><option value="yes">Oo — tama ang crew</option><option value="no">Hindi — may pagkakaiba</option></select></div>
-      <div class="field"><label>Remarks (kung may pagkakaiba)</label><input id="sec_remarks" placeholder="hal. walang Tech 2 / iba ang driver"></div>
+      <div id="secOutOnly">
+        <div class="field"><label>Tama ba ang crew na magkasama?</label>
+          <select id="sec_crewok"><option value="yes">Oo — tama ang crew</option><option value="no">Hindi — may pagkakaiba</option></select></div>
+        <div class="field"><label>Crew remarks (kung may pagkakaiba)</label><input id="sec_remarks" placeholder="hal. walang Tech 2 / iba ang driver"></div>
+      </div>
       <div class="field"><label>Plate No. ng sasakyan *</label><input id="sec_plate" autocapitalize="characters" placeholder="ABC 1234"></div>
-      <div class="field"><label>Odometer bago umalis * (km)</label><input id="sec_odo" type="number" inputmode="numeric" placeholder="0"></div>
+      <div class="field"><label id="secOdoLabel">Odometer bago umalis * (km)</label><input id="sec_odo" type="number" inputmode="numeric" placeholder="0"></div>
+      <div class="field"><label>Fuel tank *</label>
+        <select id="sec_fuel">
+          <option value="">— Piliin ang fuel —</option>
+          <option>1/1 - Full tank</option>
+          <option>3/4</option>
+          <option>1/2</option>
+          <option>1/4</option>
+          <option>1/8 - Almost Empty</option>
+        </select></div>
+      <div id="secInOnly" class="hidden">
+        <div class="field"><label>Vehicle remarks (kung may sira/ire-report — kung wala, iwan blangko = "none")</label><textarea id="sec_veh_remarks" rows="2" placeholder="hal. gasgas sa bumper / kupas ang kaliwang gulong"></textarea></div>
+        <div class="field"><label>Larawan ng sira (optional)</label>
+          <input type="file" id="sec_photo" accept="image/*" capture="environment">
+          <div id="secPhotoName" style="font-size:10px;color:#9aa6a2;margin-top:3px"></div></div>
+      </div>
       <div class="err" id="secErr"></div>
-      <div style="display:flex;gap:8px;margin-top:6px"><button class="btn-ghost" id="secCancel" style="flex:1">Cancel</button><button class="btn-primary" id="secSave" style="flex:1">Record gate-out</button></div>
+      <div style="display:flex;gap:8px;margin-top:6px"><button class="btn-ghost" id="secCancel" style="flex:1">Cancel</button><button class="btn-primary" id="secSave" style="flex:1">Record</button></div>
     </div>
 
     <!-- Floating chat button (homepage) -->
@@ -202,7 +219,7 @@
         <div class="err" id="loginErr"></div>
         <form id="loginForm">
           <div class="field"><label for="uName">Username</label><input id="uName" autocapitalize="characters" autocomplete="username" required></div>
-          <div class="field"><label for="uPass">Password</label><input id="uPass" type="password" autocomplete="current-password" required></div>
+          <div class="field"><label for="uPass">Password</label><div style="position:relative"><input id="uPass" type="password" autocomplete="current-password" required style="padding-right:58px;width:100%"><button type="button" class="pw-eye" data-eye="uPass" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:#0e7a55;font-size:11px;font-weight:800;cursor:pointer;padding:6px">Show</button></div></div>
           <button class="btn-primary" id="loginBtn" type="submit">Sign in</button>
         </form>
       </div>
@@ -216,8 +233,8 @@
         <div class="hint" id="pwForceHint">This is your first sign-in — please replace the default password.</div>
         <div class="err" id="pwErr"></div>
         <form id="pwForm">
-          <div class="field"><label for="np1">New password</label><input id="np1" type="password" autocomplete="new-password" required></div>
-          <div class="field"><label for="np2">Confirm new password</label><input id="np2" type="password" autocomplete="new-password" required></div>
+          <div class="field"><label for="np1">New password</label><div style="position:relative"><input id="np1" type="password" autocomplete="new-password" required style="padding-right:58px;width:100%"><button type="button" class="pw-eye" data-eye="np1" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:#0e7a55;font-size:11px;font-weight:800;cursor:pointer;padding:6px">Show</button></div></div>
+          <div class="field"><label for="np2">Confirm new password</label><div style="position:relative"><input id="np2" type="password" autocomplete="new-password" required style="padding-right:58px;width:100%"><button type="button" class="pw-eye" data-eye="np2" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:#0e7a55;font-size:11px;font-weight:800;cursor:pointer;padding:6px">Show</button></div></div>
           <button class="btn-primary" id="pwBtn" type="submit">Save password</button>
           <button class="btn-ghost hidden" id="pwCancel" type="button">Cancel</button>
         </form>
@@ -631,9 +648,11 @@
       ACCOUNTS.forEach(a=>{ const o=document.createElement('option'); o.value=a;
         if(taken[a]){ o.textContent=a+' — in use'; o.disabled=true; } else { o.textContent=a; }
         sel.appendChild(o); });
-      // prefill from last saved shift for this team (today only)
+      // No auto-select of the account — the user must pick it manually each login.
+      // (Crew names may prefill for convenience, but the account is always left blank.)
+      sel.value='';
       try{ const s=JSON.parse(localStorage.getItem(shiftKey())||'null');
-        if(s && s.date===manilaDate() && !taken[s.account]){ sel.value=s.account||''; $('#sf_driver').value=s.driver||''; $('#sf_tech1').value=s.tech1||''; $('#sf_tech2').value=s.tech2||''; }
+        if(s && s.date===manilaDate()){ $('#sf_driver').value=s.driver||''; $('#sf_tech1').value=s.tech1||''; $('#sf_tech2').value=s.tech2||''; }
       }catch(e){}
       clearErr('#shiftErr'); show('shiftView');
     }
@@ -650,46 +669,71 @@
       const date=manilaDate();
       let att=[], gates=[];
       try{ const {data}=await sb.from('attendance').select('username,work_account,crew_driver,crew_tech1,crew_tech2,time_in,time_out').eq('work_date',date).order('time_in',{ascending:false}); att=data||[]; }catch(e){}
-      try{ const {data}=await sb.from('gate_logs').select('team,plate_no,odometer,checked_at').eq('work_date',date); gates=data||[]; }catch(e){}
-      const gmap={}; gates.forEach(g=>{ if(!gmap[g.team]) gmap[g.team]=g; });
+      try{ const {data}=await sb.from('gate_logs').select('team,gate_type,plate_no,odometer,fuel_level,checked_at').eq('work_date',date).order('checked_at',{ascending:false}); gates=data||[]; }catch(e){}
+      const outMap={}, inMap={};
+      gates.forEach(g=>{ if((g.gate_type||'outgoing')==='incoming'){ if(!inMap[g.team]) inMap[g.team]=g; } else { if(!outMap[g.team]) outMap[g.team]=g; } });
       const seen={}, rows=[];
       att.forEach(a=>{ if(/^AHBA_SLI/i.test(a.username) && !seen[a.username]){ seen[a.username]=1; rows.push(a); } });
       $('#secStamp').textContent=rows.length+' team(s) in';
       if(!rows.length){ el.innerHTML=`<div class="empty">${svg('inbox')}Walang naka-time in na team ngayon.<br>Lalabas dito ang mga team na nag-Start shift.</div>`; return; }
       el.innerHTML=rows.map(a=>{
         const crew=[a.crew_driver,a.crew_tech1,a.crew_tech2].filter(Boolean).join(', ')||'— walang declared crew —';
-        const g=gmap[a.username];
-        const status=g?`<span class="badge b-completed">✓ ${manilaTime(g.checked_at)}</span>`:`<span class="badge b-pending">Pending</span>`;
-        const info=g?`<div class="job-meta"><div class="row">${svg('truck')}<span>Plate: ${g.plate_no||'—'} · Odo: ${g.odometer!=null?g.odometer:'—'} km</span></div></div>`:'';
-        const btn=g?'':`<button class="act done" data-sec="${a.username}" style="width:100%;margin-top:8px">${svg('check')} Validate gate-out</button>`;
-        return `<div class="job"><div class="job-head"><div><span class="job-id">${a.username}</span><h3>${a.work_account||'—'}</h3><p class="plan">${crew}</p></div>${status}</div>${info}${btn}</div>`;
+        const go=outMap[a.username], gi=inMap[a.username];
+        const outBadge=go?`<span class="badge b-completed">✓ Out ${manilaTime(go.checked_at)}</span>`:`<span class="badge b-pending">Out pending</span>`;
+        const inBadge=gi?`<span class="badge b-completed">✓ In ${manilaTime(gi.checked_at)}</span>`:(go?`<span class="badge b-pending">In pending</span>`:'');
+        const info=go?`<div class="job-meta"><div class="row">${svg('truck')}<span>Plate ${go.plate_no||'—'} · Out odo ${go.odometer!=null?go.odometer:'—'} · Fuel ${go.fuel_level||'—'}${gi?` · In odo ${gi.odometer!=null?gi.odometer:'—'} · Fuel ${gi.fuel_level||'—'}`:''}</span></div></div>`:'';
+        const outBtn=go?'':`<button class="act done" data-sec-out="${a.username}" style="flex:1">${svg('check')} Outgoing SVC</button>`;
+        const inBtn=(go&&!gi)?`<button class="act" data-sec-in="${a.username}" style="flex:1;background:#0e6fae;color:#fff">${svg('truck')} Incoming SVC</button>`:'';
+        const btns=(outBtn||inBtn)?`<div style="display:flex;gap:8px;margin-top:8px">${outBtn}${inBtn}</div>`:'';
+        return `<div class="job"><div class="job-head"><div><span class="job-id">${a.username}</span><h3>${a.work_account||'—'}</h3><p class="plan">${crew}</p></div><div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">${outBadge}${inBadge}</div></div>${info}${btns}</div>`;
       }).join('');
-      el.querySelectorAll('[data-sec]').forEach(b=>b.onclick=()=>openSecCheck(b.dataset.sec, rows.find(r=>r.username===b.dataset.sec)));
+      el.querySelectorAll('[data-sec-out]').forEach(b=>b.onclick=()=>openSecCheck(b.dataset.secOut, rows.find(r=>r.username===b.dataset.secOut), 'outgoing', null));
+      el.querySelectorAll('[data-sec-in]').forEach(b=>b.onclick=()=>openSecCheck(b.dataset.secIn, rows.find(r=>r.username===b.dataset.secIn), 'incoming', outMap[b.dataset.secIn]));
     }
-    function openSecCheck(team,a){
-      const m=$('#secModal'); m.dataset.team=team; m.dataset.driver=a.crew_driver||''; m.dataset.t1=a.crew_tech1||''; m.dataset.t2=a.crew_tech2||''; m.dataset.acct=a.work_account||'';
+    let secPhotoFile=null;
+    function openSecCheck(team,a,mode,outRec){
+      const m=$('#secModal'); const isIn=(mode==='incoming');
+      m.dataset.team=team; m.dataset.mode=mode||'outgoing'; m.dataset.driver=a.crew_driver||''; m.dataset.t1=a.crew_tech1||''; m.dataset.t2=a.crew_tech2||''; m.dataset.acct=a.work_account||'';
+      $('#secTitle').textContent= isIn?'Incoming SVC':'Outgoing SVC';
       $('#secTeam').textContent='Team '+team;
       $('#secAccount').textContent=a.work_account||'—';
       $('#secCrew').textContent=[a.crew_driver&&('Driver: '+a.crew_driver),a.crew_tech1&&('Tech 1: '+a.crew_tech1),a.crew_tech2&&('Tech 2: '+a.crew_tech2)].filter(Boolean).join(' · ')||'walang declared crew';
-      $('#sec_crewok').value='yes'; $('#sec_remarks').value=''; $('#sec_plate').value=''; $('#sec_odo').value=''; clearErr('#secErr');
+      $('#secOutOnly').classList.toggle('hidden', isIn);
+      $('#secInOnly').classList.toggle('hidden', !isIn);
+      $('#secOdoLabel').textContent= isIn?'Odometer pagbalik * (km)':'Odometer bago umalis * (km)';
+      $('#sec_crewok').value='yes'; $('#sec_remarks').value='';
+      $('#sec_plate').value= isIn ? ((outRec&&outRec.plate_no)||'') : '';
+      $('#sec_odo').value=''; $('#sec_fuel').value='';
+      $('#sec_veh_remarks').value=''; if($('#sec_photo'))$('#sec_photo').value=''; secPhotoFile=null; if($('#secPhotoName'))$('#secPhotoName').textContent='';
+      $('#secSave').textContent= isIn?'Record Incoming SVC':'Record Outgoing SVC';
+      clearErr('#secErr');
       $('#secBack').classList.remove('hidden'); m.classList.remove('hidden');
     }
     function closeSec(){ $('#secBack').classList.add('hidden'); $('#secModal').classList.add('hidden'); }
     async function submitGate(){
-      const m=$('#secModal'); const team=m.dataset.team;
-      const plate=$('#sec_plate').value.trim(), odo=$('#sec_odo').value.trim(), crewok=$('#sec_crewok').value==='yes', rem=$('#sec_remarks').value.trim();
+      const m=$('#secModal'); const team=m.dataset.team; const mode=m.dataset.mode||'outgoing'; const isIn=(mode==='incoming');
+      const plate=$('#sec_plate').value.trim(), odo=$('#sec_odo').value.trim(), fuel=$('#sec_fuel').value;
       if(!plate){ showErr('#secErr','Ilagay ang plate no.'); return; }
       if(odo===''||isNaN(Number(odo))){ showErr('#secErr','Ilagay ang odometer (numero).'); return; }
-      if(!crewok && !rem){ showErr('#secErr','Ilagay ang remarks kung may pagkakaiba sa crew.'); return; }
+      if(!fuel){ showErr('#secErr','Piliin ang fuel tank level.'); return; }
+      let crewok=true, rem='';
+      if(!isIn){ crewok=$('#sec_crewok').value==='yes'; rem=$('#sec_remarks').value.trim(); if(!crewok && !rem){ showErr('#secErr','Ilagay ang remarks kung may pagkakaiba sa crew.'); return; } }
+      const vehRem = isIn ? ($('#sec_veh_remarks').value.trim()||'none') : '';
       const btn=$('#secSave'); btn.disabled=true; btn.textContent='Saving…';
       const now=new Date().toISOString();
       try{
-        const {error}=await sb.from('gate_logs').insert({team, account:m.dataset.acct, crew_driver:m.dataset.driver, crew_tech1:m.dataset.t1, crew_tech2:m.dataset.t2, crew_ok:crewok, crew_remarks:rem, plate_no:plate, odometer:Number(odo), security_user:myTeam, checked_at:now});
-        if(error) throw error;
-        try{ await sb.from('attendance').update({deployed_verified:true, verified_by:myTeam, verified_at:now}).eq('username',team).eq('work_date',manilaDate()); }catch(e){}
-        toast('Gate-out recorded for '+team); closeSec(); loadSecTeams();
+        let photoPath=null;
+        if(isIn && secPhotoFile){
+          try{ const blob=await compressImage(secPhotoFile,1000,90); photoPath=`gate/${team}_${Date.now()}.jpg`; const {error:e2}=await sb.storage.from('job-photos').upload(photoPath,blob,{contentType:'image/jpeg',upsert:false}); if(e2) photoPath=null; }catch(e){ photoPath=null; }
+        }
+        const row={ team, account:m.dataset.acct, plate_no:plate, odometer:Number(odo), fuel_level:fuel, gate_type:mode, security_user:myTeam, checked_at:now };
+        if(!isIn){ Object.assign(row,{crew_driver:m.dataset.driver, crew_tech1:m.dataset.t1, crew_tech2:m.dataset.t2, crew_ok:crewok, crew_remarks:rem}); }
+        else { Object.assign(row,{vehicle_remarks:vehRem, photo_path:photoPath}); }
+        const {error}=await sb.from('gate_logs').insert(row); if(error) throw error;
+        if(!isIn){ try{ await sb.from('attendance').update({deployed_verified:true, verified_by:myTeam, verified_at:now}).eq('username',team).eq('work_date',manilaDate()); }catch(e){} }
+        toast((isIn?'Incoming':'Outgoing')+' SVC recorded for '+team); closeSec(); loadSecTeams();
       }catch(e){ showErr('#secErr','Failed: '+e.message); }
-      btn.disabled=false; btn.textContent='Record gate-out';
+      btn.disabled=false; btn.textContent= isIn?'Record Incoming SVC':'Record Outgoing SVC';
     }
     const saStatusLabel = s => ({for_validation:'For validation',pending:'Approved · for dispatch',rejected:'Rejected',assigned:'Assigned','en-route':'In progress','on-site':'In progress','in-progress':'In progress',completed:'Completed',negative:'Negative',cancelled:'Cancelled'}[s]||s);
     function saSwitch(view){
@@ -982,7 +1026,7 @@
       const btn=$('#paySave'); btn.disabled=true; btn.textContent='Saving…';
       const now=new Date().toISOString();
       const hist=appendHist(job.history, `→ Completed (by ${myTeam} / ${shiftAccount}) · ${mode} ₱${amt} · AR ${ar}`);
-      const patch={status:'completed', payment_mode:mode, payment_amount:amt, ar_no:ar, history:hist, updated_at:now,
+      const patch={status:'completed', payment_mode:mode, payment_amount:amt, ar_no:ar, history:hist, updated_at:now, completed_at:now,
         work_account:shiftAccount, crew_driver:shiftDriver, crew_tech1:shiftTech1, crew_tech2:shiftTech2};
       const {error}=await sb.from('jobs').update(patch).eq('id',id);
       btn.disabled=false; btn.textContent='Complete job';
@@ -1095,8 +1139,9 @@
       captureLocation(false);   // grab GPS on entry (prompts for permission first time)
       if(myRole==='sales_agent'){ startSA(); return; }
       if(myRole==='security'){ startSecurity(); return; }
-      // If this team already declared a shift today, skip the setup on refresh/resume.
-      if(await resumeShift()){
+      // On a FRESH login, always make the user pick the account manually (no auto-select).
+      // On a refresh/resume of the SAME open session, restore the locked account.
+      if(!fresh && await resumeShift()){
         try{ if(attendanceId) await sb.from('attendance').update({work_account:shiftAccount,crew_driver:shiftDriver,crew_tech1:shiftTech1,crew_tech2:shiftTech2}).eq('id',attendanceId); }catch(e){}
         startApp(); return;
       }
@@ -1111,7 +1156,7 @@
       }catch(e){}
       try{
         const {data}=await sb.from('attendance').select('work_account,crew_driver,crew_tech1,crew_tech2')
-          .eq('username',myTeam).eq('work_date',manilaDate()).not('work_account','is',null)
+          .eq('username',myTeam).eq('work_date',manilaDate()).not('work_account','is',null).is('time_out',null)
           .order('time_in',{ascending:false}).limit(1);
         const a=data&&data[0];
         if(a && a.work_account && a.crew_driver && a.crew_tech1){
@@ -1185,6 +1230,7 @@
     document.addEventListener('click',()=>$('#menuPop').classList.add('hidden'));
     $('#menuPop').onclick=e=>e.stopPropagation();
     $('#secSave')?.addEventListener('click',submitGate);
+    $('#sec_photo')?.addEventListener('change',e=>{ secPhotoFile=e.target.files[0]||null; const n=$('#secPhotoName'); if(n){ n.innerHTML=secPhotoFile?('📎 '+secPhotoFile.name+' <span id="secPhotoClear" style="color:#c2503a;text-decoration:underline;cursor:pointer">✕ alisin</span>'):''; const c=$('#secPhotoClear'); if(c) c.onclick=()=>{ secPhotoFile=null; if($('#sec_photo'))$('#sec_photo').value=''; n.innerHTML=''; }; } });
     $('#secCancel')?.addEventListener('click',closeSec);
     $('#secBack')?.addEventListener('click',closeSec);
     $('#chatFab').onclick=openChat;
@@ -1229,11 +1275,16 @@
       if(realtimeChan)sb.removeChannel(realtimeChan);
       if(chatChan)sb.removeChannel(chatChan); if(annChan)sb.removeChannel(annChan);
       clearInterval(startApp._t); clearInterval(startApp._loc); clearInterval(startApp._track);
+      try{ localStorage.removeItem(shiftKey()); }catch(e){}   // clear saved shift → next login picks account manually
+      shiftAccount=''; shiftDriver=''; shiftTech1=''; shiftTech2='';
       await sb.auth.signOut();
       myTeam=''; jobs=[]; $('#uName').value=''; $('#uPass').value='';
       toast('Timed out — signed off');
       show('loginView');
     };
+
+    // Show/Hide password toggles (all login + change-password fields)
+    document.querySelectorAll('[data-eye]').forEach(b=>b.onclick=()=>{ const inp=$('#'+b.dataset.eye); if(!inp)return; const reveal=inp.type==='password'; inp.type=reveal?'text':'password'; b.textContent=reveal?'Hide':'Show'; });
 
     // resume existing session on load (do NOT create a new time-in)
     (async function init(){
