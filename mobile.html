@@ -304,6 +304,7 @@
           <div class="field"><label>Add-on (optional)</label><select id="sa_addon"></select></div>
           <div class="field"><label>Reference no.</label><input id="sa_ref_no"></div>
           <div class="field"><label>1P / 2P</label><select id="sa_play_type"><option>1-PLAY</option><option>2-PLAY</option></select></div>
+          <div class="field hidden" id="sa_addon_count_wrap"><label>No. of add-ons (2P) *</label><select id="sa_addon_count"><option value="">— Select —</option><option>1</option><option>2</option><option>3</option></select></div>
           <div class="field"><label>Installation fee</label><select id="sa_install_fee"><option>One Time Payment</option><option>Installment</option></select></div>
           <div class="field"><label>Amount to collect (₱)</label><input id="sa_amount" type="number" inputmode="numeric"></div>
           <div class="field"><label>Source of sales</label><select id="sa_source_of_sales"><option>Referral</option><option>Organic</option></select></div>
@@ -667,7 +668,7 @@
     }
 
     // ---------- sales agent ----------
-    function startSA(){ $('#teamName').textContent=headerName(); show('saView'); saSwitch('new'); saRenderDocs(); populatePlans(); startComms(); primeSalesStatus(); startSalesWatch(); }
+    function startSA(){ $('#teamName').textContent=headerName(); show('saView'); saSwitch('new'); saRenderDocs(); populatePlans(); toggleAddonCount(); startComms(); primeSalesStatus(); startSalesWatch(); }
     // Load current statuses once at startup so we can detect future changes (without sounding on first load)
     async function primeSalesStatus(){ try{ const {data}=await sb.from('jobs').select('id,status').eq('created_by',myTeam); (data||[]).forEach(j=>{ saStatus[j.id]=j.status; }); }catch(e){} }
 
@@ -762,6 +763,7 @@
       const ad=$('#sa_addon');
       if(ad && !ad.options.length){ ad.innerHTML='<option value="">— None —</option>'+ADDONS.map(a=>`<option>${a}</option>`).join(''); }
     }
+    function toggleAddonCount(){ const on=($('#sa_play_type')&&$('#sa_play_type').value)==='2-PLAY'; const w=$('#sa_addon_count_wrap'); if(w) w.classList.toggle('hidden',!on); if(!on && $('#sa_addon_count')) $('#sa_addon_count').value=''; }
     function saRenderDocs(){
       ['id','billing','premise'].forEach(cat=>{
         const arr=saDocs[cat];
@@ -778,6 +780,7 @@
       if($('#sa_city')) $('#sa_city').value='QUEZON CITY';
       if($('#sa_dwelling')) $('#sa_dwelling').value='SDU'; if($('#sa_install_fee')) $('#sa_install_fee').value='One Time Payment';
       populatePlans(); if($('#sa_addon')) $('#sa_addon').value='';
+      if($('#sa_play_type')) $('#sa_play_type').value='1-PLAY'; toggleAddonCount();
       saDocs={id:[],billing:[],premise:[]}; saRenderDocs();
     }
     async function saRenderMine(){
@@ -819,6 +822,7 @@
         if($('#sa_addon')) $('#sa_addon').value=j.add_on||'';
         set('ref_no',j.ref_no);
         if($('#sa_play_type')) $('#sa_play_type').value=j.play_type||'1-PLAY';
+        toggleAddonCount(); if($('#sa_addon_count')) $('#sa_addon_count').value=(j.addon_count!=null?String(j.addon_count):'');
         if($('#sa_install_fee')) $('#sa_install_fee').value=j.install_fee_type||'One Time Payment';
         set('amount', j.amount_to_collect!=null?j.amount_to_collect:'');
         if($('#sa_source_of_sales')) $('#sa_source_of_sales').value=j.source_of_sales||'Referral';
@@ -858,6 +862,7 @@
       if(!/^\d{11}$/.test(pno)){ showErr('#saErr','Primary no. must be exactly 11 digits (numbers only).'); return; }
       if(ono && !/^\d{11}$/.test(ono)){ showErr('#saErr','Other contact no. must be 11 digits (numbers only).'); return; }
       const editing=!!saEditingId;
+      if(v('sa_play_type')==='2-PLAY' && !v('sa_addon_count')){ showErr('#saErr','For 2-PLAY, select how many add-ons are included.'); return; }
       if(!editing && !saDocs.id.length){ showErr('#saErr','A Valid ID photo is required.'); return; }
       const btn=$('#saSubmit'); btn.disabled=true; btn.textContent=editing?'Resubmitting…':'Submitting…';
       const full=[fn,v('sa_middle_name'),ln].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
@@ -866,7 +871,7 @@
         first_name:fn,middle_name:v('sa_middle_name'),last_name:ln,primary_no:pno,other_contact_no:v('sa_other_contact_no'),
         house_no:v('sa_house_no'),street_name:v('sa_street_name'),village:v('sa_village'),brgy:brgy,city:city,
         play_type:v('sa_play_type'),source_of_sales:v('sa_source_of_sales'),referral_name:v('sa_referral_name'),
-        dwelling_type:v('sa_dwelling'),install_fee_type:v('sa_install_fee'),amount_to_collect:(v('sa_amount')!==''?Number(v('sa_amount')):null),add_on:v('sa_addon'),
+        dwelling_type:v('sa_dwelling'),install_fee_type:v('sa_install_fee'),amount_to_collect:(v('sa_amount')!==''?Number(v('sa_amount')):null),add_on:v('sa_addon'),addon_count:(v('sa_play_type')==='2-PLAY'&&v('sa_addon_count')!==''?Number(v('sa_addon_count')):null),
         special_note:v('sa_special_note'),updated_at:new Date().toISOString()};
       try{
         let jobId;
@@ -1114,8 +1119,8 @@
           sec('Subscriber'), row('Name',j.subscriber), row('Primary no.',j.primary_no), row('Other no.',j.other_contact_no),
           sec('Address'), row('Address',j.address), row('Barangay',j.brgy), row('City',j.city||j.area),
           sec('Service'), row('Unit type',j.dwelling_type), row('Plan',j.plan), row('Add-on',j.add_on), row('Reference no.',j.ref_no),
-          row('1P/2P',j.play_type), row('Installation fee',j.install_fee_type), row('Amount to collect',money(j.amount_to_collect)),
-          row('JO Number',j.job_order_no), row('IBAS',j.ibass_acct_no), row('Source',j.source_of_sales), row('Referral',j.referral_name),
+          row('1P/2P',j.play_type), row('Add-ons (2P)',j.addon_count), row('Installation fee',j.install_fee_type), row('Amount to collect',money(j.amount_to_collect)),
+          row('JO Number',j.job_order_no), row('IBAS',j.ibass_acct_no), row('VAS no.',j.vas_no), row('Source',j.source_of_sales), row('Referral',j.referral_name),
           row('Special note',j.special_note),
           (j.dispatched_remarks?sec('Dispatcher')+row('Remarks',j.dispatched_remarks):''),
           (j.negative_remark?sec('Negative')+row('Reason',j.negative_remark):''),
@@ -1354,6 +1359,7 @@
     $('#saTabMine')?.addEventListener('click',()=>saSwitch('mine'));
     ['sa_primary_no','sa_other_contact_no'].forEach(id=>{const el=$('#'+id);if(el)el.oninput=()=>{el.value=el.value.replace(/\D/g,'').slice(0,11)};});
     $('#sa_dwelling')?.addEventListener('change',populatePlans);
+    $('#sa_play_type')?.addEventListener('change',toggleAddonCount);
     $('#saSubmit')?.addEventListener('click',saSubmit);
     $('#mexpCancel')?.addEventListener('click',closeMobileExpense);
     $('#mexpSave')?.addEventListener('click',saveMobileExpense);
