@@ -147,6 +147,9 @@
       <button id="mLogout" class="danger">Time out &amp; sign out</button>
     </div>
 
+    <!-- Announcement / recognition banner (only shows when there's something) -->
+    <div id="annBanner" class="hidden" style="margin:8px 0 4px;border-radius:12px;overflow:hidden"></div>
+
     <!-- SECURITY (vehicle gate validation) -->
     <div class="hidden" id="secView">
       <div class="syncbar live" id="secSync"><span class="sync-dot"></span><span>Security · Vehicle gate (Outgoing / Incoming)</span><span class="stamp" id="secStamp"></span></div>
@@ -589,10 +592,35 @@
     function audienceOk(a){ const aud=(a.audience||'all'); return aud==='all' || (myRole==='sales_agent'?aud==='sales':aud==='technician'); }
     function renderAnn(){
       const el=$('#annList'); if(!el)return; const list=annList.filter(audienceOk);
-      el.innerHTML=list.length?list.map(a=>`<div style="border:1px solid #e3e8e2;border-radius:11px;padding:11px"><div style="font-weight:800;font-size:13px;color:#0e2b27">${(a.title||'Announcement').replace(/</g,'&lt;')}</div><div style="font-size:12px;color:#3a4a45;margin-top:3px;white-space:pre-wrap">${(a.body||'').replace(/</g,'&lt;')}</div><div style="font-size:9px;color:#9aa6a2;margin-top:5px">${a.audience||'all'} · ${fmtChatTime(a.created_at)}</div></div>`).join(''):'<div style="text-align:center;color:#9aa6a2;font-size:12px;padding:20px">No announcements.</div>';
+      el.innerHTML=list.length?list.map(a=>`<div style="border:1px solid #e3e8e2;border-radius:11px;padding:11px">${a.photo_path?`<img src="${pubUrl(a.photo_path)}" alt="" style="width:100%;max-height:200px;object-fit:cover;border-radius:9px;margin-bottom:8px">`:''}<div style="font-weight:800;font-size:13px;color:#0e2b27">${a.photo_path?'🏆 ':''}${(a.title||'Announcement').replace(/</g,'&lt;')}</div><div style="font-size:12px;color:#3a4a45;margin-top:3px;white-space:pre-wrap">${(a.body||'').replace(/</g,'&lt;')}</div><div style="font-size:9px;color:#9aa6a2;margin-top:5px">${a.audience||'all'} · ${fmtChatTime(a.created_at)}</div></div>`).join(''):'<div style="text-align:center;color:#9aa6a2;font-size:12px;padding:20px">No announcements.</div>';
     }
     async function loadAnn(){
-      try{ const {data}=await sb.from('announcements').select('*').order('created_at',{ascending:false}).limit(50); annList=data||[]; annSeen=annList.filter(audienceOk).length; renderAnn(); }catch(e){}
+      try{ const {data}=await sb.from('announcements').select('*').order('created_at',{ascending:false}).limit(50); annList=data||[]; annSeen=annList.filter(audienceOk).length; renderAnn(); renderAnnBanner(); }catch(e){}
+    }
+    // Banner: app stays CLEAN when there's nothing. Recognition (with photo) stays the
+    // whole month it was posted; a regular announcement shows until dismissed.
+    function pickBanner(){
+      // Banner = SUPERADMIN recognition only (has a photo). Regular dispatcher
+      // announcements never banner — they go to the Announcements list + notification.
+      const list=annList.filter(audienceOk); if(!list.length) return null;
+      const ym=d=>{const x=new Date(d);return x.getFullYear()+'-'+x.getMonth();}; const now=ym(new Date());
+      const rec=list.find(a=>a.photo_path && ym(a.created_at)===now);   // recognition this month → persistent
+      return rec?{a:rec, recognition:true}:null;
+    }
+    function renderAnnBanner(){
+      const wrap=$('#annBanner'); if(!wrap) return;
+      const inApp = !$('#appView').classList.contains('hidden') || !$('#saView').classList.contains('hidden');
+      const pick = inApp ? pickBanner() : null;
+      if(!pick){ wrap.classList.add('hidden'); wrap.innerHTML=''; return; }
+      const a=pick.a; const esc=s=>(s||'').replace(/</g,'&lt;');
+      const img=a.photo_path?`<img src="${pubUrl(a.photo_path)}" alt="" style="width:54px;height:54px;border-radius:9px;object-fit:cover;flex:none;border:2px solid #fff">`:'';
+      const bg=pick.recognition?'background:linear-gradient(135deg,#f6c453,#e9952f);color:#3a2600':'background:#0e3531;color:#eaf5f1';
+      const tag=pick.recognition?'🏆 Employee Recognition':'📢 Announcement';
+      const x=pick.recognition?'':`<button id="annBannerX" aria-label="Dismiss" style="flex:none;border:0;background:rgba(255,255,255,.18);color:inherit;border-radius:50%;width:24px;height:24px;font-size:12px;cursor:pointer">✕</button>`;
+      wrap.innerHTML=`<div id="annBannerOpen" style="display:flex;gap:11px;align-items:center;padding:11px 13px;${bg};cursor:pointer">${img}<div style="min-width:0;flex:1"><div style="font-size:10px;font-weight:800;letter-spacing:.04em;opacity:.85">${tag}</div><div style="font-weight:800;font-size:14px;margin:1px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(a.title||'Announcement')}</div><div style="font-size:11px;opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc((a.body||'').slice(0,90))}</div></div>${x}</div>`;
+      wrap.classList.remove('hidden');
+      $('#annBannerOpen').onclick=openAnn;
+      const xb=$('#annBannerX'); if(xb) xb.onclick=e=>{ e.stopPropagation(); localStorage.setItem('ahba_ann_x_'+a.id,'1'); renderAnnBanner(); };
     }
     function openAnn(){ annUnread=0; updateAnnBadge(); $('#annBack').classList.remove('hidden'); $('#annModal').classList.remove('hidden'); loadAnn(); }
     function closeAnn(){ $('#annBack').classList.add('hidden'); $('#annModal').classList.add('hidden'); }
@@ -618,7 +646,7 @@
       if(annChan) sb.removeChannel(annChan);
       annChan=sb.channel('ann-all').on('postgres_changes',{event:'INSERT',schema:'public',table:'announcements'},p=>{
         const a=p.new; annList.unshift(a);
-        if(audienceOk(a)){ if($('#annModal').classList.contains('hidden')){ annUnread++; updateAnnBadge(); notify('📢 '+(a.title||'Announcement'), a.body); } renderAnn(); }
+        if(audienceOk(a)){ if($('#annModal').classList.contains('hidden')){ annUnread++; updateAnnBadge(); notify('📢 '+(a.title||'Announcement'), a.body); } renderAnn(); renderAnnBanner(); }
       }).subscribe();
     }
     function showErr(id,msg){const e=$(id);e.textContent=msg;e.classList.add('show')}
@@ -635,7 +663,7 @@
     const statusLabel = s => (FLOW[s]?.label)||s;
 
     // ---------- views ----------
-    function show(view){['loginView','pwView','shiftView','appView','saView','secView'].forEach(v=>$('#'+v).classList.toggle('hidden', v!==view));const inApp=(view==='appView'||view==='saView'||view==='secView');$('#menuBtn').classList.toggle('hidden', !inApp);$('#chatFab')&&$('#chatFab').classList.toggle('hidden', !(view==='appView'||view==='saView'));$('#menuPop').classList.add('hidden')}
+    function show(view){['loginView','pwView','shiftView','appView','saView','secView'].forEach(v=>$('#'+v).classList.toggle('hidden', v!==view));const inApp=(view==='appView'||view==='saView'||view==='secView');$('#menuBtn').classList.toggle('hidden', !inApp);$('#chatFab')&&$('#chatFab').classList.toggle('hidden', !(view==='appView'||view==='saView'));$('#menuPop').classList.add('hidden');try{renderAnnBanner();}catch(e){}}
 
     // ---------- shift setup (account + crew) ----------
     // Work accounts (msp- display names). Update by re-uploading mobile.html if the list changes.
