@@ -13,6 +13,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <style>
     :root{--ink:#102925;--muted:#71817d;--deep:#082c28;--green:#18a57b;--lime:#c9f36a;--coral:#ff765f;--amber:#e9a93d;--blue:#4285f4;--bg:#eef1ec;--line:#e3e8e2;--white:#fff;font-family:'DM Sans',sans-serif;color:var(--ink)}
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -76,6 +78,9 @@
     .job-meta{margin:12px 0;display:flex;flex-direction:column;gap:6px;font-size:12px;color:#566b66}
     .job-meta .row{display:flex;gap:8px;align-items:center}
     .job-meta svg{width:15px;height:15px;color:#90a09b;flex:none}
+    .sec-tab{border:1px solid var(--line);background:#fff;color:#52635f;border-radius:10px;padding:10px;font-weight:700;font-size:13px}
+    .sec-tab.active{background:var(--deep);color:#fff;border-color:var(--deep)}
+    #secMap .leaflet-container{font-family:'DM Sans',sans-serif}
     .job-actions{display:flex;gap:8px;border-top:1px solid #eef1ed;padding-top:12px}
     .act{flex:1;border:1px solid #dfe5df;background:#fff;border-radius:10px;padding:11px;font-weight:700;font-size:12px;color:#127b5d;display:flex;align-items:center;justify-content:center;gap:6px;text-decoration:none}
     .act svg{width:15px;height:15px}
@@ -152,9 +157,21 @@
 
     <!-- SECURITY (vehicle gate validation) -->
     <div class="hidden" id="secView">
-      <div class="syncbar live" id="secSync"><span class="sync-dot"></span><span>Security · Vehicle gate (Outgoing / Incoming)</span><span class="stamp" id="secStamp"></span></div>
-      <div style="padding:4px 2px 10px;font-size:12px;color:#586965">Record the Outgoing SVC (departure: crew, plate, odo, fuel) and Incoming SVC (return: odo, time, remaining fuel, remarks + photo).</div>
-      <div class="jobs" id="secList"></div>
+      <div class="syncbar live" id="secSync"><span class="sync-dot"></span><span>Security · Vehicle gate</span><span class="stamp" id="secStamp"></span></div>
+      <div style="padding:2px 2px 6px;font-size:11px;color:#8a9894;font-weight:700;letter-spacing:.04em">LIVE TEAM MAP · 🟢 online (view-only)</div>
+      <div id="secMap" style="height:220px;border-radius:12px;overflow:hidden;border:1px solid var(--line);margin-bottom:10px;background:#eef2ec"></div>
+      <div class="sec-tabs" style="display:flex;gap:6px;padding:2px 2px 8px">
+        <button class="sec-tab active" data-sectab="out" style="flex:1">Outgoing</button>
+        <button class="sec-tab" data-sectab="in" style="flex:1">Incoming</button>
+      </div>
+      <div id="secOutPane">
+        <div style="padding:0 2px 8px;font-size:12px;color:#586965">Outgoing SVC — record departure: crew, plate, odometer, fuel.</div>
+        <div class="jobs" id="secOutList"></div>
+      </div>
+      <div id="secInPane" class="hidden">
+        <div style="padding:0 2px 8px;font-size:12px;color:#586965">Incoming SVC — record return odometer, fuel, remarks, photo.</div>
+        <div class="jobs" id="secInList"></div>
+      </div>
     </div>
 
     <!-- SECURITY gate modal -->
@@ -713,9 +730,39 @@
     async function primeSalesStatus(){ try{ const {data}=await sb.from('jobs').select('id,status').eq('created_by',myTeam); (data||[]).forEach(j=>{ saStatus[j.id]=j.status; }); }catch(e){} }
 
     // ---------- SECURITY (gate-out validation) ----------
-    function startSecurity(){ $('#teamName').textContent=headerName(); show('secView'); loadSecTeams(); clearInterval(startSecurity._t); startSecurity._t=setInterval(loadSecTeams,20000); }
+    let secTab='out';
+    function startSecurity(){ $('#teamName').textContent=headerName(); show('secView'); secSwitch(secTab); initSecMap(); setTimeout(()=>{ if(secMap) secMap.invalidateSize(); },200); renderSecMapPins(); loadSecTeams(); clearInterval(startSecurity._t); startSecurity._t=setInterval(()=>{ loadSecTeams(); renderSecMapPins(); },20000); }
+    function secSwitch(tab){
+      secTab=tab;
+      $$('.sec-tab').forEach(b=>b.classList.toggle('active', b.dataset.sectab===tab));
+      $('#secOutPane').classList.toggle('hidden', tab!=='out');
+      $('#secInPane').classList.toggle('hidden', tab!=='in');
+    }
+    // ---- Home screen: live team map (VIEW-ONLY, online pins, no history) ----
+    let secMap=null, secMarkers={};
+    function initSecMap(){
+      if(secMap||typeof L==='undefined'||!document.getElementById('secMap'))return;
+      secMap=L.map('secMap',{zoomControl:true,attributionControl:false}).setView([14.5995,120.9842],11);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(secMap);
+    }
+    async function renderSecMapPins(){
+      initSecMap(); if(!secMap) return;
+      const today=manilaDate(); let rows=[];
+      try{ const {data}=await sb.from('technicians').select('username,area,lat,lng,location_at'); rows=data||[]; }catch(e){}
+      const seen={};
+      rows.forEach(t=>{
+        if(t.lat==null||t.lng==null||!t.location_at) return;
+        if(new Date(t.location_at).toLocaleDateString('en-CA',{timeZone:TZ})!==today) return;
+        if((Date.now()-new Date(t.location_at))>=15*60*1000) return;     // online only (≤15 min)
+        seen[t.username]=1;
+        const popup=`<b>${t.username}</b><br>${t.area||''}<br>Updated ${manilaTime(t.location_at)}`;
+        if(secMarkers[t.username]) secMarkers[t.username].setLatLng([t.lat,t.lng]).bindPopup(popup);
+        else secMarkers[t.username]=L.circleMarker([t.lat,t.lng],{radius:9,weight:2,color:'#18a57b',fillColor:'#18a57b',fillOpacity:.9}).addTo(secMap).bindPopup(popup);
+      });
+      Object.keys(secMarkers).forEach(u=>{ if(!seen[u]){ secMap.removeLayer(secMarkers[u]); delete secMarkers[u]; } });
+    }
     async function loadSecTeams(){
-      const el=$('#secList'); if(!el)return;
+      const elOut=$('#secOutList'), elIn=$('#secInList'); if(!elOut||!elIn)return;
       const date=manilaDate();
       let att=[], gates=[];
       try{ const {data}=await sb.from('attendance').select('username,work_account,crew_driver,crew_tech1,crew_tech2,time_in,time_out').eq('work_date',date).order('time_in',{ascending:false}); att=data||[]; }catch(e){}
@@ -725,20 +772,28 @@
       const seen={}, rows=[];
       att.forEach(a=>{ if(/^AHBA_SLI/i.test(a.username) && !seen[a.username]){ seen[a.username]=1; rows.push(a); } });
       $('#secStamp').textContent=rows.length+' team(s) in';
-      if(!rows.length){ el.innerHTML=`<div class="empty">${svg('inbox')}No timed-in team right now.<br>Teams that started their shift will appear here.</div>`; return; }
-      el.innerHTML=rows.map(a=>{
+      const card=(a,which)=>{
         const crew=[a.crew_driver,a.crew_tech1,a.crew_tech2].filter(Boolean).join(', ')||'— no declared crew —';
         const go=outMap[a.username], gi=inMap[a.username];
         const outBadge=go?`<span class="badge b-completed">✓ Out ${manilaTime(go.checked_at)}</span>`:`<span class="badge b-pending">Out pending</span>`;
         const inBadge=gi?`<span class="badge b-completed">✓ In ${manilaTime(gi.checked_at)}</span>`:(go?`<span class="badge b-pending">In pending</span>`:'');
         const info=go?`<div class="job-meta"><div class="row">${svg('truck')}<span>Plate ${go.plate_no||'—'} · Out odo ${go.odometer!=null?go.odometer:'—'} · Fuel ${go.fuel_level||'—'}${gi?` · In odo ${gi.odometer!=null?gi.odometer:'—'} · Fuel ${gi.fuel_level||'—'}`:''}</span></div></div>`:'';
-        const outBtn=go?'':`<button class="act done" data-sec-out="${a.username}" style="flex:1">${svg('check')} Outgoing SVC</button>`;
-        const inBtn=(go&&!gi)?`<button class="act" data-sec-in="${a.username}" style="flex:1;background:#0e6fae;color:#fff">${svg('truck')} Incoming SVC</button>`:'';
-        const btns=(outBtn||inBtn)?`<div style="display:flex;gap:8px;margin-top:8px">${outBtn}${inBtn}</div>`:'';
-        return `<div class="job"><div class="job-head"><div><span class="job-id">${a.username}</span><h3>${a.work_account||'—'}</h3><p class="plan">${crew}</p></div><div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">${outBadge}${inBadge}</div></div>${info}${btns}</div>`;
-      }).join('');
-      el.querySelectorAll('[data-sec-out]').forEach(b=>b.onclick=()=>openSecCheck(b.dataset.secOut, rows.find(r=>r.username===b.dataset.secOut), 'outgoing', null));
-      el.querySelectorAll('[data-sec-in]').forEach(b=>b.onclick=()=>openSecCheck(b.dataset.secIn, rows.find(r=>r.username===b.dataset.secIn), 'incoming', outMap[b.dataset.secIn]));
+        let btn='';
+        if(which==='out') btn=go?'':`<button class="act done" data-sec-out="${a.username}" style="flex:1">${svg('check')} Outgoing SVC</button>`;
+        else btn=(go&&!gi)?`<button class="act" data-sec-in="${a.username}" style="flex:1;background:#0e6fae;color:#fff">${svg('truck')} Incoming SVC</button>`:'';
+        const btns=btn?`<div style="display:flex;gap:8px;margin-top:8px">${btn}</div>`:'';
+        const badges=which==='out'?outBadge:`${outBadge}${inBadge}`;
+        return `<div class="job"><div class="job-head"><div><span class="job-id">${a.username}</span><h3>${a.work_account||'—'}</h3><p class="plan">${crew}</p></div><div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">${badges}</div></div>${info}${btns}</div>`;
+      };
+      if(!rows.length){
+        const empty=`<div class="empty">${svg('inbox')}No timed-in team right now.<br>Teams that started their shift will appear here.</div>`;
+        elOut.innerHTML=empty; elIn.innerHTML=empty; return;
+      }
+      elOut.innerHTML=rows.map(a=>card(a,'out')).join('');
+      const inRows=rows.filter(a=>outMap[a.username]);   // Incoming list: teams that already went out
+      elIn.innerHTML=inRows.length?inRows.map(a=>card(a,'in')).join(''):`<div class="empty">${svg('truck')}No vehicle out yet.<br>Teams appear here after their Outgoing SVC.</div>`;
+      elOut.querySelectorAll('[data-sec-out]').forEach(b=>b.onclick=()=>openSecCheck(b.dataset.secOut, rows.find(r=>r.username===b.dataset.secOut), 'outgoing', null));
+      elIn.querySelectorAll('[data-sec-in]').forEach(b=>b.onclick=()=>openSecCheck(b.dataset.secIn, rows.find(r=>r.username===b.dataset.secIn), 'incoming', outMap[b.dataset.secIn]));
     }
     let secPhotoFile=null;
     function openSecCheck(team,a,mode,outRec){
@@ -1385,6 +1440,7 @@
     $('#sec_photo')?.addEventListener('change',e=>{ secPhotoFile=e.target.files[0]||null; const n=$('#secPhotoName'); if(n){ n.innerHTML=secPhotoFile?('📎 '+secPhotoFile.name+' <span id="secPhotoClear" style="color:#c2503a;text-decoration:underline;cursor:pointer">✕ alisin</span>'):''; const c=$('#secPhotoClear'); if(c) c.onclick=()=>{ secPhotoFile=null; if($('#sec_photo'))$('#sec_photo').value=''; n.innerHTML=''; }; } });
     $('#secCancel')?.addEventListener('click',closeSec);
     $('#secBack')?.addEventListener('click',closeSec);
+    $$('.sec-tab').forEach(b=>b.addEventListener('click',()=>secSwitch(b.dataset.sectab)));
     $('#chatFab').onclick=openChat;
     $('#mChat').onclick=()=>{$('#menuPop').classList.add('hidden');openChat()};
     $('#mAnnounce').onclick=()=>{$('#menuPop').classList.add('hidden');openAnn()};
