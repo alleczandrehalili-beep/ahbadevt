@@ -610,22 +610,27 @@
     function renderAnnBanner(){
       const wrap=$('#annBanner'); if(!wrap) return;
       const inApp = !$('#appView').classList.contains('hidden') || !$('#saView').classList.contains('hidden');
-      const pick = inApp ? pickBanner() : null;
-      if(!pick){ wrap.classList.add('hidden'); wrap.innerHTML=''; return; }
-      const a=pick.a; const esc=s=>(s||'').replace(/</g,'&lt;');
-      if(pick.recognition && a.photo_path){
-        // Full, large picture with the title overlaid on top.
-        wrap.innerHTML=`<div id="annBannerOpen" style="position:relative;cursor:pointer;border-radius:12px;overflow:hidden;background:#081c18">
-          <img src="${pubUrl(a.photo_path)}" alt="" style="width:100%;height:auto;max-height:64vh;object-fit:contain;display:block;background:#081c18">
-          <div style="position:absolute;left:0;right:0;top:0;padding:12px 14px 30px;background:linear-gradient(to bottom,rgba(6,24,20,.82),rgba(6,24,20,0));color:#fff">
-            <div style="font-weight:800;font-size:17px;line-height:1.25;text-shadow:0 1px 4px rgba(0,0,0,.55)">${esc(a.title||'')}</div>
-          </div></div>`;
-      } else {
-        // Regular announcement — compact bar.
-        wrap.innerHTML=`<div id="annBannerOpen" style="display:flex;gap:11px;align-items:center;padding:11px 13px;background:#0e3531;color:#eaf5f1;cursor:pointer"><div style="min-width:0;flex:1"><div style="font-size:10px;font-weight:800;letter-spacing:.04em;opacity:.85">📢 Announcement</div><div style="font-weight:800;font-size:14px;margin:1px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(a.title||'Announcement')}</div><div style="font-size:11px;opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc((a.body||'').slice(0,90))}</div></div></div>`;
+      const list = inApp ? annList.filter(audienceOk) : [];
+      const reg = list.find(a=>!a.photo_path);   // latest regular announcement
+      const rec = list.find(a=>a.photo_path);    // latest recognition (photo)
+      if(!reg && !rec){ wrap.classList.add('hidden'); wrap.innerHTML=''; return; }
+      const esc=s=>(s||'').replace(/</g,'&lt;');
+      let html='';
+      // Regular announcement bar stays even when a picture banner is shown.
+      if(reg){
+        html+=`<div class="ann-open" style="display:flex;gap:11px;align-items:center;padding:11px 13px;background:#0e3531;color:#eaf5f1;cursor:pointer;border-radius:12px;margin-bottom:6px"><div style="min-width:0;flex:1"><div style="font-size:10px;font-weight:800;letter-spacing:.04em;opacity:.85">📢 Announcement</div><div style="font-weight:800;font-size:14px;margin:1px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(reg.title||'Announcement')}</div><div style="font-size:11px;opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc((reg.body||'').slice(0,90))}</div></div></div>`;
       }
+      // Recognition picture banner — full large image, title overlaid on top.
+      if(rec){
+        html+=`<div class="ann-open" style="position:relative;cursor:pointer;border-radius:12px;overflow:hidden;background:#081c18">
+          <img src="${pubUrl(rec.photo_path)}" alt="" style="width:100%;height:auto;max-height:64vh;object-fit:contain;display:block;background:#081c18">
+          <div style="position:absolute;left:0;right:0;top:0;padding:12px 14px 30px;background:linear-gradient(to bottom,rgba(6,24,20,.82),rgba(6,24,20,0));color:#fff">
+            <div style="font-weight:800;font-size:17px;line-height:1.25;text-shadow:0 1px 4px rgba(0,0,0,.55)">${esc(rec.title||'')}</div>
+          </div></div>`;
+      }
+      wrap.innerHTML=html;
       wrap.classList.remove('hidden');
-      $('#annBannerOpen').onclick=openAnn;
+      wrap.querySelectorAll('.ann-open').forEach(el=>el.onclick=openAnn);
     }
     function openAnn(){ annUnread=0; updateAnnBadge(); $('#annBack').classList.remove('hidden'); $('#annModal').classList.remove('hidden'); loadAnn(); }
     function closeAnn(){ $('#annBack').classList.add('hidden'); $('#annModal').classList.add('hidden'); }
