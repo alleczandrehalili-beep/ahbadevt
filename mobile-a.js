@@ -439,10 +439,11 @@
     // Plan dropdowns — different lists per unit type, plus optional SKY TV add-on
     const PLANS_SDU=['PLAN 999 - 100MBPS','PLAN 1500 - 300MBPS','PLAN 1699 - 600MBPS / 400MBPS (VICE VERSA)','PLAN 2000 - 500MBPS','PLAN 2500 - 2500MBPS','PLAN 3000 - 700MBPS / 1GBPS (VICE VERSA)','PLAN 3500 - 1GBPS'];
     const PLANS_MDU=['PLAN 999 - 100MBPS','PLAN 1399 - 200MBPS','PLAN 1500 - 300MBPS','PLAN 2000 - 500MBPS'];
+    const PLANS_MDU_DOCSIS=['SKY FIBER 999 - 100MBPS','SKY FIBER 1399 - 200MBPS','SKY FIBER 1500 - 300MBPS','SKY FIBER 2000 - 500MBPS'];
     const ADDONS=['SKY TV 99','SKY TV 299','SKY TV 499'];
     function populatePlans(){
       const dw=($('#sa_dwelling')&&$('#sa_dwelling').value)||'SDU';
-      const list=dw==='MDU'?PLANS_MDU:PLANS_SDU;
+      const list=dw==='MDU DOCSIS'?PLANS_MDU_DOCSIS:(dw==='MDU'?PLANS_MDU:PLANS_SDU);
       const sel=$('#sa_plan');
       if(sel){ const cur=sel.value; sel.innerHTML='<option value="">— Select plan —</option>'+list.map(p=>`<option>${p}</option>`).join(''); sel.value=list.includes(cur)?cur:''; }
       const ad=$('#sa_addon');
@@ -483,12 +484,25 @@
           const neg = (j.status==='negative'&&j.negative_remark) ? `<div class="row" style="color:#c2503a">${svg('note')}<span>${esc(j.negative_remark)}</span></div>` : '';
           const rejReason = (j.status==='rejected'&&j.special_note) ? `<div class="row" style="color:#c2503a">${svg('note')}<span>${esc(j.special_note)}</span></div>` : '';
           const rejBtn = (j.status==='rejected') ? `<button class="act" data-resub="${j.id}" style="width:100%;margin-top:8px;background:#e9a93d;color:#3a2a00">${svg('note')} Edit &amp; resubmit</button>` : '';
+          // Sales can delete their own order while it's still pre-dispatch (for validation / rejected)
+          const delBtn = (['for_validation','rejected'].includes(j.status)) ? `<button class="act" data-sadel="${j.id}" style="width:100%;margin-top:8px;color:#c2503a;border-color:#f0c4b9">🗑 Delete this order</button>` : '';
           const meta=[j.plan&&('Plan: '+esc(j.plan)), j.ref_no&&('Ref: '+esc(j.ref_no)), esc(j.area)].filter(Boolean).join(' · ');
-          return `<div class="submitted"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><h4>${esc(j.subscriber)||'—'}</h4><span class="badge b-${j.status}">${saStatusLabel(j.status)}</span></div><p>${j.id}${meta?' · '+meta:''}</p><div class="job-meta">${assigned}${neg}${rejReason}</div><button class="act ghost" data-info="${j.id}" style="width:100%;margin-top:8px">ℹ︎ View full info</button>${rejBtn}</div>`;
+          return `<div class="submitted"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><h4>${esc(j.subscriber)||'—'}</h4><span class="badge b-${j.status}">${saStatusLabel(j.status)}</span></div><p>${j.id}${meta?' · '+meta:''}</p><div class="job-meta">${assigned}${neg}${rejReason}</div><button class="act ghost" data-info="${j.id}" style="width:100%;margin-top:8px">ℹ︎ View full info</button>${rejBtn}${delBtn}</div>`;
         }).join('');
         el.querySelectorAll('[data-resub]').forEach(b=>b.onclick=()=>saEditResubmit(b.dataset.resub));
         el.querySelectorAll('[data-info]').forEach(b=>b.onclick=()=>showJobInfo(b.dataset.info));
+        el.querySelectorAll('[data-sadel]').forEach(b=>b.onclick=()=>saDeleteOrder(b.dataset.sadel));
       }catch(e){ el.innerHTML=`<div class="empty">Could not load submissions.</div>`; }
+    }
+    // Sales: delete their OWN submitted order (only while still for-validation / rejected, pre-dispatch).
+    async function saDeleteOrder(jobId){
+      if(!confirm('Delete this job order?\nPermanenteng maaalis ang submission mo. Hindi na ito mababawi.')) return;
+      try{
+        try{ await sb.from('job_docs').delete().eq('job_id',jobId); }catch(e){}
+        const {error}=await sb.from('jobs').delete().eq('id',jobId); if(error) throw error;
+        delete saStatus[jobId];
+        toast('Job order deleted'); saRenderMine();
+      }catch(e){ toast('Delete failed: '+e.message); }
     }
     // Edit a REJECTED order and resubmit it for validation (loads info back into the form)
     let saEditingId=null;
@@ -502,7 +516,7 @@
         set('primary_no',j.primary_no); set('other_contact_no',j.other_contact_no);
         set('house_no',j.house_no); set('street_name',j.street_name); set('village',j.village); set('brgy',j.brgy);
         if($('#sa_city')) $('#sa_city').value=j.city||'QUEZON CITY';
-        if($('#sa_dwelling')) $('#sa_dwelling').value=(j.dwelling_type==='MDU'?'MDU':'SDU');
+        if($('#sa_dwelling')) $('#sa_dwelling').value=(['MDU','MDU DOCSIS'].includes(j.dwelling_type)?j.dwelling_type:'SDU');
         populatePlans(); if($('#sa_plan')) $('#sa_plan').value=j.plan||'';
         if($('#sa_addon')) $('#sa_addon').value=j.add_on||'';
         set('ref_no',j.ref_no);
