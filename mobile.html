@@ -299,9 +299,10 @@
           <div class="field"><label>City *</label><input id="sa_city"></div>
 
           <div class="form-sec">Service</div>
-          <div class="field"><label>Plan</label><input id="sa_plan"></div>
-          <div class="field"><label>Reference no.</label><input id="sa_ref_no"></div>
           <div class="field"><label>Unit type</label><select id="sa_dwelling"><option>SDU</option><option>MDU</option></select></div>
+          <div class="field"><label>Plan</label><select id="sa_plan"></select></div>
+          <div class="field"><label>Add-on (optional)</label><select id="sa_addon"></select></div>
+          <div class="field"><label>Reference no.</label><input id="sa_ref_no"></div>
           <div class="field"><label>1P / 2P</label><select id="sa_play_type"><option>1-PLAY</option><option>2-PLAY</option></select></div>
           <div class="field"><label>Installation fee</label><select id="sa_install_fee"><option>One Time Payment</option><option>Installment</option></select></div>
           <div class="field"><label>Amount to collect (₱)</label><input id="sa_amount" type="number" inputmode="numeric"></div>
@@ -658,7 +659,7 @@
     }
 
     // ---------- sales agent ----------
-    function startSA(){ $('#teamName').textContent=headerName(); show('saView'); saSwitch('new'); saRenderDocs(); startComms(); primeSalesStatus(); startSalesWatch(); }
+    function startSA(){ $('#teamName').textContent=headerName(); show('saView'); saSwitch('new'); saRenderDocs(); populatePlans(); startComms(); primeSalesStatus(); startSalesWatch(); }
     // Load current statuses once at startup so we can detect future changes (without sounding on first load)
     async function primeSalesStatus(){ try{ const {data}=await sb.from('jobs').select('id,status').eq('created_by',myTeam); (data||[]).forEach(j=>{ saStatus[j.id]=j.status; }); }catch(e){} }
 
@@ -741,6 +742,18 @@
       $('#saNew').classList.toggle('hidden',view!=='new'); $('#saMine').classList.toggle('hidden',view!=='mine');
       if(view==='mine') saRenderMine();
     }
+    // Plan dropdowns — different lists per unit type, plus optional SKY TV add-on
+    const PLANS_SDU=['PLAN 999 - 100MBPS','PLAN 1500 - 300MBPS','PLAN 1699 - 600MBPS / 400MBPS (VICE VERSA)','PLAN 2000 - 500MBPS','PLAN 2500 - 2500MBPS','PLAN 3000 - 700MBPS / 1GBPS (VICE VERSA)','PLAN 3500 - 1GBPS'];
+    const PLANS_MDU=['PLAN 999 - 100MBPS','PLAN 1399 - 200MBPS','PLAN 1500 - 300MBPS','PLAN 2000 - 500MBPS'];
+    const ADDONS=['SKY TV 99','SKY TV 299','SKY TV 499'];
+    function populatePlans(){
+      const dw=($('#sa_dwelling')&&$('#sa_dwelling').value)||'SDU';
+      const list=dw==='MDU'?PLANS_MDU:PLANS_SDU;
+      const sel=$('#sa_plan');
+      if(sel){ const cur=sel.value; sel.innerHTML='<option value="">— Select plan —</option>'+list.map(p=>`<option>${p}</option>`).join(''); sel.value=list.includes(cur)?cur:''; }
+      const ad=$('#sa_addon');
+      if(ad && !ad.options.length){ ad.innerHTML='<option value="">— None —</option>'+ADDONS.map(a=>`<option>${a}</option>`).join(''); }
+    }
     function saRenderDocs(){
       ['id','billing','premise'].forEach(cat=>{
         const arr=saDocs[cat];
@@ -753,9 +766,10 @@
       });
     }
     function saReset(){
-      ['first_name','middle_name','last_name','primary_no','other_contact_no','house_no','street_name','village','brgy','plan','ref_no','amount','source_of_sales','referral_name','special_note'].forEach(k=>{const el=$('#sa_'+k);if(el)el.value='';});
+      ['first_name','middle_name','last_name','primary_no','other_contact_no','house_no','street_name','village','brgy','ref_no','amount','source_of_sales','referral_name','special_note'].forEach(k=>{const el=$('#sa_'+k);if(el)el.value='';});
       if($('#sa_city')) $('#sa_city').value='QUEZON CITY';
       if($('#sa_dwelling')) $('#sa_dwelling').value='SDU'; if($('#sa_install_fee')) $('#sa_install_fee').value='One Time Payment';
+      populatePlans(); if($('#sa_addon')) $('#sa_addon').value='';
       saDocs={id:[],billing:[],premise:[]}; saRenderDocs();
     }
     async function saRenderMine(){
@@ -812,7 +826,7 @@
         first_name:fn,middle_name:v('sa_middle_name'),last_name:ln,primary_no:pno,other_contact_no:v('sa_other_contact_no'),
         house_no:v('sa_house_no'),street_name:v('sa_street_name'),village:v('sa_village'),brgy:brgy,city:city,
         play_type:v('sa_play_type'),source_of_sales:v('sa_source_of_sales'),referral_name:v('sa_referral_name'),
-        dwelling_type:v('sa_dwelling'),install_fee_type:v('sa_install_fee'),amount_to_collect:(v('sa_amount')!==''?Number(v('sa_amount')):null),
+        dwelling_type:v('sa_dwelling'),install_fee_type:v('sa_install_fee'),amount_to_collect:(v('sa_amount')!==''?Number(v('sa_amount')):null),add_on:v('sa_addon'),
         special_note:v('sa_special_note'),updated_at:new Date().toISOString()};
       try{
         const {error}=await sb.from('jobs').insert(job); if(error) throw error;
@@ -1262,6 +1276,7 @@
     $('#saTabNew')?.addEventListener('click',()=>saSwitch('new'));
     $('#saTabMine')?.addEventListener('click',()=>saSwitch('mine'));
     ['sa_primary_no','sa_other_contact_no'].forEach(id=>{const el=$('#'+id);if(el)el.oninput=()=>{el.value=el.value.replace(/\D/g,'').slice(0,11)};});
+    $('#sa_dwelling')?.addEventListener('change',populatePlans);
     $('#saSubmit')?.addEventListener('click',saSubmit);
     $('#mexpCancel')?.addEventListener('click',closeMobileExpense);
     $('#mexpSave')?.addEventListener('click',saveMobileExpense);
