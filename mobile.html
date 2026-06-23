@@ -611,8 +611,8 @@
       const wrap=$('#annBanner'); if(!wrap) return;
       const inApp = !$('#appView').classList.contains('hidden') || !$('#saView').classList.contains('hidden');
       const list = inApp ? annList.filter(audienceOk) : [];
-      const reg = list.find(a=>!a.photo_path);   // latest regular announcement
-      const rec = list.find(a=>a.photo_path);    // latest recognition (photo)
+      const reg = list[0];                        // latest announcement (any) → text bar
+      const rec = list.find(a=>a.photo_path);     // latest recognition (photo) → picture banner
       if(!reg && !rec){ wrap.classList.add('hidden'); wrap.innerHTML=''; return; }
       const esc=s=>(s||'').replace(/</g,'&lt;');
       let html='';
