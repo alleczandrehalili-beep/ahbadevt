@@ -484,11 +484,13 @@
           const neg = (j.status==='negative'&&j.negative_remark) ? `<div class="row" style="color:#c2503a">${svg('note')}<span>${esc(j.negative_remark)}</span></div>` : '';
           const rejReason = (j.status==='rejected'&&j.special_note) ? `<div class="row" style="color:#c2503a">${svg('note')}<span>${esc(j.special_note)}</span></div>` : '';
           const rejBtn = (j.status==='rejected') ? `<button class="act" data-resub="${j.id}" style="width:100%;margin-top:8px;background:#e9a93d;color:#3a2a00">${svg('note')} Edit &amp; resubmit</button>` : '';
+          // Still for validation? Let the sales agent edit it before the validator reviews.
+          const editBtn = (j.status==='for_validation') ? `<button class="act" data-resub="${j.id}" style="width:100%;margin-top:8px;background:#178262;color:#fff;border-color:#178262">${svg('note')} Edit before validation</button>` : '';
           // Sales can delete their OWN order — including old ones (any status) — EXCEPT
           // jobs a technician is actively working (assigned/en-route/on-site/in-progress).
           const delBtn = (!['assigned','en-route','on-site','in-progress'].includes(j.status)) ? `<button class="act" data-sadel="${j.id}" style="width:100%;margin-top:8px;color:#c2503a;border-color:#f0c4b9">🗑 Delete this order</button>` : '';
           const meta=[j.plan&&('Plan: '+esc(j.plan)), j.ref_no&&('Ref: '+esc(j.ref_no)), esc(j.area)].filter(Boolean).join(' · ');
-          return `<div class="submitted"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><h4>${esc(j.subscriber)||'—'}</h4><span class="badge b-${j.status}">${saStatusLabel(j.status)}</span></div><p>${j.id}${meta?' · '+meta:''}</p><div class="job-meta">${assigned}${neg}${rejReason}</div><button class="act ghost" data-info="${j.id}" style="width:100%;margin-top:8px">ℹ︎ View full info</button>${rejBtn}${delBtn}</div>`;
+          return `<div class="submitted"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><h4>${esc(j.subscriber)||'—'}</h4><span class="badge b-${j.status}">${saStatusLabel(j.status)}</span></div><p>${j.id}${meta?' · '+meta:''}</p><div class="job-meta">${assigned}${neg}${rejReason}</div><button class="act ghost" data-info="${j.id}" style="width:100%;margin-top:8px">ℹ︎ View full info</button>${editBtn}${rejBtn}${delBtn}</div>`;
         }).join('');
         el.querySelectorAll('[data-resub]').forEach(b=>b.onclick=()=>saEditResubmit(b.dataset.resub));
         el.querySelectorAll('[data-info]').forEach(b=>b.onclick=()=>showJobInfo(b.dataset.info));
@@ -531,7 +533,7 @@
         saDocs={id:[],billing:[],premise:[]}; saRenderDocs();
         $('#saSubmit').textContent='Resubmit for validation';
         saSwitch('new'); window.scrollTo(0,0);
-        toast('Editing rejected order — update info, then Resubmit');
+        toast('Editing order — update the info, then Resubmit for validation');
       }catch(e){ toast('Could not load: '+e.message); }
     }
     // Realtime watch on the sales agent's OWN submitted orders (status + distinct sounds)
