@@ -153,7 +153,7 @@
     <!-- SECURITY (vehicle gate validation) -->
     <div class="hidden" id="secView">
       <div class="syncbar live" id="secSync"><span class="sync-dot"></span><span>Security · Vehicle gate (Outgoing / Incoming)</span><span class="stamp" id="secStamp"></span></div>
-      <div style="padding:4px 2px 10px;font-size:12px;color:#586965">I-record ang Outgoing SVC (paglabas: crew, plate, odo, fuel) at Incoming SVC (pagbalik: odo, oras, natitirang fuel, remarks + larawan).</div>
+      <div style="padding:4px 2px 10px;font-size:12px;color:#586965">Record the Outgoing SVC (departure: crew, plate, odo, fuel) and Incoming SVC (return: odo, time, remaining fuel, remarks + photo).</div>
       <div class="jobs" id="secList"></div>
     </div>
 
@@ -168,15 +168,15 @@
         <div id="secCrew" style="color:#33433f">—</div>
       </div>
       <div id="secOutOnly">
-        <div class="field"><label>Tama ba ang crew na magkasama?</label>
-          <select id="sec_crewok"><option value="yes">Oo — tama ang crew</option><option value="no">Hindi — may pagkakaiba</option></select></div>
-        <div class="field"><label>Crew remarks (kung may pagkakaiba)</label><input id="sec_remarks" placeholder="hal. walang Tech 2 / iba ang driver"></div>
+        <div class="field"><label>Is the crew together correct?</label>
+          <select id="sec_crewok"><option value="yes">Yes — crew is correct</option><option value="no">No — there is a discrepancy</option></select></div>
+        <div class="field"><label>Crew remarks (if there is a discrepancy)</label><input id="sec_remarks" placeholder="e.g. no Tech 2 / different driver"></div>
       </div>
-      <div class="field"><label>Plate No. ng sasakyan *</label><input id="sec_plate" autocapitalize="characters" placeholder="ABC 1234"></div>
-      <div class="field"><label id="secOdoLabel">Odometer bago umalis * (km)</label><input id="sec_odo" type="number" inputmode="numeric" placeholder="0"></div>
+      <div class="field"><label>Vehicle Plate No. *</label><input id="sec_plate" autocapitalize="characters" placeholder="ABC 1234"></div>
+      <div class="field"><label id="secOdoLabel">Odometer before departure * (km)</label><input id="sec_odo" type="number" inputmode="numeric" placeholder="0"></div>
       <div class="field"><label>Fuel tank *</label>
         <select id="sec_fuel">
-          <option value="">— Piliin ang fuel —</option>
+          <option value="">— Select fuel —</option>
           <option>1/1 - Full tank</option>
           <option>3/4</option>
           <option>1/2</option>
@@ -184,8 +184,8 @@
           <option>1/8 - Almost Empty</option>
         </select></div>
       <div id="secInOnly" class="hidden">
-        <div class="field"><label>Vehicle remarks (kung may sira/ire-report — kung wala, iwan blangko = "none")</label><textarea id="sec_veh_remarks" rows="2" placeholder="hal. gasgas sa bumper / kupas ang kaliwang gulong"></textarea></div>
-        <div class="field"><label>Larawan ng sira (optional)</label>
+        <div class="field"><label>Vehicle remarks (if there is damage to report — if none, leave blank = "none")</label><textarea id="sec_veh_remarks" rows="2" placeholder="e.g. scratch on bumper / worn left tire"></textarea></div>
+        <div class="field"><label>Damage photo (optional)</label>
           <input type="file" id="sec_photo" accept="image/*" capture="environment">
           <div id="secPhotoName" style="font-size:10px;color:#9aa6a2;margin-top:3px"></div></div>
       </div>
@@ -725,9 +725,9 @@
       const seen={}, rows=[];
       att.forEach(a=>{ if(/^AHBA_SLI/i.test(a.username) && !seen[a.username]){ seen[a.username]=1; rows.push(a); } });
       $('#secStamp').textContent=rows.length+' team(s) in';
-      if(!rows.length){ el.innerHTML=`<div class="empty">${svg('inbox')}Walang naka-time in na team ngayon.<br>Lalabas dito ang mga team na nag-Start shift.</div>`; return; }
+      if(!rows.length){ el.innerHTML=`<div class="empty">${svg('inbox')}No timed-in team right now.<br>Teams that started their shift will appear here.</div>`; return; }
       el.innerHTML=rows.map(a=>{
-        const crew=[a.crew_driver,a.crew_tech1,a.crew_tech2].filter(Boolean).join(', ')||'— walang declared crew —';
+        const crew=[a.crew_driver,a.crew_tech1,a.crew_tech2].filter(Boolean).join(', ')||'— no declared crew —';
         const go=outMap[a.username], gi=inMap[a.username];
         const outBadge=go?`<span class="badge b-completed">✓ Out ${manilaTime(go.checked_at)}</span>`:`<span class="badge b-pending">Out pending</span>`;
         const inBadge=gi?`<span class="badge b-completed">✓ In ${manilaTime(gi.checked_at)}</span>`:(go?`<span class="badge b-pending">In pending</span>`:'');
@@ -747,10 +747,10 @@
       $('#secTitle').textContent= isIn?'Incoming SVC':'Outgoing SVC';
       $('#secTeam').textContent='Team '+team;
       $('#secAccount').textContent=a.work_account||'—';
-      $('#secCrew').textContent=[a.crew_driver&&('Driver: '+a.crew_driver),a.crew_tech1&&('Tech 1: '+a.crew_tech1),a.crew_tech2&&('Tech 2: '+a.crew_tech2)].filter(Boolean).join(' · ')||'walang declared crew';
+      $('#secCrew').textContent=[a.crew_driver&&('Driver: '+a.crew_driver),a.crew_tech1&&('Tech 1: '+a.crew_tech1),a.crew_tech2&&('Tech 2: '+a.crew_tech2)].filter(Boolean).join(' · ')||'no declared crew';
       $('#secOutOnly').classList.toggle('hidden', isIn);
       $('#secInOnly').classList.toggle('hidden', !isIn);
-      $('#secOdoLabel').textContent= isIn?'Odometer pagbalik * (km)':'Odometer bago umalis * (km)';
+      $('#secOdoLabel').textContent= isIn?'Odometer on return * (km)':'Odometer before departure * (km)';
       $('#sec_crewok').value='yes'; $('#sec_remarks').value='';
       $('#sec_plate').value= isIn ? ((outRec&&outRec.plate_no)||'') : '';
       $('#sec_odo').value=''; $('#sec_fuel').value='';
@@ -763,11 +763,11 @@
     async function submitGate(){
       const m=$('#secModal'); const team=m.dataset.team; const mode=m.dataset.mode||'outgoing'; const isIn=(mode==='incoming');
       const plate=$('#sec_plate').value.trim(), odo=$('#sec_odo').value.trim(), fuel=$('#sec_fuel').value;
-      if(!plate){ showErr('#secErr','Ilagay ang plate no.'); return; }
-      if(odo===''||isNaN(Number(odo))){ showErr('#secErr','Ilagay ang odometer (numero).'); return; }
-      if(!fuel){ showErr('#secErr','Piliin ang fuel tank level.'); return; }
+      if(!plate){ showErr('#secErr','Enter the plate no.'); return; }
+      if(odo===''||isNaN(Number(odo))){ showErr('#secErr','Enter the odometer (number).'); return; }
+      if(!fuel){ showErr('#secErr','Select the fuel tank level.'); return; }
       let crewok=true, rem='';
-      if(!isIn){ crewok=$('#sec_crewok').value==='yes'; rem=$('#sec_remarks').value.trim(); if(!crewok && !rem){ showErr('#secErr','Ilagay ang remarks kung may pagkakaiba sa crew.'); return; } }
+      if(!isIn){ crewok=$('#sec_crewok').value==='yes'; rem=$('#sec_remarks').value.trim(); if(!crewok && !rem){ showErr('#secErr','Enter remarks if there is a crew discrepancy.'); return; } }
       const vehRem = isIn ? ($('#sec_veh_remarks').value.trim()||'none') : '';
       const btn=$('#secSave'); btn.disabled=true; btn.textContent='Saving…';
       const now=new Date().toISOString();
@@ -959,8 +959,8 @@
         return `<div class="pslot ${has?'done':''}"><div class="pslot-head"><span>${i+1}. ${l}</span><span class="pchk ${has?'ok':'need'}">${has?'✓':'•'}</span></div>${thumb}<div style="display:flex;gap:6px;margin-top:6px"><label class="addphoto pmini">${svg('camera')} Camera<input type="file" accept="image/*" capture="environment" hidden data-up="${id}" data-label="${lab}"></label><label class="addphoto pmini">${svg('note')} Album<input type="file" accept="image/*" hidden data-up="${id}" data-label="${lab}"></label></div></div>`;
       }).join('');
       return `<div class="photos"><div class="photos-head"><span>Proof photos (${PHOTOS_REQUIRED} required)</span><span class="count ${done>=PHOTOS_REQUIRED?'ok':'need'}">${done}/${PHOTOS_REQUIRED}</span></div>
-        <label class="addphoto" style="margin:4px 0 8px;background:#e9f6f0;border-color:#a8e6c9;color:#0e7a55;font-weight:800">📁 Mabilisang upload — pumili ng marami mula sa album<input type="file" accept="image/*" multiple hidden data-bulk="${id}"></label>
-        <div style="font-size:10px;color:#8a9894;margin:-4px 0 6px">Mapupunta ang mga napili sa mga natitirang slot ayon sa pagkakasunod (1→12).</div>
+        <label class="addphoto" style="margin:4px 0 8px;background:#e9f6f0;border-color:#a8e6c9;color:#0e7a55;font-weight:800">📁 Quick upload — select many from the album<input type="file" accept="image/*" multiple hidden data-bulk="${id}"></label>
+        <div style="font-size:10px;color:#8a9894;margin:-4px 0 6px">The selected photos will go into the remaining slots in order (1→12).</div>
         <div class="pslots">${rows}</div></div>`;
     }
     let knownJobIds=null;   // for detecting newly-arrived loads (sound)
@@ -1024,12 +1024,12 @@
     }
     // Delete a wrongly-uploaded proof photo (DB row + storage file), then re-render.
     async function deletePhoto(jobId, path){
-      if(!confirm('Burahin ang larawang ito? Hindi na ito mababawi.')) return;
+      if(!confirm('Delete this photo? This cannot be undone.')) return;
       try{
         const {error}=await sb.from('job_photos').delete().eq('job_id',jobId).eq('path',path); if(error) throw error;
         try{ await sb.storage.from('job-photos').remove([path]); }catch(e){}
         photoData[jobId]=(photoData[jobId]||[]).filter(p=>p.path!==path);
-        toast('Larawan binura'); render();
+        toast('Photo deleted'); render();
       }catch(e){ toast('Delete failed: '+e.message); }
     }
     // Bulk: pick many photos at once → auto-assign to the remaining empty slots in order, upload in parallel
@@ -1037,14 +1037,14 @@
       const files=[...fileList]; if(!files.length)return;
       const done=labelsDone(jobId);
       const empty=PHOTO_LABELS.filter(l=>!done.has(l));
-      if(!empty.length){ toast('Kumpleto na ang 12 — walang bakanteng slot'); return; }
+      if(!empty.length){ toast('All 12 are complete — no empty slot'); return; }
       const pairs=files.slice(0,empty.length).map((f,i)=>({f,label:empty[i]}));
       const extra=files.length-pairs.length;
-      toast(`Ina-upload ang ${pairs.length} litrato…`);
+      toast(`Uploading ${pairs.length} photo(s)…`);
       let ok=0;
       await Promise.all(pairs.map(async ({f,label})=>{ try{ await uploadOne(jobId,f,label); ok++; }catch(e){ console.warn('bulk',e.message); } }));
       render();
-      toast(`${photoCount(jobId)}/${PHOTOS_REQUIRED} kumpleto${extra>0?` · ${extra} sobra (puno na)`:''}${ok<pairs.length?` · ${pairs.length-ok} nabigo`:''}`);
+      toast(`${photoCount(jobId)}/${PHOTOS_REQUIRED} complete${extra>0?` · ${extra} extra (full)`:''}${ok<pairs.length?` · ${pairs.length-ok} failed`:''}`);
     }
     async function uploadPhotos(jobId, fileList, label){
       const files=[...fileList]; if(!files.length)return;
@@ -1105,7 +1105,7 @@
     // ---------- cancel job (→ Cancelled column on dashboard) ----------
     async function cancelJob(id){
       const job=jobs.find(j=>j.id===id); if(!job)return;
-      const reason=prompt('I-cancel ang job order na ito?\nPupunta ito sa Cancelled sa dashboard.\n\nDahilan (optional):');
+      const reason=prompt('Cancel this job order?\nIt will go to Cancelled on the dashboard.\n\nReason (optional):');
       if(reason===null) return;   // dismissed
       const now=new Date().toISOString();
       const hist=appendHist(job.history, 'Cancelled (by '+myTeam+')'+(reason.trim()?': '+reason.trim():''));
@@ -1251,7 +1251,7 @@
     function checkAutoLogout(){
       if(myRole!=='technician' || !myTeam) return;          // technicians only, must be signed in
       if(manilaHourNow() >= 19 && (Date.now()-lastActivity) >= IDLE_MS){
-        signOff('Naka-auto-logout: lampas 7PM at 2 oras nang walang activity');
+        signOff('Auto-logged out: past 7PM and 2 hours of inactivity');
       }
     }
     function startApp(){
