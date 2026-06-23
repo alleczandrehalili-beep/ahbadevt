@@ -775,7 +775,7 @@
     async function saRenderMine(){
       const el=$('#saMineList'); el.innerHTML=`<div class="empty">Loading…</div>`;
       try{
-        const {data}=await sb.from('jobs').select('id,subscriber,status,area,team,plan,ref_no,negative_remark,updated_at').eq('created_by',myTeam).order('updated_at',{ascending:false});
+        const {data}=await sb.from('jobs').select('id,subscriber,status,area,team,plan,ref_no,negative_remark,special_note,updated_at').eq('created_by',myTeam).order('updated_at',{ascending:false});
         const rows=data||[];
         rows.forEach(j=>{ saStatus[j.id]=j.status; });   // seed status map for change detection
         if(!rows.length){ el.innerHTML=`<div class="empty">${svg('inbox')}No submissions yet.<br>Encode a new job order to get started.</div>`; return; }
@@ -785,10 +785,41 @@
             ? `<div class="row" style="color:#0e7a59;font-weight:700">${svg('truck')}<span>Assigned to: ${esc(j.team)}</span></div>`
             : `<div class="row" style="color:#9aa6a2">${svg('truck')}<span>Awaiting team assignment</span></div>`;
           const neg = (j.status==='negative'&&j.negative_remark) ? `<div class="row" style="color:#c2503a">${svg('note')}<span>${esc(j.negative_remark)}</span></div>` : '';
+          const rejReason = (j.status==='rejected'&&j.special_note) ? `<div class="row" style="color:#c2503a">${svg('note')}<span>${esc(j.special_note)}</span></div>` : '';
+          const rejBtn = (j.status==='rejected') ? `<button class="act" data-resub="${j.id}" style="width:100%;margin-top:8px;background:#e9a93d;color:#3a2a00">${svg('note')} Edit &amp; resubmit</button>` : '';
           const meta=[j.plan&&('Plan: '+esc(j.plan)), j.ref_no&&('Ref: '+esc(j.ref_no)), esc(j.area)].filter(Boolean).join(' · ');
-          return `<div class="submitted"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><h4>${esc(j.subscriber)||'—'}</h4><span class="badge b-${j.status}">${saStatusLabel(j.status)}</span></div><p>${j.id}${meta?' · '+meta:''}</p><div class="job-meta">${assigned}${neg}</div></div>`;
+          return `<div class="submitted"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><h4>${esc(j.subscriber)||'—'}</h4><span class="badge b-${j.status}">${saStatusLabel(j.status)}</span></div><p>${j.id}${meta?' · '+meta:''}</p><div class="job-meta">${assigned}${neg}${rejReason}</div>${rejBtn}</div>`;
         }).join('');
+        el.querySelectorAll('[data-resub]').forEach(b=>b.onclick=()=>saEditResubmit(b.dataset.resub));
       }catch(e){ el.innerHTML=`<div class="empty">Could not load submissions.</div>`; }
+    }
+    // Edit a REJECTED order and resubmit it for validation (loads info back into the form)
+    let saEditingId=null;
+    async function saEditResubmit(jobId){
+      try{
+        const {data:j}=await sb.from('jobs').select('*').eq('id',jobId).single();
+        if(!j){ toast('Order not found'); return; }
+        saEditingId=jobId;
+        const set=(id,val)=>{const el=$('#sa_'+id); if(el) el.value=(val==null?'':val);};
+        set('first_name',j.first_name); set('middle_name',j.middle_name); set('last_name',j.last_name);
+        set('primary_no',j.primary_no); set('other_contact_no',j.other_contact_no);
+        set('house_no',j.house_no); set('street_name',j.street_name); set('village',j.village); set('brgy',j.brgy);
+        if($('#sa_city')) $('#sa_city').value=j.city||'QUEZON CITY';
+        if($('#sa_dwelling')) $('#sa_dwelling').value=(j.dwelling_type==='MDU'?'MDU':'SDU');
+        populatePlans(); if($('#sa_plan')) $('#sa_plan').value=j.plan||'';
+        if($('#sa_addon')) $('#sa_addon').value=j.add_on||'';
+        set('ref_no',j.ref_no);
+        if($('#sa_play_type')) $('#sa_play_type').value=j.play_type||'1-PLAY';
+        if($('#sa_install_fee')) $('#sa_install_fee').value=j.install_fee_type||'One Time Payment';
+        set('amount', j.amount_to_collect!=null?j.amount_to_collect:'');
+        if($('#sa_source_of_sales')) $('#sa_source_of_sales').value=j.source_of_sales||'Referral';
+        set('referral_name',j.referral_name);
+        set('special_note', (j.special_note&&/^REJECTED/i.test(j.special_note))?'':j.special_note);
+        saDocs={id:[],billing:[],premise:[]}; saRenderDocs();
+        $('#saSubmit').textContent='Resubmit for validation';
+        saSwitch('new'); window.scrollTo(0,0);
+        toast('Editing rejected order — update info, then Resubmit');
+      }catch(e){ toast('Could not load: '+e.message); }
     }
     // Realtime watch on the sales agent's OWN submitted orders (status + distinct sounds)
     let saChan=null;
@@ -817,19 +848,26 @@
       if(!fn||!ln||!pno||!brgy||!city){ showErr('#saErr','Please fill: first & last name, primary no., barangay, and city.'); return; }
       if(!/^\d{11}$/.test(pno)){ showErr('#saErr','Primary no. must be exactly 11 digits (numbers only).'); return; }
       if(ono && !/^\d{11}$/.test(ono)){ showErr('#saErr','Other contact no. must be 11 digits (numbers only).'); return; }
-      if(!saDocs.id.length){ showErr('#saErr','A Valid ID photo is required.'); return; }
-      const btn=$('#saSubmit'); btn.disabled=true; btn.textContent='Submitting…';
+      const editing=!!saEditingId;
+      if(!editing && !saDocs.id.length){ showErr('#saErr','A Valid ID photo is required.'); return; }
+      const btn=$('#saSubmit'); btn.disabled=true; btn.textContent=editing?'Resubmitting…':'Submitting…';
       const full=[fn,v('sa_middle_name'),ln].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
       const addr=[v('sa_house_no'),v('sa_street_name'),v('sa_village'),brgy,city].filter(Boolean).join(', ');
-      const jobId='WO-'+new Date().getFullYear()+'-'+Date.now().toString().slice(-6);
-      const job={id:jobId,subscriber:full,service_type:'Installation',plan:v('sa_plan'),ref_no:v('sa_ref_no'),area:city,address:addr,status:'for_validation',wait_time:'Just now',priority:'Normal',schedule:manilaDate()+', 9:00 AM',team:null,created_by:myTeam,
+      const fields={subscriber:full,plan:v('sa_plan'),ref_no:v('sa_ref_no'),area:city,address:addr,status:'for_validation',
         first_name:fn,middle_name:v('sa_middle_name'),last_name:ln,primary_no:pno,other_contact_no:v('sa_other_contact_no'),
         house_no:v('sa_house_no'),street_name:v('sa_street_name'),village:v('sa_village'),brgy:brgy,city:city,
         play_type:v('sa_play_type'),source_of_sales:v('sa_source_of_sales'),referral_name:v('sa_referral_name'),
         dwelling_type:v('sa_dwelling'),install_fee_type:v('sa_install_fee'),amount_to_collect:(v('sa_amount')!==''?Number(v('sa_amount')):null),add_on:v('sa_addon'),
         special_note:v('sa_special_note'),updated_at:new Date().toISOString()};
       try{
-        const {error}=await sb.from('jobs').insert(job); if(error) throw error;
+        let jobId;
+        if(editing){
+          jobId=saEditingId;
+          const {error}=await sb.from('jobs').update(fields).eq('id',jobId); if(error) throw error;
+        } else {
+          jobId='WO-'+new Date().getFullYear()+'-'+Date.now().toString().slice(-6);
+          const {error}=await sb.from('jobs').insert(Object.assign({id:jobId,service_type:'Installation',wait_time:'Just now',priority:'Normal',schedule:manilaDate()+', 9:00 AM',team:null,created_by:myTeam},fields)); if(error) throw error;
+        }
         for(const cat of ['id','billing','premise']){
           for(let i=0;i<saDocs[cat].length;i++){
             const blob=await compressImage(saDocs[cat][i],1000,90);
@@ -838,9 +876,9 @@
             await sb.from('job_docs').insert({job_id:jobId, category:cat, path});
           }
         }
-        toast('Job order submitted for validation'); saReset(); saSwitch('mine');
+        toast(editing?'Order resubmitted for validation':'Job order submitted for validation'); saEditingId=null; $('#saSubmit').textContent='Submit for validation'; saReset(); saSwitch('mine');
       }catch(e){ showErr('#saErr','Submit failed: '+e.message); }
-      btn.disabled=false; btn.textContent='Submit for validation';
+      btn.disabled=false; btn.textContent= saEditingId?'Resubmit for validation':'Submit for validation';
     }
 
     // ---------- data ----------
@@ -1273,7 +1311,7 @@
     $('#negBack')?.addEventListener('click',closeNegative);
     // sales agent bindings
     document.querySelectorAll('[data-doc]').forEach(inp=>inp.onchange=()=>{const cat=inp.dataset.doc;[...inp.files].forEach(f=>saDocs[cat].push(f));inp.value='';saRenderDocs();});
-    $('#saTabNew')?.addEventListener('click',()=>saSwitch('new'));
+    $('#saTabNew')?.addEventListener('click',()=>{ if(saEditingId){ saEditingId=null; $('#saSubmit').textContent='Submit for validation'; saReset(); } saSwitch('new'); });
     $('#saTabMine')?.addEventListener('click',()=>saSwitch('mine'));
     ['sa_primary_no','sa_other_contact_no'].forEach(id=>{const el=$('#'+id);if(el)el.oninput=()=>{el.value=el.value.replace(/\D/g,'').slice(0,11)};});
     $('#sa_dwelling')?.addEventListener('change',populatePlans);
