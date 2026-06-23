@@ -1239,6 +1239,21 @@
       el.querySelectorAll('[data-info]').forEach(b=>b.onclick=()=>showJobInfo(b.dataset.info));
     }
 
+    // ---------- Auto-logout (technicians only): past 7PM AND idle >= 2 hours ----------
+    let lastActivity = Date.now();
+    ['click','touchstart','pointerdown','keydown','input'].forEach(ev=>
+      document.addEventListener(ev, ()=>{ lastActivity = Date.now(); }, {passive:true, capture:true}));
+    const manilaHourNow = () => {
+      try{ return Number(new Intl.DateTimeFormat('en-GB',{hour:'2-digit',hourCycle:'h23',timeZone:TZ}).format(new Date())); }
+      catch(e){ return new Date().getHours(); }
+    };
+    const IDLE_MS = 2*60*60*1000;   // 2 hours
+    function checkAutoLogout(){
+      if(myRole!=='technician' || !myTeam) return;          // technicians only, must be signed in
+      if(manilaHourNow() >= 19 && (Date.now()-lastActivity) >= IDLE_MS){
+        signOff('Naka-auto-logout: lampas 7PM at 2 oras nang walang activity');
+      }
+    }
     function startApp(){
       $('#teamName').textContent=headerName();
       show('appView'); setSync('syncing','Connecting…'); signature=''; knownJobIds=null; primeAudio();
@@ -1248,6 +1263,8 @@
       clearInterval(startApp._t); startApp._t=setInterval(refresh,15000);
       clearInterval(startApp._loc); startApp._loc=setInterval(()=>captureLocation(false),600000); // refresh GPS every 10 min
       clearInterval(startApp._track); startApp._track=setInterval(()=>logTrack('auto'),1200000); // travel trail every 20 min
+      lastActivity=Date.now();
+      clearInterval(startApp._idle); startApp._idle=setInterval(checkAutoLogout,60000); // auto-logout check every minute
       startComms();
     }
 
@@ -1407,19 +1424,20 @@
     $('#payCancel')?.addEventListener('click',closeComplete);
     $('#paySave')?.addEventListener('click',confirmComplete);
     $('#payBack')?.addEventListener('click',closeComplete);
-    $('#mLogout').onclick=async()=>{
-      $('#menuPop').classList.add('hidden');
-      await clockOut();                       // record time-out
+    async function signOff(message){
+      $('#menuPop')?.classList.add('hidden');
+      try{ await clockOut(); }catch(e){}      // record time-out
       if(realtimeChan)sb.removeChannel(realtimeChan);
       if(chatChan)sb.removeChannel(chatChan); if(annChan)sb.removeChannel(annChan);
-      clearInterval(startApp._t); clearInterval(startApp._loc); clearInterval(startApp._track);
+      clearInterval(startApp._t); clearInterval(startApp._loc); clearInterval(startApp._track); clearInterval(startApp._idle);
       try{ localStorage.removeItem(shiftKey()); }catch(e){}   // clear saved shift → next login picks account manually
       shiftAccount=''; shiftDriver=''; shiftTech1=''; shiftTech2='';
-      await sb.auth.signOut();
+      try{ await sb.auth.signOut(); }catch(e){}
       myTeam=''; jobs=[]; $('#uName').value=''; $('#uPass').value='';
-      toast('Timed out — signed off');
+      toast(message||'Signed off');
       show('loginView');
-    };
+    }
+    $('#mLogout').onclick=()=>signOff('Timed out — signed off');
 
     // Show/Hide password toggles (all login + change-password fields)
     document.querySelectorAll('[data-eye]').forEach(b=>b.onclick=()=>{ const inp=$('#'+b.dataset.eye); if(!inp)return; const reveal=inp.type==='password'; inp.type=reveal?'text':'password'; b.textContent=reveal?'Hide':'Show'; });
