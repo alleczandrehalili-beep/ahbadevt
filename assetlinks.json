@@ -1,0 +1,11 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "io.github.alleczandrehalili_beep.twa",
+    "sha256_cert_fingerprints": [
+      "A3:1C:5A:FB:07:18:5F:EF:2F:22:57:4C:BD:27:08:ED:41:60:2C:75:9E:D3:57:69:4C:59:D3:1D:39:73:D6:6F",
+      "7D:66:96:10:8C:F7:2F:91:02:79:3A:77:C5:0B:F9:21:C7:80:CC:33:EF:7D:22:BA:63:49:25:B8:C6:5B:99:1C"
+    ]
+  }
+}]
