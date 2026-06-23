@@ -625,7 +625,7 @@
         html+=`<div class="ann-open" style="position:relative;cursor:pointer;border-radius:12px;overflow:hidden;background:#081c18">
           <img src="${pubUrl(rec.photo_path)}" alt="" style="width:100%;height:auto;max-height:64vh;object-fit:contain;display:block;background:#081c18">
           <div style="position:absolute;left:0;right:0;top:0;padding:12px 14px 30px;background:linear-gradient(to bottom,rgba(6,24,20,.82),rgba(6,24,20,0));color:#fff">
-            <div style="font-weight:800;font-size:17px;line-height:1.25;text-shadow:0 1px 4px rgba(0,0,0,.55)">${esc(rec.title||'')}</div>
+            <div style="font-weight:800;font-size:17px;line-height:1.25;text-shadow:0 1px 4px rgba(0,0,0,.55)">${esc(rec.photo_caption||rec.title||'')}</div>
           </div></div>`;
       }
       wrap.innerHTML=html;
