@@ -4,6 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     const $ = s => document.querySelector(s);
+    const $$ = s => Array.from(document.querySelectorAll(s));
     let myTeam = '';        // AHBA_SLI004
     let jobs = [];
     let signature = '';
