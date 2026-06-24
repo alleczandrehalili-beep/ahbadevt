@@ -220,7 +220,7 @@
         body.innerHTML=[
           sec('Status'), row('Status',saStatusLabel(j.status)), row('Team',j.team), row('Priority',j.priority),
           sec('Subscriber'), row('Name',j.subscriber), row('Primary no.',j.primary_no), row('Other no.',j.other_contact_no),
-          sec('Address'), row('Address',j.address), row('Barangay',j.brgy), row('City',j.city||j.area),
+          sec('Address'), row('Address',j.address), row('District',j.district?('District '+j.district):''), row('Barangay',j.brgy), row('City',j.city||j.area),
           sec('Service'), row('Unit type',j.dwelling_type), row('Plan',j.plan), row('Add-on',j.add_on), row('Reference no.',j.ref_no),
           row('1P/2P',j.play_type), row('Add-ons (2P)',j.addon_count), row('Installation fee',j.install_fee_type), row('Amount to collect',money(j.amount_to_collect)),
           row('JO Number',j.job_order_no), row('IBAS',j.ibass_acct_no), row('VAS no.',j.vas_no), row('Source',j.source_of_sales), row('Referral',j.referral_name),

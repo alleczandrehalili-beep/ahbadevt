@@ -315,7 +315,7 @@
     }
 
     // ---------- sales agent ----------
-    function startSA(){ $('#teamName').textContent=headerName(); show('saView'); saSwitch('new'); saRenderDocs(); populatePlans(); toggleAddonCount(); startComms(); primeSalesStatus(); startSalesWatch(); }
+    function startSA(){ $('#teamName').textContent=headerName(); show('saView'); saSwitch('new'); saRenderDocs(); populatePlans(); toggleAddonCount(); startComms(); primeSalesStatus(); startSalesWatch(); const dsel=$('#sa_district'); if(dsel&&!dsel._wired){ dsel._wired=true; dsel.onchange=()=>populateSaBrgys(dsel.value); } }
     // Load current statuses once at startup so we can detect future changes (without sounding on first load)
     async function primeSalesStatus(){ try{ const {data}=await sb.from('jobs').select('id,status').eq('created_by',myTeam); (data||[]).forEach(j=>{ saStatus[j.id]=j.status; }); }catch(e){} }
 
@@ -441,6 +441,20 @@
     const PLANS_MDU=['PLAN 999 - 100MBPS','PLAN 1399 - 200MBPS','PLAN 1500 - 300MBPS','PLAN 2000 - 500MBPS'];
     const PLANS_MDU_DOCSIS=['SKY FIBER 999 - 100MBPS','SKY FIBER 1399 - 200MBPS','SKY FIBER 1500 - 300MBPS','SKY FIBER 2000 - 500MBPS'];
     const ADDONS=['SKY TV 99','SKY TV 299','SKY TV 499'];
+    // Quezon City barangays grouped by legislative district (1–6). Source: PSA / Wikipedia.
+    const QC_BRGYS={
+"1":["Alicia","Bagong Pag-asa","Bahay Toro","Balingasa","Bungad","Damar","Damayan","Del Monte","Katipunan","Lourdes","Maharlika","Manresa","Mariblo","Masambong","N.S. Amoranto","Nayong Kanluran","Paang Bundok","Pag-ibig sa Nayon","Paltok","Paraiso","Phil-Am","Project 6","Ramon Magsaysay","Saint Peter","Salvacion","San Antonio","San Isidro Labrador","San Jose","Santa Cruz","Santa Teresita","Sto. Cristo","Santo Domingo","Siena","Talayan","Vasra","Veterans Village","West Triangle"],
+"2":["Bagong Silangan","Batasan Hills","Commonwealth","Holy Spirit","Payatas"],
+"3":["Amihan","Bagumbayan","Bagumbuhay","Bayanihan","Blue Ridge A","Blue Ridge B","Camp Aguinaldo","Claro (Quirino 3-B)","Dioquino Zobel","Duyan-duyan","E. Rodriguez","East Kamias","Escopa I","Escopa II","Escopa III","Escopa IV","Libis","Loyola Heights","Mangga","Marilag","Masagana","Matandang Balara","Milagrosa","Pansol","Quirino 2-A","Quirino 2-B","Quirino 2-C","Quirino 3-A","St. Ignatius","San Roque","Silangan","Socorro","Tagumpay","Ugong Norte","Villa Maria Clara","West Kamias","White Plains"],
+"4":["Bagong Lipunan ng Crame","Botocan","Central","Damayang Lagi","Don Manuel","Doña Aurora","Doña Imelda","Doña Josefa","Horseshoe","Immaculate Concepcion","Kalusugan","Kamuning","Kaunlaran","Kristong Hari","Krus na Ligas","Laging Handa","Malaya","Mariana","Obrero","Old Capitol Site","Paligsahan","Pinagkaisahan","Pinyahan","Roxas","Sacred Heart","San Isidro Galas","San Martin de Porres","San Vicente","Santol","Sikatuna Village","South Triangle","Santo Niño","Tatalon","Teacher's Village East","Teacher's Village West","U.P. Campus","U.P. Village","Valencia"],
+"5":["Bagbag","Capri","Fairview","Gulod","Greater Lagro","Kaligayahan","Nagkaisang Nayon","North Fairview","Novaliches Proper","Pasong Putik Proper","San Agustin","San Bartolome","Sta. Lucia","Sta. Monica"],
+"6":["Apolonio Samson","Baesa","Balon Bato","Culiat","New Era","Pasong Tamo","Sangandaan","Sauyo","Talipapa","Tandang Sora","Unang Sigaw"]
+};
+    function populateSaBrgys(dist){
+      const sel=$('#sa_brgy'); if(!sel) return;
+      const list=QC_BRGYS[String(dist)]||[];
+      sel.innerHTML=list.length?'<option value="">— Select barangay —</option>'+list.map(b=>`<option>${b}</option>`).join(''):'<option value="">— Select district first —</option>';
+    }
     function populatePlans(){
       const dw=($('#sa_dwelling')&&$('#sa_dwelling').value)||'SDU';
       const list=dw==='MDU DOCSIS'?PLANS_MDU_DOCSIS:(dw==='MDU'?PLANS_MDU:PLANS_SDU);
@@ -462,7 +476,8 @@
       });
     }
     function saReset(){
-      ['first_name','middle_name','last_name','primary_no','other_contact_no','house_no','street_name','village','brgy','ref_no','amount','source_of_sales','referral_name','special_note'].forEach(k=>{const el=$('#sa_'+k);if(el)el.value='';});
+      ['first_name','middle_name','last_name','primary_no','other_contact_no','house_no','street_name','village','ref_no','amount','source_of_sales','referral_name','special_note'].forEach(k=>{const el=$('#sa_'+k);if(el)el.value='';});
+      if($('#sa_district')) $('#sa_district').value=''; populateSaBrgys('');
       if($('#sa_city')) $('#sa_city').value='QUEZON CITY';
       if($('#sa_dwelling')) $('#sa_dwelling').value='SDU'; if($('#sa_install_fee')) $('#sa_install_fee').value='One Time Payment';
       populatePlans(); if($('#sa_addon')) $('#sa_addon').value='';
@@ -517,7 +532,8 @@
         const set=(id,val)=>{const el=$('#sa_'+id); if(el) el.value=(val==null?'':val);};
         set('first_name',j.first_name); set('middle_name',j.middle_name); set('last_name',j.last_name);
         set('primary_no',j.primary_no); set('other_contact_no',j.other_contact_no);
-        set('house_no',j.house_no); set('street_name',j.street_name); set('village',j.village); set('brgy',j.brgy);
+        set('house_no',j.house_no); set('street_name',j.street_name); set('village',j.village);
+        if($('#sa_district')) $('#sa_district').value=j.district||''; populateSaBrgys(j.district||''); if($('#sa_brgy')) $('#sa_brgy').value=j.brgy||'';
         if($('#sa_city')) $('#sa_city').value=j.city||'QUEZON CITY';
         if($('#sa_dwelling')) $('#sa_dwelling').value=(['MDU','MDU DOCSIS'].includes(j.dwelling_type)?j.dwelling_type:'SDU');
         populatePlans(); if($('#sa_plan')) $('#sa_plan').value=j.plan||'';
@@ -559,8 +575,8 @@
     async function saSubmit(){
       clearErr('#saErr');
       const v=id=>($('#'+id)?$('#'+id).value.trim():'');
-      const fn=v('sa_first_name'), ln=v('sa_last_name'), brgy=v('sa_brgy'), city=v('sa_city'), pno=v('sa_primary_no'), ono=v('sa_other_contact_no');
-      if(!fn||!ln||!pno||!brgy||!city){ showErr('#saErr','Please fill: first & last name, primary no., barangay, and city.'); return; }
+      const fn=v('sa_first_name'), ln=v('sa_last_name'), dist=v('sa_district'), brgy=v('sa_brgy'), city=v('sa_city')||'QUEZON CITY', pno=v('sa_primary_no'), ono=v('sa_other_contact_no');
+      if(!fn||!ln||!pno||!dist||!brgy){ showErr('#saErr','Please fill: first & last name, primary no., district, and barangay.'); return; }
       if(!/^\d{11}$/.test(pno)){ showErr('#saErr','Primary no. must be exactly 11 digits (numbers only).'); return; }
       if(ono && !/^\d{11}$/.test(ono)){ showErr('#saErr','Other contact no. must be 11 digits (numbers only).'); return; }
       const editing=!!saEditingId;
@@ -568,10 +584,10 @@
       if(!editing && !saDocs.id.length){ showErr('#saErr','A Valid ID photo is required.'); return; }
       const btn=$('#saSubmit'); btn.disabled=true; btn.textContent=editing?'Resubmitting…':'Submitting…';
       const full=[fn,v('sa_middle_name'),ln].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
-      const addr=[v('sa_house_no'),v('sa_street_name'),v('sa_village'),brgy,city].filter(Boolean).join(', ');
+      const addr=[v('sa_house_no'),v('sa_street_name'),v('sa_village'),brgy,'District '+dist,city].filter(Boolean).join(', ');
       const fields={subscriber:full,plan:v('sa_plan'),ref_no:v('sa_ref_no'),area:city,address:addr,status:'for_validation',
         first_name:fn,middle_name:v('sa_middle_name'),last_name:ln,primary_no:pno,other_contact_no:v('sa_other_contact_no'),
-        house_no:v('sa_house_no'),street_name:v('sa_street_name'),village:v('sa_village'),brgy:brgy,city:city,
+        house_no:v('sa_house_no'),street_name:v('sa_street_name'),village:v('sa_village'),district:dist,brgy:brgy,city:city,
         play_type:v('sa_play_type'),source_of_sales:v('sa_source_of_sales'),referral_name:v('sa_referral_name'),
         dwelling_type:v('sa_dwelling'),install_fee_type:v('sa_install_fee'),amount_to_collect:(v('sa_amount')!==''?Number(v('sa_amount')):null),add_on:v('sa_addon'),addon_count:(v('sa_play_type')==='2-PLAY'&&v('sa_addon_count')!==''?Number(v('sa_addon_count')):null),
         special_note:v('sa_special_note'),updated_at:new Date().toISOString()};
