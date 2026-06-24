@@ -487,7 +487,7 @@
     async function saRenderMine(){
       const el=$('#saMineList'); el.innerHTML=`<div class="empty">Loading…</div>`;
       try{
-        const {data}=await sb.from('jobs').select('id,subscriber,status,area,team,plan,ref_no,negative_remark,special_note,updated_at').eq('created_by',myTeam).order('updated_at',{ascending:false});
+        const {data}=await sb.from('jobs').select('id,subscriber,status,area,team,plan,ref_no,negative_remark,special_note,updated_at').eq('created_by',myTeam).is('deleted_at',null).order('updated_at',{ascending:false});
         const rows=data||[];
         rows.forEach(j=>{ saStatus[j.id]=j.status; });   // seed status map for change detection
         if(!rows.length){ el.innerHTML=`<div class="empty">${svg('inbox')}No submissions yet.<br>Encode a new job order to get started.</div>`; return; }

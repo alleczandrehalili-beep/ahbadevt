@@ -1,6 +1,6 @@
 // ---------- data ----------
     async function loadJobs(){
-      const {data,error} = await sb.from('jobs').select('*').eq('team',myTeam).order('updated_at',{ascending:false});
+      const {data,error} = await sb.from('jobs').select('*').eq('team',myTeam).is('deleted_at',null).order('updated_at',{ascending:false});
       if(error) throw error; return data||[];
     }
     async function loadPhotos(){
