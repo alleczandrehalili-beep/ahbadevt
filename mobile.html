@@ -365,6 +365,9 @@
     <div class="field"><label>Mode of payment</label><select id="pay_mode"><option>Gcash</option><option>Cash Remittance</option></select></div>
     <div class="field"><label>Amount (₱)</label><input id="pay_amount" type="number" inputmode="numeric"></div>
     <div class="field"><label>AR No. (Acknowledgement Receipt)</label><input id="pay_ar"></div>
+    <div class="field hidden" id="payProofWrap"><label>Proof of Remittance <em style="font-style:normal;color:#c2503a">*required (Gcash)</em></label>
+      <div style="display:flex;gap:8px"><label class="addphoto" style="flex:1">📷 Camera<input type="file" accept="image/*" capture="environment" id="pay_proof_cam" hidden></label><label class="addphoto" style="flex:1">🖼️ Album<input type="file" accept="image/*" id="pay_proof_alb" hidden></label></div>
+      <div id="payProofName" style="font-size:10px;color:#9aa6a2;margin-top:5px"></div></div>
     <div class="err" id="payErr"></div>
     <div style="display:flex;gap:8px;margin-top:6px"><button class="btn-ghost" id="payCancel" style="flex:1">Cancel</button><button class="btn-primary" id="paySave" style="flex:1">Complete job</button></div>
   </div>

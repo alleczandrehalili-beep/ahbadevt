@@ -181,9 +181,13 @@
     }
 
     // ---------- complete with payment ----------
+    let payProofFile=null;   // Proof of Remittance photo (required when Gcash)
+    function togglePayProof(){ const g=$('#pay_mode').value==='Gcash'; $('#payProofWrap').classList.toggle('hidden',!g); }
     function openComplete(jobId){
       $('#payModal').dataset.job=jobId; $('#payJob').textContent='For '+jobId;
       $('#pay_amount').value=''; $('#pay_ar').value=''; clearErr('#payErr');
+      payProofFile=null; if($('#pay_proof_cam'))$('#pay_proof_cam').value=''; if($('#pay_proof_alb'))$('#pay_proof_alb').value=''; if($('#payProofName'))$('#payProofName').textContent='';
+      togglePayProof();
       $('#payBack').classList.remove('hidden'); $('#payModal').classList.remove('hidden');
     }
     function closeComplete(){ $('#payBack').classList.add('hidden'); $('#payModal').classList.add('hidden'); }
@@ -191,6 +195,7 @@
       const id=$('#payModal').dataset.job, mode=$('#pay_mode').value, amt=Number($('#pay_amount').value), ar=$('#pay_ar').value.trim();
       if(isNaN(amt)||amt<0){ showErr('#payErr','Enter a valid amount.'); return; }
       if(!ar){ showErr('#payErr','Enter the AR No.'); return; }
+      if(mode==='Gcash' && !payProofFile){ showErr('#payErr','Proof of Remittance photo is required for Gcash.'); return; }
       const job=jobs.find(j=>j.id===id); if(!job)return;
       const btn=$('#paySave'); btn.disabled=true; btn.textContent='Saving…';
       const now=new Date().toISOString();
@@ -198,8 +203,10 @@
       const patch={status:'completed', payment_mode:mode, payment_amount:amt, ar_no:ar, history:hist, updated_at:now, completed_at:now,
         work_account:shiftAccount, crew_driver:shiftDriver, crew_tech1:shiftTech1, crew_tech2:shiftTech2};
       const {error}=await sb.from('jobs').update(patch).eq('id',id);
+      if(error){ btn.disabled=false; btn.textContent='Complete job'; showErr('#payErr','Failed: '+error.message); return; }
+      // Upload the Gcash Proof of Remittance (best-effort) so it appears with the load's photos.
+      if(mode==='Gcash' && payProofFile){ try{ await uploadOne(id, payProofFile, 'Proof of Remittance'); }catch(e){ console.warn('proof upload',e.message); } }
       btn.disabled=false; btn.textContent='Complete job';
-      if(error){ showErr('#payErr','Failed: '+error.message); return; }
       Object.assign(job, patch);
       closeComplete(); toast('Job completed'); setSync('live','Synced'); render(); logTrack('status:completed', job.area||job.city);
     }
@@ -487,6 +494,8 @@
     $('#mexpBack')?.addEventListener('click',closeMobileExpense);
     $('#payCancel')?.addEventListener('click',closeComplete);
     $('#paySave')?.addEventListener('click',confirmComplete);
+    $('#pay_mode')?.addEventListener('change',togglePayProof);
+    ['pay_proof_cam','pay_proof_alb'].forEach(id=>{ const el=$('#'+id); if(el) el.onchange=()=>{ payProofFile=el.files&&el.files[0]||null; const n=$('#payProofName'); if(n) n.textContent=payProofFile?('📎 '+payProofFile.name):''; }; });
     $('#payBack')?.addEventListener('click',closeComplete);
     async function signOff(message){
       $('#menuPop')?.classList.add('hidden');
