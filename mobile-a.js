@@ -311,6 +311,11 @@
       try{ const s=JSON.parse(localStorage.getItem(shiftKey())||'null');
         if(s && s.date===manilaDate()){ $('#sf_driver').value=s.driver||''; $('#sf_tech1').value=s.tech1||''; $('#sf_tech2').value=s.tech2||''; }
       }catch(e){}
+      // AHBA_OMT = One-Man Team: only Account + Technician name; no Driver / Tech 2.
+      const omt=/OMT/i.test(myTeam||'');
+      const dw=$('#sf_driver_wrap'), t2w=$('#sf_tech2_wrap'), lab=$('#sf_tech1_label');
+      if(dw) dw.style.display=omt?'none':''; if(t2w) t2w.style.display=omt?'none':'';
+      if(lab) lab.textContent=omt?'Technician name *':'Technician 1 *';
       clearErr('#shiftErr'); show('shiftView');
     }
 

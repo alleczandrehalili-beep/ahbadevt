@@ -269,9 +269,9 @@
         <div class="err" id="shiftErr"></div>
         <form id="shiftForm">
           <div class="field"><label for="sf_account">Account *</label><select id="sf_account" required><option value="">— Select account —</option></select></div>
-          <div class="field"><label for="sf_driver">Driver *</label><input id="sf_driver" autocapitalize="words" required></div>
-          <div class="field"><label for="sf_tech1">Technician 1 *</label><input id="sf_tech1" autocapitalize="words" required></div>
-          <div class="field"><label for="sf_tech2">Technician 2 (optional)</label><input id="sf_tech2" autocapitalize="words"></div>
+          <div class="field" id="sf_driver_wrap"><label for="sf_driver">Driver *</label><input id="sf_driver" autocapitalize="words"></div>
+          <div class="field"><label for="sf_tech1" id="sf_tech1_label">Technician 1 *</label><input id="sf_tech1" autocapitalize="words" required></div>
+          <div class="field" id="sf_tech2_wrap"><label for="sf_tech2">Technician 2 (optional)</label><input id="sf_tech2" autocapitalize="words"></div>
           <button class="btn-primary" id="shiftBtn" type="submit">Start shift</button>
         </form>
       </div>

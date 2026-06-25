@@ -400,10 +400,12 @@
 
     $('#shiftForm').addEventListener('submit', async e=>{
       e.preventDefault(); clearErr('#shiftErr');
-      const acc=$('#sf_account').value, drv=$('#sf_driver').value.trim(), t1=$('#sf_tech1').value.trim(), t2=$('#sf_tech2').value.trim();
+      const omt=/OMT/i.test(myTeam||'');
+      const acc=$('#sf_account').value, t1=$('#sf_tech1').value.trim();
+      let drv=$('#sf_driver').value.trim(), t2=$('#sf_tech2').value.trim();
       if(!acc){ showErr('#shiftErr','Select an account.'); return; }
-      if(!drv){ showErr('#shiftErr','Driver is required.'); return; }
-      if(!t1){ showErr('#shiftErr','Technician 1 is required.'); return; }
+      if(omt){ if(!t1){ showErr('#shiftErr','Technician name is required.'); return; } drv=t1; t2=''; }   // one-man team: technician also drives
+      else { if(!drv){ showErr('#shiftErr','Driver is required.'); return; } if(!t1){ showErr('#shiftErr','Technician 1 is required.'); return; } }
       const btn=$('#shiftBtn'); btn.disabled=true; btn.textContent='Starting…';
       // make sure no other active team grabbed this account in the meantime
       try{
