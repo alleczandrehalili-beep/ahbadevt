@@ -140,27 +140,35 @@
     }
 
     // ---------- negative job order ----------
+    let negPhotoFiles=[];   // mandatory reference photo(s) for an Incomplete/Negative load
+    function renderNegThumbs(){ const t=$('#negPhotoThumbs'); if(!t) return; t.innerHTML=negPhotoFiles.map((f,i)=>`<span style="position:relative;display:inline-block"><img src="${URL.createObjectURL(f)}" alt=""><button type="button" data-negdel="${i}" style="position:absolute;top:-6px;right:-6px;background:#c2503a;color:#fff;border:0;border-radius:50%;width:19px;height:19px;font-size:11px;line-height:1;padding:0">✕</button></span>`).join(''); t.querySelectorAll('[data-negdel]').forEach(b=>b.onclick=()=>{ negPhotoFiles.splice(Number(b.dataset.negdel),1); renderNegThumbs(); }); }
     function openNegative(jobId){
       $('#negModal').dataset.job=jobId; $('#negJob').textContent='For '+jobId;
       $('#neg_remark').value='RS BY SUBS'; $('#neg_other').value=''; $('#negOtherWrap').classList.add('hidden'); clearErr('#negErr');
+      negPhotoFiles=[]; if($('#neg_photo_cam'))$('#neg_photo_cam').value=''; if($('#neg_photo_alb'))$('#neg_photo_alb').value=''; renderNegThumbs();
       $('#negBack').classList.remove('hidden'); $('#negModal').classList.remove('hidden');
     }
     function closeNegative(){ $('#negBack').classList.add('hidden'); $('#negModal').classList.add('hidden'); }
     async function saveNegative(){
       const jobId=$('#negModal').dataset.job, sel=$('#neg_remark').value, other=$('#neg_other').value.trim();
       if(sel==='OTHERS'&&!other){ showErr('#negErr','Please specify the reason.'); return; }
+      if(!negPhotoFiles.length){ showErr('#negErr','At least one reference photo is required to mark Incomplete.'); return; }
       const remark=sel==='OTHERS'?('OTHERS: '+other):sel;
-      const btn=$('#negSave'); btn.disabled=true; btn.textContent='Saving…';
+      const btn=$('#negSave'); btn.disabled=true; btn.textContent='Uploading photo…';
       try{
+        // Upload the mandatory reference photo(s) FIRST — must succeed before closing the JO.
+        let ok=0; for(const f of negPhotoFiles){ try{ await uploadOne(jobId, f, 'Incomplete proof'); ok++; }catch(e){ console.warn('neg photo',e.message); } }
+        if(!ok){ btn.disabled=false; btn.textContent='Save as Negative'; showErr('#negErr','Photo upload failed — please try again.'); return; }
+        btn.textContent='Saving…';
         const now=new Date().toISOString();
         const j=jobs.find(x=>x.id===jobId);
-        const hist=appendHist(j&&j.history,'Negative: '+remark+' (by '+myTeam+' / '+shiftAccount+')');
+        const hist=appendHist(j&&j.history,'Negative: '+remark+' ('+ok+' photo'+(ok>1?'s':'')+') (by '+myTeam+' / '+shiftAccount+')');
         const patch={status:'negative', negative_remark:remark, negative_at:now, updated_at:now, history:hist,
           work_account:shiftAccount, crew_driver:shiftDriver, crew_tech1:shiftTech1, crew_tech2:shiftTech2};
         const {error}=await sb.from('jobs').update(patch).eq('id',jobId);
         if(error) throw error;
         if(j){ Object.assign(j, patch); logTrack('status:negative', j.area||j.city); }
-        toast('Marked as Negative — auto-returns to dispatch 5AM'); closeNegative(); viewMode='negative'; render();
+        toast('Marked as Incomplete'); closeNegative(); viewMode='negative'; render();
       }catch(e){ showErr('#negErr','Failed: '+e.message); }
       btn.disabled=false; btn.textContent='Save as Negative';
     }
@@ -479,6 +487,7 @@
     $('#neg_remark')?.addEventListener('change',()=>$('#negOtherWrap').classList.toggle('hidden',$('#neg_remark').value!=='OTHERS'));
     $('#negCancel')?.addEventListener('click',closeNegative);
     $('#negSave')?.addEventListener('click',saveNegative);
+    ['neg_photo_cam','neg_photo_alb'].forEach(id=>{ const el=$('#'+id); if(el) el.onchange=()=>{ [...el.files].forEach(f=>negPhotoFiles.push(f)); el.value=''; renderNegThumbs(); }; });
     $('#mInfoClose')?.addEventListener('click',closeMInfo); $('#mInfoBack')?.addEventListener('click',closeMInfo);
     $('#negBack')?.addEventListener('click',closeNegative);
     // sales agent bindings

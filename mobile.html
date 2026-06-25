@@ -385,6 +385,9 @@
       <option>OTHERS</option>
     </select></div>
     <div class="field hidden" id="negOtherWrap"><label>Specify (Others)</label><input id="neg_other"></div>
+    <div class="field"><label>Reference photo(s) <em style="font-style:normal;color:#c2503a">*required</em></label>
+      <div style="display:flex;gap:8px"><label class="addphoto" style="flex:1">📷 Camera<input type="file" accept="image/*" capture="environment" id="neg_photo_cam" hidden></label><label class="addphoto" style="flex:1">🖼️ Album<input type="file" accept="image/*" multiple id="neg_photo_alb" hidden></label></div>
+      <div class="thumbs" id="negPhotoThumbs" style="margin-top:6px"></div></div>
     <div class="err" id="negErr"></div>
     <div style="display:flex;gap:8px;margin-top:6px"><button class="btn-ghost" id="negCancel" style="flex:1">Cancel</button><button class="btn-primary" id="negSave" style="flex:1;background:var(--coral)">Save as Negative</button></div>
   </div>
