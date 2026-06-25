@@ -519,7 +519,7 @@
     }
     // Sales: delete their OWN submitted order (only while still for-validation / rejected, pre-dispatch).
     async function saDeleteOrder(jobId){
-      if(!confirm('Delete this job order?\nPermanenteng maaalis ang submission mo. Hindi na ito mababawi.')) return;
+      if(!confirm('Delete this job order?\nYour submission will be permanently removed. This cannot be undone.')) return;
       try{
         try{ await sb.from('job_docs').delete().eq('job_id',jobId); }catch(e){}
         const {error}=await sb.from('jobs').delete().eq('id',jobId); if(error) throw error;

@@ -18,7 +18,7 @@
       const done=PHOTO_LABELS.filter(l=>byLabel[l]&&byLabel[l].length).length;
       const rows=PHOTO_LABELS.map((l,i)=>{
         const arr=byLabel[l]||[]; const has=arr.length>0; const lab=l.replace(/"/g,'&quot;');
-        const thumb=has?`<div class="thumbs">${arr.map(p=>`<span style="position:relative;display:inline-block"><img src="${pubUrl(p)}" alt=""><button type="button" data-delp="${p}" data-deljob="${id}" title="Burahin" style="position:absolute;top:-6px;right:-6px;background:#c2503a;color:#fff;border:0;border-radius:50%;width:19px;height:19px;font-size:11px;line-height:1;padding:0">✕</button></span>`).join('')}</div>`:'';
+        const thumb=has?`<div class="thumbs">${arr.map(p=>`<span style="position:relative;display:inline-block"><img src="${pubUrl(p)}" alt=""><button type="button" data-delp="${p}" data-deljob="${id}" title="Delete" style="position:absolute;top:-6px;right:-6px;background:#c2503a;color:#fff;border:0;border-radius:50%;width:19px;height:19px;font-size:11px;line-height:1;padding:0">✕</button></span>`).join('')}</div>`:'';
         return `<div class="pslot ${has?'done':''}"><div class="pslot-head"><span>${i+1}. ${l}</span><span class="pchk ${has?'ok':'need'}">${has?'✓':'•'}</span></div>${thumb}<div style="display:flex;gap:6px;margin-top:6px"><label class="addphoto pmini">${svg('camera')} Camera<input type="file" accept="image/*" capture="environment" hidden data-up="${id}" data-label="${lab}"></label><label class="addphoto pmini">${svg('note')} Album<input type="file" accept="image/*" hidden data-up="${id}" data-label="${lab}"></label></div></div>`;
       }).join('');
       return `<div class="photos"><div class="photos-head"><span>Proof photos (${PHOTOS_REQUIRED} required)</span><span class="count ${done>=PHOTOS_REQUIRED?'ok':'need'}">${done}/${PHOTOS_REQUIRED}</span></div>
@@ -233,7 +233,7 @@
         const sec=t=>`<div class="form-sec" style="margin-top:8px">${t}</div>`;
         const money=v=>(v!=null&&v!=='')?('₱'+Number(v).toLocaleString()):'';
         body.innerHTML=[
-          sec('Status'), row('Status',saStatusLabel(j.status)), row('Team',j.team), row('Priority',j.priority),
+          sec('Status'), row('Status',saStatusLabel(j.status)), row('Team',j.team), row('Sales Agent',j.created_by), row('Priority',j.priority),
           sec('Subscriber'), row('Name',j.subscriber), row('Primary no.',j.primary_no), row('Other no.',j.other_contact_no),
           sec('Address'), row('Address',j.address), row('District',j.district?('District '+j.district):''), row('Barangay',j.brgy), row('City',j.city||j.area),
           sec('Service'), row('Unit type',j.dwelling_type), row('Plan',j.plan), row('Add-on',j.add_on), row('Reference no.',j.ref_no),
@@ -462,7 +462,7 @@
     document.addEventListener('click',()=>$('#menuPop').classList.add('hidden'));
     $('#menuPop').onclick=e=>e.stopPropagation();
     $('#secSave')?.addEventListener('click',submitGate);
-    $('#sec_photo')?.addEventListener('change',e=>{ secPhotoFile=e.target.files[0]||null; const n=$('#secPhotoName'); if(n){ n.innerHTML=secPhotoFile?('📎 '+secPhotoFile.name+' <span id="secPhotoClear" style="color:#c2503a;text-decoration:underline;cursor:pointer">✕ alisin</span>'):''; const c=$('#secPhotoClear'); if(c) c.onclick=()=>{ secPhotoFile=null; if($('#sec_photo'))$('#sec_photo').value=''; n.innerHTML=''; }; } });
+    $('#sec_photo')?.addEventListener('change',e=>{ secPhotoFile=e.target.files[0]||null; const n=$('#secPhotoName'); if(n){ n.innerHTML=secPhotoFile?('📎 '+secPhotoFile.name+' <span id="secPhotoClear" style="color:#c2503a;text-decoration:underline;cursor:pointer">✕ remove</span>'):''; const c=$('#secPhotoClear'); if(c) c.onclick=()=>{ secPhotoFile=null; if($('#sec_photo'))$('#sec_photo').value=''; n.innerHTML=''; }; } });
     $('#secCancel')?.addEventListener('click',closeSec);
     $('#secBack')?.addEventListener('click',closeSec);
     $$('.sec-tab').forEach(b=>b.addEventListener('click',()=>secSwitch(b.dataset.sectab)));
