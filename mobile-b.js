@@ -228,12 +228,18 @@
         const {data:j}=await sb.from('jobs').select('*').eq('id',id).single();
         if(!j){ body.innerHTML='<div class="empty">Not found.</div>'; return; }
         $('#mInfoTitle').textContent=(j.id||'')+' · '+(j.subscriber||'');
+        // Sales Agent = account · renamed mobile-user name (same format as the Validation page).
+        let agentLbl=j.created_by||'—';
+        if(j.created_by && !/^(CONSOLE|IMPORT)$/i.test(j.created_by)){
+          try{ const {data:t}=await sb.from('technicians').select('display_name').eq('username',j.created_by).maybeSingle();
+            if(t && t.display_name) agentLbl=j.created_by+' · '+t.display_name; }catch(e){}
+        }
         const esc=s=>(s==null?'':String(s)).replace(/</g,'&lt;');
         const row=(label,val)=>(val==null||val==='')?'':`<div class="row" style="justify-content:space-between;gap:12px"><span style="color:#9aa6a2">${label}</span><span style="text-align:right;font-weight:600">${esc(val)}</span></div>`;
         const sec=t=>`<div class="form-sec" style="margin-top:8px">${t}</div>`;
         const money=v=>(v!=null&&v!=='')?('₱'+Number(v).toLocaleString()):'';
         body.innerHTML=[
-          sec('Status'), row('Status',saStatusLabel(j.status)), row('Team',j.team), row('Sales Agent',j.created_by), row('Priority',j.priority),
+          sec('Status'), row('Status',saStatusLabel(j.status)), row('Team',j.team), row('Sales Agent',agentLbl), row('Priority',j.priority),
           sec('Subscriber'), row('Name',j.subscriber), row('Primary no.',j.primary_no), row('Other no.',j.other_contact_no),
           sec('Address'), row('Address',j.address), row('District',j.district?('District '+j.district):''), row('Barangay',j.brgy), row('City',j.city||j.area),
           sec('Service'), row('Unit type',j.dwelling_type), row('Plan',j.plan), row('Add-on',j.add_on), row('Reference no.',j.ref_no),
