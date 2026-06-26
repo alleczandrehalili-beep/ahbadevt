@@ -171,7 +171,10 @@
         const mine=(m.role==='team' && m.team===myTeam);
         const who=mine?'You':((m.sender||(m.role==='dispatch'?'Dispatch':(m.team||''))));
         const roleTag=(!mine && m.role==='dispatch' && m.sender_role)?(' · '+String(m.sender_role).replace(/</g,'&lt;')):'';
-        return `<div style="align-self:${mine?'flex-end':'flex-start'};max-width:80%"><div style="background:${mine?'#18a57b':'#eef1ed'};color:${mine?'#fff':'#26352f'};padding:8px 11px;border-radius:12px;font-size:13px">${(m.body||'').replace(/</g,'&lt;')}</div><div style="font-size:9px;color:#9aa6a2;margin-top:2px;text-align:${mine?'right':'left'}">${String(who).replace(/</g,'&lt;')}${roleTag} · ${fmtChatTime(m.created_at)}</div></div>`;
+        const img=m.image_path?`<a href="${pubUrl(m.image_path)}" target="_blank" rel="noopener"><img src="${pubUrl(m.image_path)}" alt="photo" style="max-width:100%;max-height:220px;border-radius:9px;display:block"></a>`:'';
+        const txt=(m.body||'').trim()?`<div>${(m.body||'').replace(/</g,'&lt;')}</div>`:'';
+        const bubble=`<div style="background:${mine?'#18a57b':'#eef1ed'};color:${mine?'#fff':'#26352f'};padding:${img&&!txt?'4px':'8px 11px'};border-radius:12px;font-size:13px;display:flex;flex-direction:column;gap:5px">${img}${txt}</div>`;
+        return `<div style="align-self:${mine?'flex-end':'flex-start'};max-width:80%">${bubble}<div style="font-size:9px;color:#9aa6a2;margin-top:2px;text-align:${mine?'right':'left'}">${String(who).replace(/</g,'&lt;')}${roleTag} · ${fmtChatTime(m.created_at)}</div></div>`;
       }).join(''):'<div style="text-align:center;color:#9aa6a2;font-size:12px;padding:20px">No messages yet. Say hello 👋</div>';
       el.scrollTop=el.scrollHeight;
     }
@@ -185,10 +188,20 @@
     }
     function openChat(){ $('#chatBack').classList.remove('hidden'); $('#chatModal').classList.remove('hidden'); buildChatContacts(); chatUnreadBy[curThreadKey()]=0; recomputeChatBadge(); loadChat(); setTimeout(()=>$('#chatInput')?.focus(),100); }
     function closeChat(){ $('#chatBack').classList.add('hidden'); $('#chatModal').classList.add('hidden'); }
+    let chatPhotoFile=null;   // pending chat image (mobile)
+    function setChatPhoto(file){ chatPhotoFile=file||null; const t=$('#chatPhotoThumb'); if(t){ t.innerHTML=chatPhotoFile?`<span style="position:relative;display:inline-block"><img src="${URL.createObjectURL(chatPhotoFile)}" alt="" style="height:46px;border-radius:7px;display:block"><button type="button" id="chatPhotoDel" style="position:absolute;top:-6px;right:-6px;background:#c2503a;color:#fff;border:0;border-radius:50%;width:18px;height:18px;font-size:10px;line-height:1;padding:0">✕</button></span>`:''; const d=$('#chatPhotoDel'); if(d) d.onclick=()=>{ setChatPhoto(null); if($('#chat_photo_cam'))$('#chat_photo_cam').value=''; if($('#chat_photo_alb'))$('#chat_photo_alb').value=''; }; } }
+    async function uploadChatPhoto(file){
+      const blob=await compressImage(file,1200,140);
+      const path=`chat/${Date.now()}_${Math.random().toString(36).slice(2,7)}.jpg`;
+      const {error}=await sb.storage.from('job-photos').upload(path,blob,{contentType:'image/jpeg',upsert:false});
+      if(error) throw error; return path;
+    }
     async function sendChat(){
-      const v=$('#chatInput').value.trim(); if(!v)return; $('#chatInput').value='';
+      const v=$('#chatInput').value.trim(); if(!v && !chatPhotoFile)return;
       const row={team:myTeam, sender:(myName||myTeam), role:'team', body:v};
       if(chatThread.kind==='dm'){ const [a,b]=dmPair(chatThread.code); row.dm_a=a; row.dm_b=b; }
+      if(chatPhotoFile){ try{ row.image_path=await uploadChatPhoto(chatPhotoFile); }catch(e){ toast('Photo upload failed'); return; } }
+      $('#chatInput').value=''; setChatPhoto(null); if($('#chat_photo_cam'))$('#chat_photo_cam').value=''; if($('#chat_photo_alb'))$('#chat_photo_alb').value='';
       try{ await sb.from('team_messages').insert(row); }catch(e){ toast('Send failed'); }
     }
     function recomputeChatBadge(){ chatUnread=Object.values(chatUnreadBy).reduce((a,b)=>a+(b||0),0); updateChatBadge(); }
@@ -257,7 +270,7 @@
         if(onThisThread){ chatMsgs.push(m); renderChat(); }
         if(!mine){
           playBeep();
-          if(!onThisThread){ chatUnreadBy[tk]=(chatUnreadBy[tk]||0)+1; recomputeChatBadge(); notify('💬 '+(m.sender||'Message'), m.body); }
+          if(!onThisThread){ chatUnreadBy[tk]=(chatUnreadBy[tk]||0)+1; recomputeChatBadge(); notify('💬 '+(m.sender||'Message'), m.body||(m.image_path?'📷 Photo':'')); }
         }
       }).subscribe();
       if(annChan) sb.removeChannel(annChan);

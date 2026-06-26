@@ -478,6 +478,9 @@
     $('#chatSend').onclick=sendChat;
     $('#chatTo')?.addEventListener('change',e=>selectChatThread(e.target.value));
     $('#chatInput').addEventListener('keydown',e=>{if(e.key==='Enter')sendChat();});
+    $('#chatPhotoCamBtn')?.addEventListener('click',()=>$('#chat_photo_cam')?.click());
+    $('#chatPhotoAlbBtn')?.addEventListener('click',()=>$('#chat_photo_alb')?.click());
+    ['chat_photo_cam','chat_photo_alb'].forEach(id=>{ const el=$('#'+id); if(el) el.onchange=()=>{ const f=el.files&&el.files[0]; if(f) setChatPhoto(f); }; });
     $('#chatClose').onclick=closeChat; $('#chatBack').onclick=closeChat;
     $('#annClose').onclick=closeAnn; $('#annBack').onclick=closeAnn;
     $('#mChangePw').onclick=()=>{$('#menuPop').classList.add('hidden');openPw(false)};

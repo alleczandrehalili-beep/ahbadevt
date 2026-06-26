@@ -219,7 +219,14 @@
       <h3 id="chatTitle">💬 Messages with Dispatch</h3>
       <div class="field" style="margin:2px 0 4px"><label style="font-size:11px">Send to</label><select id="chatTo"></select></div>
       <div id="chatList" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin:8px 0;min-height:160px"></div>
-      <div style="display:flex;gap:8px"><input id="chatInput" placeholder="Type a message…" style="flex:1"><button class="btn-primary" id="chatSend" style="width:auto;padding:0 16px">Send</button></div>
+      <div id="chatPhotoThumb" style="margin:0 0 6px"></div>
+      <input type="file" id="chat_photo_cam" accept="image/*" capture="environment" hidden>
+      <input type="file" id="chat_photo_alb" accept="image/*" hidden>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button type="button" id="chatPhotoCamBtn" title="Take a photo" style="width:auto;padding:0 11px;flex:none;background:#eef1ed;border:1px solid #d8dcd9;border-radius:9px;font-size:16px">📷</button>
+        <button type="button" id="chatPhotoAlbBtn" title="Upload a photo" style="width:auto;padding:0 11px;flex:none;background:#eef1ed;border:1px solid #d8dcd9;border-radius:9px;font-size:16px">🖼️</button>
+        <input id="chatInput" placeholder="Type a message…" style="flex:1"><button class="btn-primary" id="chatSend" style="width:auto;padding:0 16px">Send</button>
+      </div>
       <button class="btn-ghost" id="chatClose" style="margin-top:8px">Close</button>
     </div>
 
