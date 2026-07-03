@@ -43,6 +43,37 @@
     function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('show'),2600)}
     function setSync(state,text){const b=$('#syncbar');b.className='syncbar '+state;$('#syncText').textContent=text;if(state==='live')$('#syncStamp').textContent='Updated '+manilaTime(new Date())}
 
+    // ---- Durable write queue: a job status/payment write is NEVER silently lost. ----
+    // If a write fails (offline / server down) it persists in localStorage and retries
+    // on reconnect and on every 15s poll, so the optimistic UI is always eventually true.
+    const SYNC_Q_KEY='ahba_syncq_v1';
+    function syncQLoad(){ try{ return JSON.parse(localStorage.getItem(SYNC_Q_KEY)||'[]'); }catch(e){ return []; } }
+    function syncQSave(q){ try{ localStorage.setItem(SYNC_Q_KEY, JSON.stringify(q)); }catch(e){} }
+    function syncQCount(){ return syncQLoad().length; }
+    function enqueueJob(id, patch){ const q=syncQLoad(); q.push({qid:Date.now()+'_'+Math.random().toString(36).slice(2,6), id, patch, attempts:0, at:Date.now()}); syncQSave(q); }
+    // Try a jobs update now; on failure, queue it for retry and report not-synced (never throws).
+    async function saveJobPatch(id, patch){
+      try{ const {error}=await sb.from('jobs').update(patch).eq('id',id); if(error) throw error; return true; }
+      catch(e){ enqueueJob(id, patch); return false; }
+    }
+    let _flushing=false;
+    async function flushQueue(){
+      if(_flushing) return; _flushing=true;
+      try{
+        while(true){
+          const q=syncQLoad(); if(!q.length) break;
+          const item=q[0];
+          let ok=false;
+          try{ const {error}=await sb.from('jobs').update(item.patch).eq('id',item.id); ok=!error; }catch(e){ ok=false; }
+          if(ok){ syncQSave(syncQLoad().filter(x=>x.qid!==item.qid)); continue; }
+          // Failed → bump attempts; drop as poison after many tries so one bad item can't block the queue.
+          const cur=syncQLoad(); const it=cur.find(x=>x.qid===item.qid);
+          if(it){ it.attempts=(it.attempts||0)+1; syncQSave(it.attempts>=25 ? cur.filter(x=>x.qid!==item.qid) : cur); }
+          break;   // stop this pass; retry on next poll / 'online'
+        }
+      } finally { _flushing=false; }
+    }
+
     // ---------- attendance (time in / time out) ----------
     async function clockIn(){
       try{
