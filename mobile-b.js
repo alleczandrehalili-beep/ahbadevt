@@ -28,6 +28,7 @@
     }
     let knownJobIds=null;   // for detecting newly-arrived loads (sound)
     async function refresh(){
+      await flushQueue();   // retry any queued (offline) writes before showing status
       try{
         jobs=await loadJobs(); await loadPhotos();
         // Detect brand-new load(s) for this team → distinct sound + notification
@@ -37,9 +38,9 @@
           if(fresh.length){ playLoadSound(); notify('🆕 New load', fresh[0].subscriber||fresh[0].id); }
         }
         knownJobIds=ids;
-        render(); setSync('live','Synced');
+        render(); if(syncQCount()>0) setSync('syncing', syncQCount()+' pending sync'); else setSync('live','Synced');
       }
-      catch(err){ setSync('error','Sync error'); console.warn('sync:',err.message) }
+      catch(err){ setSync('error', syncQCount()>0 ? (syncQCount()+' pending — offline') : 'Sync error'); console.warn('sync:',err.message) }
     }
     async function advance(id,next){
       const job=jobs.find(j=>j.id===id); if(!job) return;
@@ -48,10 +49,13 @@
         openComplete(id); return;   // capture payment before completing
       }
       const prev=job.status; job.status=next; render(); setSync('syncing','Saving…');
-      const hist=appendHist(job.history, `→ ${statusLabel(next)} (by ${myTeam})`);
-      const {error}=await sb.from('jobs').update({status:next, history:hist, updated_at:new Date().toISOString()}).eq('id',id);
-      if(error){ job.status=prev; render(); setSync('error','Sync error'); toast('Could not save: '+error.message); }
-      else { job.history=hist; setSync('live','Synced'); toast(`${id} → ${statusLabel(next)}`); logTrack('status:'+next, job.area||job.city); }
+      const hist=appendHist(await freshHist(id, job.history), `→ ${statusLabel(next)} (by ${myTeam})`);
+      job.history=hist;
+      // Never roll back / lose the action: on failure it is queued and retried automatically.
+      const ok=await saveJobPatch(id, {status:next, history:hist, updated_at:new Date().toISOString()});
+      if(ok){ setSync('live','Synced'); toast(`${id} → ${statusLabel(next)}`); }
+      else { setSync('syncing', syncQCount()+' pending sync'); toast('Saved — will sync when back online'); }
+      logTrack('status:'+next, job.area||job.city);
     }
     // Compress/resize a photo to the smallest readable size (~60 KB) to save cloud space + data.
     function compressImage(file, maxDim=900, targetKB=60){
@@ -165,10 +169,11 @@
         const hist=appendHist(await freshHist(jobId, j&&j.history),'Negative: '+remark+' ('+ok+' photo'+(ok>1?'s':'')+') (by '+myTeam+' / '+shiftAccount+')');
         const patch={status:'negative', negative_remark:remark, negative_at:now, updated_at:now, history:hist,
           work_account:shiftAccount, crew_driver:shiftDriver, crew_tech1:shiftTech1, crew_tech2:shiftTech2};
-        const {error}=await sb.from('jobs').update(patch).eq('id',jobId);
-        if(error) throw error;
+        const synced=await saveJobPatch(jobId, patch);
         if(j){ Object.assign(j, patch); logTrack('status:negative', j.area||j.city); }
-        toast('Marked as Incomplete'); closeNegative(); viewMode='negative'; render();
+        closeNegative(); viewMode='negative'; render();
+        toast(synced?'Marked as Incomplete':'Saved — will sync when back online');
+        if(!synced) setSync('syncing', syncQCount()+' pending sync');
       }catch(e){ showErr('#negErr','Failed: '+e.message); }
       btn.disabled=false; btn.textContent='Save as Negative';
     }
@@ -188,9 +193,11 @@
       const hist=appendHist(await freshHist(id, job.history), 'Cancelled (by '+myTeam+')'+(reason.trim()?': '+reason.trim():''));
       const patch={status:'cancelled', updated_at:now, history:hist};
       try{
-        const {error}=await sb.from('jobs').update(patch).eq('id',id); if(error) throw error;
+        const ok=await saveJobPatch(id, patch);
         Object.assign(job, patch);
-        toast('Job cancelled'); setSync('live','Synced'); render(); logTrack('status:cancelled', job.area||job.city);
+        render(); logTrack('status:cancelled', job.area||job.city);
+        toast(ok?'Job cancelled':'Cancelled — will sync when back online');
+        setSync(ok?'live':'syncing', ok?'Synced':(syncQCount()+' pending sync'));
       }catch(e){ toast('Failed: '+e.message); }
     }
 
@@ -216,13 +223,15 @@
       const hist=appendHist(await freshHist(id, job.history), `→ Completed (by ${myTeam} / ${shiftAccount}) · ${mode} ₱${amt} · AR ${ar}`);
       const patch={status:'completed', payment_mode:mode, payment_amount:amt, ar_no:ar, history:hist, updated_at:now, completed_at:now,
         work_account:shiftAccount, crew_driver:shiftDriver, crew_tech1:shiftTech1, crew_tech2:shiftTech2};
-      const {error}=await sb.from('jobs').update(patch).eq('id',id);
-      if(error){ btn.disabled=false; btn.textContent='Complete job'; showErr('#payErr','Failed: '+error.message); return; }
+      // Never lose the completion/payment: queued + retried automatically if the write fails.
+      const ok=await saveJobPatch(id, patch);
       // Upload the Gcash Proof of Remittance (best-effort) so it appears with the load's photos.
       if(mode==='Gcash' && payProofFile){ try{ await uploadOne(id, payProofFile, 'Proof of Remittance'); }catch(e){ console.warn('proof upload',e.message); } }
       btn.disabled=false; btn.textContent='Complete job';
       Object.assign(job, patch);
-      closeComplete(); toast('Job completed'); setSync('live','Synced'); render(); logTrack('status:completed', job.area||job.city);
+      closeComplete(); render(); logTrack('status:completed', job.area||job.city);
+      if(ok){ toast('Job completed'); setSync('live','Synced'); }
+      else { toast('Completed — will sync when back online'); setSync('syncing', syncQCount()+' pending sync'); }
     }
     const sameManilaDay = ts => ts && new Date(ts).toLocaleDateString('en-CA',{timeZone:TZ})===manilaDate();
     // Clickable JO → full info (sales + installer)
@@ -351,6 +360,7 @@
       if(realtimeChan) sb.removeChannel(realtimeChan);
       realtimeChan = sb.channel('ahba-tech-'+myTeam).on('postgres_changes',{event:'*',schema:'public',table:'jobs'},()=>refresh()).subscribe();
       clearInterval(startApp._t); startApp._t=setInterval(refresh,15000);
+      if(!startApp._onhook){ startApp._onhook=1; window.addEventListener('online', flushQueue); }
       clearInterval(startApp._loc); startApp._loc=setInterval(()=>captureLocation(false),600000); // refresh GPS every 10 min
       clearInterval(startApp._track); startApp._track=setInterval(()=>logTrack('auto'),1200000); // travel trail every 20 min
       lastActivity=Date.now();
