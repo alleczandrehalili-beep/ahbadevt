@@ -572,13 +572,12 @@
     }
     // Sales: delete their OWN submitted order (only while still for-validation / rejected, pre-dispatch).
     async function saDeleteOrder(jobId){
-      if(!confirm('Delete this job order?\nYour submission will be permanently removed. This cannot be undone.')) return;
-      try{
-        try{ await sb.from('job_docs').delete().eq('job_id',jobId); }catch(e){}
-        const {error}=await sb.from('jobs').delete().eq('id',jobId); if(error) throw error;
-        delete saStatus[jobId];
-        toast('Job order deleted'); saRenderMine();
-      }catch(e){ toast('Delete failed: '+e.message); }
+      if(!confirm('Delete this job order?\nIt will be removed from your list. (The record is kept for the office / Superadmin.)')) return;
+      // Soft-delete: keep the row + its docs so the office can still see it; hide it from the sales list.
+      const now=new Date().toISOString();
+      const ok=await saveWrite('jobs','update',{id:jobId},{deleted_at:now, deleted_by:myTeam, updated_at:now});
+      delete saStatus[jobId];
+      toast(ok?'Job order deleted':'Deleted — will sync when online'); saRenderMine();
     }
     // Edit a REJECTED order and resubmit it for validation (loads info back into the form)
     let saEditingId=null;
