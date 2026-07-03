@@ -292,7 +292,7 @@
       completed:{label:'Completed',next:null,action:null},
       pending:{label:'Awaiting dispatch',next:null,action:null}
     };
-    const statusLabel = s => (FLOW[s]?.label)||s;
+    const statusLabel = s => (FLOW[s]?.label) || ({negative:'Incomplete',cancelled:'Cancelled',rejected:'Rejected',for_validation:'For validation'}[s]) || s;
 
     // ---------- views ----------
     function show(view){['loginView','pwView','shiftView','appView','saView','secView'].forEach(v=>$('#'+v).classList.toggle('hidden', v!==view));const inApp=(view==='appView'||view==='saView'||view==='secView');$('#menuBtn').classList.toggle('hidden', !inApp);$('#chatFab')&&$('#chatFab').classList.toggle('hidden', !(view==='appView'||view==='saView'));$('#menuPop').classList.add('hidden');try{renderAnnBanner();}catch(e){}}
@@ -448,7 +448,7 @@
       }catch(e){ showErr('#secErr','Failed: '+e.message); }
       btn.disabled=false; btn.textContent= isIn?'Record Incoming SVC':'Record Outgoing SVC';
     }
-    const saStatusLabel = s => ({for_validation:'For validation',pending:'Approved · for dispatch',rejected:'Rejected',assigned:'Assigned','en-route':'In progress','on-site':'In progress','in-progress':'In progress',completed:'Completed',negative:'Negative',cancelled:'Cancelled'}[s]||s);
+    const saStatusLabel = s => ({for_validation:'For validation',pending:'Approved · for dispatch',rejected:'Rejected',assigned:'Assigned','en-route':'In progress','on-site':'In progress','in-progress':'In progress',completed:'Completed',negative:'Incomplete',cancelled:'Cancelled'}[s]||s);
     function saSwitch(view){
       $('#saTabNew').classList.toggle('active',view==='new'); $('#saTabMine').classList.toggle('active',view==='mine');
       $('#saNew').classList.toggle('hidden',view!=='new'); $('#saMine').classList.toggle('hidden',view!=='mine');

@@ -247,7 +247,7 @@
           row('JO Number',j.job_order_no), row('IBAS',j.ibass_acct_no), row('VAS no.',j.vas_no), row('Source',j.source_of_sales), row('Referral',j.referral_name),
           row('Special note',j.special_note),
           (j.dispatched_remarks?sec('Dispatcher')+row('Remarks',j.dispatched_remarks):''),
-          (j.negative_remark?sec('Negative')+row('Reason',j.negative_remark):''),
+          (j.negative_remark?sec('Incomplete')+row('Reason',j.negative_remark):''),
           (j.payment_mode||j.payment_amount?sec('Payment')+row('Mode',j.payment_mode)+row('Amount',money(j.payment_amount))+row('AR No.',j.ar_no):'')
         ].join('');
       }catch(e){ body.innerHTML='<div class="empty">Could not load.</div>'; }
@@ -293,7 +293,7 @@
           extra=allPhotos.length?`<div class="photos"><div class="photos-head"><span>Proof photos</span><span class="count ok">${allPhotos.length}</span></div><div class="thumbs">${thumbs}</div></div>`:'';
           actions=`<div class="job-actions">${mapLink}<span class="act ghost" style="flex:1;justify-content:center">Completed ${j.updated_at?manilaTime(j.updated_at):''}</span></div>`;
         } else if(j.status==='negative'){
-          actions=`<div class="job-actions">${mapLink}<span class="act ghost" style="flex:1;justify-content:center;color:#c2503a">Negative</span></div>`;
+          actions=`<div class="job-actions">${mapLink}<span class="act ghost" style="flex:1;justify-content:center;color:#c2503a">Incomplete</span></div>`;
         } else {
           const act=f.next?`<button class="act ${f.cls}" data-next="${f.next}" data-id="${j.id}">${svg(f.icon)}${f.action}</button>`:'<button class="act ghost" disabled style="flex:1;opacity:.5">No action</button>';
           actions=`<div class="job-actions">${mapLink}${act}</div>`;
