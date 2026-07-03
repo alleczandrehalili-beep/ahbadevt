@@ -50,12 +50,22 @@
     function syncQLoad(){ try{ return JSON.parse(localStorage.getItem(SYNC_Q_KEY)||'[]'); }catch(e){ return []; } }
     function syncQSave(q){ try{ localStorage.setItem(SYNC_Q_KEY, JSON.stringify(q)); }catch(e){} }
     function syncQCount(){ return syncQLoad().length; }
-    function enqueueJob(id, patch){ const q=syncQLoad(); q.push({qid:Date.now()+'_'+Math.random().toString(36).slice(2,6), id, patch, attempts:0, at:Date.now()}); syncQSave(q); }
-    // Try a jobs update now; on failure, queue it for retry and report not-synced (never throws).
-    async function saveJobPatch(id, patch){
-      try{ const {error}=await sb.from('jobs').update(patch).eq('id',id); if(error) throw error; return true; }
-      catch(e){ enqueueJob(id, patch); return false; }
+    // Queue ANY write: {table, op:'update'|'insert', match, payload}. Old job items {id,patch} still work.
+    function enqueueWrite(table, op, match, payload){ const q=syncQLoad(); q.push({qid:Date.now()+'_'+Math.random().toString(36).slice(2,6), table, op, match, payload, attempts:0, at:Date.now()}); syncQSave(q); }
+    function enqueueJob(id, patch){ enqueueWrite('jobs','update',{id}, patch); }
+    // Apply one queued item to Supabase. Returns true on success (false on a returned error).
+    async function _applyItem(item){
+      const table=item.table||'jobs', op=item.op||'update', match=item.match||{id:item.id}, payload=item.payload||item.patch;
+      if(op==='insert'){ const {error}=await sb.from(table).insert(payload); return !error; }
+      let q=sb.from(table).update(payload); for(const k in match) q=q.eq(k, match[k]);
+      const {error}=await q; return !error;
     }
+    // Try a write now; if it fails (offline/server), queue it for retry — never lost, never throws.
+    async function saveWrite(table, op, match, payload){
+      try{ if(!await _applyItem({table, op, match, payload})) throw 0; return true; }
+      catch(e){ enqueueWrite(table, op, match, payload); return false; }
+    }
+    async function saveJobPatch(id, patch){ return saveWrite('jobs','update',{id}, patch); }
     let _flushing=false;
     async function flushQueue(){
       if(_flushing) return; _flushing=true;
@@ -64,7 +74,7 @@
           const q=syncQLoad(); if(!q.length) break;
           const item=q[0];
           let ok=false;
-          try{ const {error}=await sb.from('jobs').update(item.patch).eq('id',item.id); ok=!error; }catch(e){ ok=false; }
+          try{ ok=await _applyItem(item); }catch(e){ ok=false; }
           if(ok){ syncQSave(syncQLoad().filter(x=>x.qid!==item.qid)); continue; }
           // Failed → bump attempts; drop as poison after many tries so one bad item can't block the queue.
           const cur=syncQLoad(); const it=cur.find(x=>x.qid===item.qid);
@@ -92,8 +102,7 @@
     }
     async function clockOut(){
       if(!attendanceId) return;
-      try{ await sb.from('attendance').update({time_out:new Date().toISOString()}).eq('id',attendanceId); }
-      catch(e){ console.warn('clockOut',e.message); }
+      await saveWrite('attendance','update',{id:attendanceId},{time_out:new Date().toISOString()});   // queued if offline
       attendanceId=null;
     }
 
@@ -473,9 +482,9 @@
         const row={ team, account:m.dataset.acct, plate_no:plate, odometer:Number(odo), fuel_level:fuel, gate_type:mode, security_user:myTeam, checked_at:now };
         if(!isIn){ Object.assign(row,{crew_driver:m.dataset.driver, crew_tech1:m.dataset.t1, crew_tech2:m.dataset.t2, crew_ok:crewok, crew_remarks:rem}); }
         else { Object.assign(row,{vehicle_remarks:vehRem, photo_path:photoPath}); }
-        const {error}=await sb.from('gate_logs').insert(row); if(error) throw error;
-        if(!isIn){ try{ await sb.from('attendance').update({deployed_verified:true, verified_by:myTeam, verified_at:now}).eq('username',team).eq('work_date',manilaDate()); }catch(e){} }
-        toast((isIn?'Incoming':'Outgoing')+' SVC recorded for '+team); closeSec(); loadSecTeams();
+        const gateOk=await saveWrite('gate_logs','insert',{},row);   // queued if offline
+        if(!isIn){ await saveWrite('attendance','update',{username:team, work_date:manilaDate()},{deployed_verified:true, verified_by:myTeam, verified_at:now}); }
+        toast((isIn?'Incoming':'Outgoing')+' SVC recorded for '+team+(gateOk?'':' — will sync when online')); closeSec(); loadSecTeams();
       }catch(e){ showErr('#secErr','Failed: '+e.message); }
       btn.disabled=false; btn.textContent= isIn?'Record Incoming SVC':'Record Outgoing SVC';
     }

@@ -29,6 +29,7 @@
     let knownJobIds=null;   // for detecting newly-arrived loads (sound)
     async function refresh(){
       await flushQueue();   // retry any queued (offline) writes before showing status
+      flushPhotoQueue();    // retry any queued photo uploads (background)
       try{
         jobs=await loadJobs(); await loadPhotos();
         // Detect brand-new load(s) for this team → distinct sound + notification
@@ -80,14 +81,48 @@
       });
     }
     // Upload one image to a given label
+    // ---- Photo upload queue (IndexedDB) ----
+    // A proof photo attached on a flaky connection is never lost: the compressed blob is
+    // persisted and retried on reconnect. Per policy, it counts toward the required set only
+    // AFTER it actually uploads — so completion still requires photos in the cloud.
+    let _pqDb=null;
+    function pqOpen(){ return new Promise((res,rej)=>{ if(_pqDb) return res(_pqDb); const r=indexedDB.open('ahba_photoq',1);
+      r.onupgradeneeded=()=>{ r.result.createObjectStore('q',{keyPath:'key',autoIncrement:true}); };
+      r.onsuccess=()=>{ _pqDb=r.result; res(_pqDb); }; r.onerror=()=>rej(r.error); }); }
+    async function pqAdd(rec){ const db=await pqOpen(); return new Promise((res,rej)=>{ const tx=db.transaction('q','readwrite'); tx.objectStore('q').add(rec); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }); }
+    async function pqAll(){ const db=await pqOpen(); return new Promise(res=>{ const out=[]; const tx=db.transaction('q','readonly'); const cur=tx.objectStore('q').openCursor(); cur.onsuccess=e=>{ const c=e.target.result; if(c){ out.push(c.value); c.continue(); } else res(out); }; cur.onerror=()=>res(out); }); }
+    async function pqDel(key){ const db=await pqOpen(); return new Promise(res=>{ const tx=db.transaction('q','readwrite'); tx.objectStore('q').delete(key); tx.oncomplete=()=>res(); tx.onerror=()=>res(); }); }
+    async function pqCount(){ try{ return (await pqAll()).length; }catch(e){ return 0; } }
+    // Retry any queued photo uploads; on success, insert the row + count it, then re-render.
+    async function flushPhotoQueue(){
+      let items=[]; try{ items=await pqAll(); }catch(e){ return; }
+      if(!items.length) return; let changed=false;
+      for(const it of items){
+        try{
+          const {error}=await sb.storage.from('job-photos').upload(it.path, it.blob, {contentType:'image/jpeg', upsert:false});
+          if(error) throw error;
+          await sb.from('job_photos').insert({job_id:it.jobId, team:myTeam, path:it.path, label:it.label||''});
+          await pqDel(it.key);
+          (photoData[it.jobId]=photoData[it.jobId]||[]).push({path:it.path,label:it.label||''});
+          changed=true;
+        }catch(e){ break; }   // still offline / failing → stop, retry next cycle
+      }
+      if(changed) render();
+    }
     async function uploadOne(jobId, file, label){
       const blob=await compressImage(file);
       const safe=(label||'photo').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'').slice(0,40);
       const path=`${jobId}/${safe}_${Date.now()}_${Math.random().toString(36).slice(2,7)}.jpg`;
-      const {error}=await sb.storage.from('job-photos').upload(path, blob, {contentType:'image/jpeg', upsert:false});
-      if(error) throw error;
-      await sb.from('job_photos').insert({job_id:jobId, team:myTeam, path, label:label||''});
-      (photoData[jobId]=photoData[jobId]||[]).push({path,label:label||''});
+      try{
+        const {error}=await sb.storage.from('job-photos').upload(path, blob, {contentType:'image/jpeg', upsert:false});
+        if(error) throw error;
+        await sb.from('job_photos').insert({job_id:jobId, team:myTeam, path, label:label||''});
+        (photoData[jobId]=photoData[jobId]||[]).push({path,label:label||''});
+      }catch(e){
+        // Persist the photo so a flaky connection can't lose it; it retries on reconnect.
+        try{ await pqAdd({jobId, label:label||'', path, blob}); }catch(_){}
+        throw e;   // caller still treats it as not-yet-uploaded (gate unchanged)
+      }
     }
     // Delete a wrongly-uploaded proof photo (DB row + storage file), then re-render.
     async function deletePhoto(jobId, path){
@@ -111,7 +146,7 @@
       let ok=0;
       await Promise.all(pairs.map(async ({f,label})=>{ try{ await uploadOne(jobId,f,label); ok++; }catch(e){ console.warn('bulk',e.message); } }));
       render();
-      toast(`${photoCount(jobId)}/${PHOTOS_REQUIRED} complete${extra>0?` · ${extra} extra (full)`:''}${ok<pairs.length?` · ${pairs.length-ok} failed`:''}`);
+      toast(`${photoCount(jobId)}/${PHOTOS_REQUIRED} complete${extra>0?` · ${extra} extra (full)`:''}${ok<pairs.length?` · ${pairs.length-ok} queued (will upload when online)`:''}`);
     }
     async function uploadPhotos(jobId, fileList, label){
       const files=[...fileList]; if(!files.length)return;
@@ -360,7 +395,7 @@
       if(realtimeChan) sb.removeChannel(realtimeChan);
       realtimeChan = sb.channel('ahba-tech-'+myTeam).on('postgres_changes',{event:'*',schema:'public',table:'jobs'},()=>refresh()).subscribe();
       clearInterval(startApp._t); startApp._t=setInterval(refresh,15000);
-      if(!startApp._onhook){ startApp._onhook=1; window.addEventListener('online', flushQueue); }
+      if(!startApp._onhook){ startApp._onhook=1; window.addEventListener('online', ()=>{ flushQueue(); flushPhotoQueue(); }); }
       clearInterval(startApp._loc); startApp._loc=setInterval(()=>captureLocation(false),600000); // refresh GPS every 10 min
       clearInterval(startApp._track); startApp._track=setInterval(()=>logTrack('auto'),1200000); // travel trail every 20 min
       lastActivity=Date.now();
@@ -446,7 +481,7 @@
       // record the shift on today's open attendance row → dashboard + account lock
       try{
         if(!attendanceId) await findOpenAttendance();
-        if(attendanceId) await sb.from('attendance').update({work_account:acc,crew_driver:drv,crew_tech1:t1,crew_tech2:t2}).eq('id',attendanceId);
+        if(attendanceId) await saveWrite('attendance','update',{id:attendanceId},{work_account:acc,crew_driver:drv,crew_tech1:t1,crew_tech2:t2});   // queued if offline
       }catch(e){ console.warn('shift save',e.message); }
       btn.disabled=false; btn.textContent='Start shift';
       startApp();
