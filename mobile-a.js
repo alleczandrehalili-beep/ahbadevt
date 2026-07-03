@@ -40,8 +40,8 @@
       inbox:'<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.5 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.5A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.5Z"/>'
     };
     const svg = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${ic[n]||''}</svg>`;
-    function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('show'),2600)}
-    function setSync(state,text){const b=$('#syncbar');b.className='syncbar '+state;$('#syncText').textContent=text;if(state==='live')$('#syncStamp').textContent='Updated '+manilaTime(new Date())}
+    function toast(msg){const t=$('#toast');if(!t)return;t.textContent=msg;t.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('show'),2600)}
+    function setSync(state,text){const b=$('#syncbar');if(!b)return;b.className='syncbar '+state;const st=$('#syncText');if(st)st.textContent=text;if(state==='live'){const ss=$('#syncStamp');if(ss)ss.textContent='Updated '+manilaTime(new Date());}}
 
     // ---- Durable write queue: a job status/payment write is NEVER silently lost. ----
     // If a write fails (offline / server down) it persists in localStorage and retries
@@ -78,7 +78,7 @@
           if(ok){ syncQSave(syncQLoad().filter(x=>x.qid!==item.qid)); continue; }
           // Failed → bump attempts; drop as poison after many tries so one bad item can't block the queue.
           const cur=syncQLoad(); const it=cur.find(x=>x.qid===item.qid);
-          if(it){ it.attempts=(it.attempts||0)+1; syncQSave(it.attempts>=25 ? cur.filter(x=>x.qid!==item.qid) : cur); }
+          if(it){ it.attempts=(it.attempts||0)+1; if(it.attempts>=25){ syncQSave(cur.filter(x=>x.qid!==item.qid)); try{ toast('⚠ A saved change could not sync — please redo it.'); }catch(_){} console.error('AHBA sync dropped after retries:', it); } else syncQSave(cur); }
           break;   // stop this pass; retry on next poll / 'online'
         }
       } finally { _flushing=false; }
@@ -654,7 +654,7 @@
           jobId=saEditingId;
           const {error}=await sb.from('jobs').update(fields).eq('id',jobId); if(error) throw error;
         } else {
-          jobId='WO-'+new Date().getFullYear()+'-'+Date.now().toString().slice(-6);
+          jobId='WO-'+new Date().getFullYear()+'-'+Date.now().toString().slice(-6)+Math.random().toString(36).slice(2,5);
           const {error}=await sb.from('jobs').insert(Object.assign({id:jobId,service_type:'Installation',wait_time:'Just now',priority:'Normal',schedule:manilaDate()+', 9:00 AM',team:null,created_by:myTeam},fields)); if(error) throw error;
         }
         for(const cat of ['id','billing','premise']){

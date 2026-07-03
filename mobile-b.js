@@ -202,8 +202,8 @@
         const now=new Date().toISOString();
         const j=jobs.find(x=>x.id===jobId);
         const hist=appendHist(await freshHist(jobId, j&&j.history),'Negative: '+remark+' ('+ok+' photo'+(ok>1?'s':'')+') (by '+myTeam+' / '+shiftAccount+')');
-        const patch={status:'negative', negative_remark:remark, negative_at:now, updated_at:now, history:hist,
-          work_account:shiftAccount, crew_driver:shiftDriver, crew_tech1:shiftTech1, crew_tech2:shiftTech2};
+        const patch={status:'negative', negative_remark:remark, negative_at:now, updated_at:now, history:hist};
+        if(shiftAccount){ patch.work_account=shiftAccount; patch.crew_driver=shiftDriver; patch.crew_tech1=shiftTech1; patch.crew_tech2=shiftTech2; }
         const synced=await saveJobPatch(jobId, patch);
         if(j){ Object.assign(j, patch); logTrack('status:negative', j.area||j.city); }
         closeNegative(); viewMode='negative'; render();
@@ -256,8 +256,8 @@
       const btn=$('#paySave'); btn.disabled=true; btn.textContent='Saving…';
       const now=new Date().toISOString();
       const hist=appendHist(await freshHist(id, job.history), `→ Completed (by ${myTeam} / ${shiftAccount}) · ${mode} ₱${amt} · AR ${ar}`);
-      const patch={status:'completed', payment_mode:mode, payment_amount:amt, ar_no:ar, history:hist, updated_at:now, completed_at:now,
-        work_account:shiftAccount, crew_driver:shiftDriver, crew_tech1:shiftTech1, crew_tech2:shiftTech2};
+      const patch={status:'completed', payment_mode:mode, payment_amount:amt, ar_no:ar, history:hist, updated_at:now, completed_at:now};
+      if(shiftAccount){ patch.work_account=shiftAccount; patch.crew_driver=shiftDriver; patch.crew_tech1=shiftTech1; patch.crew_tech2=shiftTech2; }
       // Never lose the completion/payment: queued + retried automatically if the write fails.
       const ok=await saveJobPatch(id, patch);
       // Upload the Gcash Proof of Remittance (best-effort) so it appears with the load's photos.
