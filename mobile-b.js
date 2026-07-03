@@ -31,7 +31,10 @@
       await flushQueue();   // retry any queued (offline) writes before showing status
       flushPhotoQueue();    // retry any queued photo uploads (background)
       try{
-        jobs=await loadJobs(); await loadPhotos();
+        jobs=await loadJobs();
+        // Keep not-yet-synced (queued) job changes visible so a poll can't flicker them back to old state.
+        try{ syncQLoad().forEach(it=>{ if((it.table||'jobs')!=='jobs')return; const id=(it.match&&it.match.id)||it.id; const j=jobs.find(x=>x.id===id); if(j) Object.assign(j, it.payload||it.patch); }); }catch(e){}
+        await loadPhotos();
         // Detect brand-new load(s) for this team → distinct sound + notification
         const ids=new Set(jobs.map(j=>j.id));
         if(knownJobIds){
@@ -393,7 +396,7 @@
       show('appView'); setSync('syncing','Connecting…'); signature=''; knownJobIds=null; primeAudio();
       refresh();
       if(realtimeChan) sb.removeChannel(realtimeChan);
-      realtimeChan = sb.channel('ahba-tech-'+myTeam).on('postgres_changes',{event:'*',schema:'public',table:'jobs'},()=>refresh()).subscribe();
+      realtimeChan = sb.channel('ahba-tech-'+myTeam).on('postgres_changes',{event:'*',schema:'public',table:'jobs',filter:'team=eq.'+myTeam},()=>refresh()).subscribe();
       clearInterval(startApp._t); startApp._t=setInterval(refresh,15000);
       if(!startApp._onhook){ startApp._onhook=1; window.addEventListener('online', ()=>{ flushQueue(); flushPhotoQueue(); }); }
       clearInterval(startApp._loc); startApp._loc=setInterval(()=>captureLocation(false),600000); // refresh GPS every 10 min

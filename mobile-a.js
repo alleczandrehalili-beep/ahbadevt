@@ -87,6 +87,9 @@
     // ---------- attendance (time in / time out) ----------
     async function clockIn(){
       try{
+        // Reuse today's open attendance row if it already exists (avoid duplicate rows on re-login/refresh).
+        await findOpenAttendance();
+        if(attendanceId) return;
         const {data,error}=await sb.from('attendance').insert({username:myTeam, work_date:manilaDate()}).select('id,time_in').single();
         if(error) throw error;
         attendanceId = data?.id || null;
