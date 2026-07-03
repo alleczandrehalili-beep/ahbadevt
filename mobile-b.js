@@ -46,7 +46,17 @@
       }
       catch(err){ setSync('error', syncQCount()>0 ? (syncQCount()+' pending — offline') : 'Sync error'); console.warn('sync:',err.message) }
     }
+    // Serial workflow — a technician works ONE load at a time. Cannot update another load
+    // until the current in-progress one is Completed / Cancelled / Incomplete.
+    function serialBlocked(id){
+      const x=jobs.find(j=>j.id===id);
+      if(x && ['en-route','on-site','in-progress'].includes(x.status)) return false;   // acting on the active load — OK
+      const busy=jobs.find(j=>['en-route','on-site','in-progress'].includes(j.status));
+      if(busy){ toast('⚠ Tapusin muna ang kasalukuyang load: '+busy.id+(busy.subscriber?' ('+busy.subscriber+')':'')+' — Complete, Cancel, o Incomplete bago mag-update ng iba.'); return true; }
+      return false;
+    }
     async function advance(id,next){
+      if(serialBlocked(id)) return;
       const job=jobs.find(j=>j.id===id); if(!job) return;
       if(next==='completed'){
         if(photoCount(id)<PHOTOS_REQUIRED){ toast(`Attach ${PHOTOS_REQUIRED} photos first (${photoCount(id)}/${PHOTOS_REQUIRED})`); return; }
@@ -184,36 +194,48 @@
     // ---------- negative job order ----------
     let negPhotoFiles=[];   // mandatory reference photo(s) for an Incomplete/Negative load
     function renderNegThumbs(){ const t=$('#negPhotoThumbs'); if(!t) return; t.innerHTML=negPhotoFiles.map((f,i)=>`<span style="position:relative;display:inline-block"><img src="${URL.createObjectURL(f)}" alt=""><button type="button" data-negdel="${i}" style="position:absolute;top:-6px;right:-6px;background:#c2503a;color:#fff;border:0;border-radius:50%;width:19px;height:19px;font-size:11px;line-height:1;padding:0">✕</button></span>`).join(''); t.querySelectorAll('[data-negdel]').forEach(b=>b.onclick=()=>{ negPhotoFiles.splice(Number(b.dataset.negdel),1); renderNegThumbs(); }); }
-    function openNegative(jobId){
-      $('#negModal').dataset.job=jobId; $('#negJob').textContent='For '+jobId;
-      $('#neg_remark').value='RS BY SUBS'; $('#neg_other').value=''; $('#negOtherWrap').classList.add('hidden'); clearErr('#negErr');
+    const NEG_REASONS=['RS BY SUBS','UNCONTACTED/UNLOCATED','BARANGAY/ADMIN/PERMIT ISSUE','SUBS FACILITY CONCERN','FULL NAP','OTHERS'];
+    const CANCEL_REASONS=['DUPLICATE ENTRY','WRONG/INCOMPLETE INFO','SUBS BACKED OUT','NO LONGER INTERESTED','NOT SERVICEABLE','OTHERS'];
+    function openNegative(jobId, mode){
+      if(serialBlocked(jobId)) return;
+      mode = mode==='cancel' ? 'cancel' : 'negative';
+      const m=$('#negModal'); m.dataset.job=jobId; m.dataset.mode=mode; $('#negJob').textContent='For '+jobId;
+      const h3=m.querySelector('h3'); if(h3) h3.textContent = mode==='cancel' ? 'Cancel job (photo required)' : 'Mark as Incomplete';
+      const sb=$('#negSave'); if(sb) sb.textContent = mode==='cancel' ? 'Cancel job' : 'Save as Negative';
+      const sel=$('#neg_remark'); if(sel){ sel.innerHTML=(mode==='cancel'?CANCEL_REASONS:NEG_REASONS).map(o=>`<option>${o}</option>`).join(''); sel.onchange=()=>$('#negOtherWrap').classList.toggle('hidden', sel.value!=='OTHERS'); }
+      $('#neg_other').value=''; $('#negOtherWrap').classList.add('hidden'); clearErr('#negErr');
       negPhotoFiles=[]; if($('#neg_photo_cam'))$('#neg_photo_cam').value=''; if($('#neg_photo_alb'))$('#neg_photo_alb').value=''; renderNegThumbs();
       $('#negBack').classList.remove('hidden'); $('#negModal').classList.remove('hidden');
     }
     function closeNegative(){ $('#negBack').classList.add('hidden'); $('#negModal').classList.add('hidden'); }
     async function saveNegative(){
-      const jobId=$('#negModal').dataset.job, sel=$('#neg_remark').value, other=$('#neg_other').value.trim();
+      const m=$('#negModal'); const jobId=m.dataset.job; const mode=m.dataset.mode==='cancel'?'cancel':'negative';
+      const sel=$('#neg_remark').value, other=$('#neg_other').value.trim();
       if(sel==='OTHERS'&&!other){ showErr('#negErr','Please specify the reason.'); return; }
-      if(!negPhotoFiles.length){ showErr('#negErr','At least one reference photo is required to mark Incomplete.'); return; }
+      if(!negPhotoFiles.length){ showErr('#negErr', mode==='cancel'?'At least one reference photo is required to cancel this load.':'At least one reference photo is required to mark Incomplete.'); return; }
       const remark=sel==='OTHERS'?('OTHERS: '+other):sel;
       const btn=$('#negSave'); btn.disabled=true; btn.textContent='Uploading photo…';
       try{
         // Upload the mandatory reference photo(s) FIRST — must succeed before closing the JO.
-        let ok=0; for(const f of negPhotoFiles){ try{ await uploadOne(jobId, f, 'Incomplete proof'); ok++; }catch(e){ console.warn('neg photo',e.message); } }
-        if(!ok){ btn.disabled=false; btn.textContent='Save as Negative'; showErr('#negErr','Photo upload failed — please try again.'); return; }
+        const label = mode==='cancel'?'Cancelled proof':'Incomplete proof';
+        let ok=0; for(const f of negPhotoFiles){ try{ await uploadOne(jobId, f, label); ok++; }catch(e){ console.warn('proof',e.message); } }
+        if(!ok){ btn.disabled=false; btn.textContent=(mode==='cancel'?'Cancel job':'Save as Negative'); showErr('#negErr','Photo upload failed — please try again.'); return; }
         btn.textContent='Saving…';
         const now=new Date().toISOString();
         const j=jobs.find(x=>x.id===jobId);
-        const hist=appendHist(await freshHist(jobId, j&&j.history),'Negative: '+remark+' ('+ok+' photo'+(ok>1?'s':'')+') (by '+myTeam+' / '+shiftAccount+')');
-        const patch={status:'negative', negative_remark:remark, negative_at:now, updated_at:now, history:hist};
-        if(shiftAccount){ patch.work_account=shiftAccount; patch.crew_driver=shiftDriver; patch.crew_tech1=shiftTech1; patch.crew_tech2=shiftTech2; }
+        const verb = mode==='cancel'?'Cancelled':'Negative';
+        const hist=appendHist(await freshHist(jobId, j&&j.history), verb+': '+remark+' ('+ok+' photo'+(ok>1?'s':'')+') (by '+myTeam+(shiftAccount?' / '+shiftAccount:'')+')');
+        const patch = mode==='cancel'
+          ? {status:'cancelled', updated_at:now, history:hist}
+          : {status:'negative', negative_remark:remark, negative_at:now, updated_at:now, history:hist};
+        if(mode!=='cancel' && shiftAccount){ patch.work_account=shiftAccount; patch.crew_driver=shiftDriver; patch.crew_tech1=shiftTech1; patch.crew_tech2=shiftTech2; }
         const synced=await saveJobPatch(jobId, patch);
-        if(j){ Object.assign(j, patch); logTrack('status:negative', j.area||j.city); }
-        closeNegative(); viewMode='negative'; render();
-        toast(synced?'Marked as Incomplete':'Saved — will sync when back online');
+        if(j){ Object.assign(j, patch); logTrack('status:'+patch.status, j.area||j.city); }
+        closeNegative(); viewMode = mode==='cancel'?'todo':'negative'; render();
+        toast(synced ? (mode==='cancel'?'Job cancelled':'Marked as Incomplete') : 'Saved — will sync when back online');
         if(!synced) setSync('syncing', syncQCount()+' pending sync');
       }catch(e){ showErr('#negErr','Failed: '+e.message); }
-      btn.disabled=false; btn.textContent='Save as Negative';
+      btn.disabled=false; btn.textContent = ($('#negModal').dataset.mode==='cancel'?'Cancel job':'Save as Negative');
     }
 
     // Re-read the latest history straight from the cloud right before appending, so a concurrent
@@ -327,6 +349,7 @@
         const msg={todo:'No jobs to do right now.',inprogress:'No jobs in progress.',negative:'No negative job orders today.',done:'No completed jobs yet today.'}[viewMode];
         el.innerHTML=`<div class="empty">${svg('inbox')}${msg}<br>New assignments appear here automatically.</div>`;return;
       }
+      const busyId=(jobs.find(x=>['en-route','on-site','in-progress'].includes(x.status))||{}).id;   // serial lock: the one active load
       el.innerHTML=list.map(j=>{
         const f=FLOW[j.status]||{};
         const prio=j.priority?`<span class="prio" style="${j.priority!=='1st Load'?'color:#687974;background:#f1f3f1':''}">${j.priority}</span>`:'';
@@ -362,9 +385,13 @@
         const expBtn=activeJob?`<button class="addphoto" style="margin-top:10px;color:#a4690f;border-color:#f0d9a8;background:#fff8eb" data-exp="${j.id}">+ Add expense for this job</button>`:'';
         const negBtn=activeJob?`<button class="addphoto" style="margin-top:8px;color:#c2503a;border-color:#f0c4b9;background:#fff3f0" data-neg="${j.id}">⚠ Mark as Negative</button>`:'';
         const cancelBtn=activeJob?`<button class="addphoto" style="margin-top:8px;color:#7a7f7d;border-color:#d8dcd9;background:#f5f6f5" data-cancel="${j.id}">✖ Cancel job</button>`:'';
+        // Serial lock: while another load is in progress, disable this one's status actions.
+        const locked = busyId && j.id!==busyId && !['completed','negative','cancelled'].includes(j.status);
+        const actionsF = locked ? `<div class="job-actions">${mapLink}<button class="act ghost" disabled style="flex:1;opacity:.6">🔒 Tapusin muna ang kasalukuyang load</button></div>` : actions;
+        const negBtnF = locked?'':negBtn, cancelBtnF = locked?'':cancelBtn;
         return `<div class="job"><div class="job-head"><div><span class="job-id" data-info="${j.id}" style="cursor:pointer;text-decoration:underline">${j.id} ℹ︎</span><h3>${j.subscriber||'—'}${prio}</h3><p class="plan">${j.service_type||''} · ${j.plan||''}</p></div><span class="badge b-${j.status}">${statusLabel(j.status)}</span></div>
         <div class="job-meta"><div class="row">${svg('pin')}<span>${addr||'—'}</span></div><div class="row">${svg('clock')}<span>${(j.schedule||'Today').replace('Today, ','Today · ')}</span></div>${contact}${acct}${svc}${src}${drem}${note}${negRemark}</div>
-        ${extra}${actions}${expBtn}${negBtn}${cancelBtn}</div>`;
+        ${extra}${actionsF}${expBtn}${negBtnF}${cancelBtnF}</div>`;
       }).join('');
       el.querySelectorAll('[data-next]').forEach(b=>b.onclick=()=>advance(b.dataset.id,b.dataset.next));
       el.querySelectorAll('[data-up]').forEach(inp=>inp.onchange=()=>{const id=inp.dataset.up,files=inp.files;uploadPhotos(id,files,inp.dataset.label);inp.value='';});
@@ -372,7 +399,7 @@
       el.querySelectorAll('[data-delp]').forEach(b=>b.onclick=()=>deletePhoto(b.dataset.deljob,b.dataset.delp));
       el.querySelectorAll('[data-exp]').forEach(b=>b.onclick=()=>openMobileExpense(b.dataset.exp));
       el.querySelectorAll('[data-neg]').forEach(b=>b.onclick=()=>openNegative(b.dataset.neg));
-      el.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>cancelJob(b.dataset.cancel));
+      el.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>openNegative(b.dataset.cancel,'cancel'));
       el.querySelectorAll('[data-info]').forEach(b=>b.onclick=()=>showJobInfo(b.dataset.info));
     }
 
