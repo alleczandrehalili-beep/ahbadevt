@@ -361,7 +361,15 @@
         </div>
       </div>
 
-      <div class="sa-pane hidden" id="saMine"><div id="saMineList"></div></div>
+      <div class="sa-pane hidden" id="saMine">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 16px 4px">
+          <input type="date" id="saMineDate" style="flex:1;min-width:120px;padding:9px 11px;border:1px solid #dfe5df;border-radius:9px;font-size:12px;color:#2a3a36;background:#fff">
+          <button class="act ghost" id="saMineAll" style="width:auto;padding:9px 14px">All dates</button>
+        </div>
+        <div id="saMineCount" style="font-size:11px;color:#8a9894;padding:0 16px 4px"></div>
+        <div id="saMineSummary" style="display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 8px"></div>
+        <div id="saMineList"></div>
+      </div>
     </div>
   </div>
 

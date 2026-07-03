@@ -492,6 +492,8 @@
       btn.disabled=false; btn.textContent= isIn?'Record Incoming SVC':'Record Outgoing SVC';
     }
     const saStatusLabel = s => ({for_validation:'For validation',pending:'Approved · for dispatch',rejected:'Rejected',assigned:'Assigned','en-route':'In progress','on-site':'In progress','in-progress':'In progress',completed:'Completed',negative:'Incomplete',cancelled:'Cancelled'}[s]||s);
+    // Badge color synced to status — en-route/on-site/in-progress share the "In progress" color so the badge always matches its label.
+    const saBadgeCls = s => ({for_validation:'b-for_validation',rejected:'b-rejected',pending:'b-pending',assigned:'b-assigned','en-route':'b-in-progress','on-site':'b-in-progress','in-progress':'b-in-progress',completed:'b-completed',negative:'b-negative',cancelled:'b-cancelled'}[s]||'b-pending');
     function saSwitch(view){
       $('#saTabNew').classList.toggle('active',view==='new'); $('#saTabMine').classList.toggle('active',view==='mine');
       $('#saNew').classList.toggle('hidden',view!=='new'); $('#saMine').classList.toggle('hidden',view!=='mine');
@@ -547,11 +549,20 @@
     }
     async function saRenderMine(){
       const el=$('#saMineList'); el.innerHTML=`<div class="empty">Loading…</div>`;
+      const dEl=$('#saMineDate');
+      if(dEl && !dEl.dataset.wired){ dEl.dataset.wired='1'; dEl.onchange=saRenderMine; const allB=$('#saMineAll'); if(allB) allB.onclick=()=>{ dEl.value=''; saRenderMine(); }; }
       try{
-        const {data}=await sb.from('jobs').select('id,subscriber,status,area,team,plan,ref_no,negative_remark,special_note,updated_at').eq('created_by',myTeam).is('deleted_at',null).order('updated_at',{ascending:false});
-        const rows=data||[];
+        const {data}=await sb.from('jobs').select('id,subscriber,status,area,team,plan,ref_no,negative_remark,special_note,created_at,updated_at').eq('created_by',myTeam).is('deleted_at',null).order('created_at',{ascending:false});
+        let rows=data||[];
         rows.forEach(j=>{ saStatus[j.id]=j.status; });   // seed status map for change detection
-        if(!rows.length){ el.innerHTML=`<div class="empty">${svg('inbox')}No submissions yet.<br>Encode a new job order to get started.</div>`; return; }
+        const mday = ts => ts ? new Date(ts).toLocaleDateString('en-CA',{timeZone:TZ}) : '';
+        const pick=(dEl&&dEl.value)||'';
+        if(pick) rows=rows.filter(j=> mday(j.created_at)===pick );
+        // Monitoring summary — count per status, colored (doubles as a quick legend).
+        const cnt={}; rows.forEach(j=>{ const lab=saStatusLabel(j.status); (cnt[lab]=cnt[lab]||{n:0,cls:saBadgeCls(j.status)}).n++; });
+        const sumEl=$('#saMineSummary'); if(sumEl) sumEl.innerHTML=Object.entries(cnt).map(([lab,o])=>`<span class="badge ${o.cls}">${lab}: ${o.n}</span>`).join('');
+        const cEl=$('#saMineCount'); if(cEl) cEl.textContent=`${rows.length} load${rows.length===1?'':'s'}${pick?(' encoded on '+pick):' total'}`;
+        if(!rows.length){ if(sumEl) sumEl.innerHTML=''; el.innerHTML=`<div class="empty">${svg('inbox')}${pick?('No loads encoded on '+pick+'.'):'No submissions yet.<br>Encode a new job order to get started.'}</div>`; return; }
         el.innerHTML=rows.map(j=>{
           const esc=s=>(s||'').replace(/</g,'&lt;');
           const assigned = j.team
@@ -565,8 +576,9 @@
           // Sales can delete their OWN order — including old ones (any status) — EXCEPT
           // jobs a technician is actively working (assigned/en-route/on-site/in-progress).
           const delBtn = (!['assigned','en-route','on-site','in-progress'].includes(j.status)) ? `<button class="act" data-sadel="${j.id}" style="width:100%;margin-top:8px;color:#c2503a;border-color:#f0c4b9">🗑 Delete this order</button>` : '';
+          const enc = j.created_at ? `<div class="row" style="color:#9aa6a2"><span>🗓 Encoded: ${mday(j.created_at)} · ${manilaTime(j.created_at)}</span></div>` : '';
           const meta=[j.plan&&('Plan: '+esc(j.plan)), j.ref_no&&('Ref: '+esc(j.ref_no)), esc(j.area)].filter(Boolean).join(' · ');
-          return `<div class="submitted"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><h4>${esc(j.subscriber)||'—'}</h4><span class="badge b-${j.status}">${saStatusLabel(j.status)}</span></div><p>${j.id}${meta?' · '+meta:''}</p><div class="job-meta">${assigned}${neg}${rejReason}</div><button class="act ghost" data-info="${j.id}" style="width:100%;margin-top:8px">ℹ︎ View full info</button>${editBtn}${rejBtn}${delBtn}</div>`;
+          return `<div class="submitted"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><h4>${esc(j.subscriber)||'—'}</h4><span class="badge ${saBadgeCls(j.status)}">${saStatusLabel(j.status)}</span></div><p>${j.id}${meta?' · '+meta:''}</p><div class="job-meta">${enc}${assigned}${neg}${rejReason}</div><button class="act ghost" data-info="${j.id}" style="width:100%;margin-top:8px">ℹ︎ View full info</button>${editBtn}${rejBtn}${delBtn}</div>`;
         }).join('');
         el.querySelectorAll('[data-resub]').forEach(b=>b.onclick=()=>saEditResubmit(b.dataset.resub));
         el.querySelectorAll('[data-info]').forEach(b=>b.onclick=()=>showJobInfo(b.dataset.info));
