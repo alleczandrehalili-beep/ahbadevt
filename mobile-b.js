@@ -162,7 +162,7 @@
         btn.textContent='Saving…';
         const now=new Date().toISOString();
         const j=jobs.find(x=>x.id===jobId);
-        const hist=appendHist(j&&j.history,'Negative: '+remark+' ('+ok+' photo'+(ok>1?'s':'')+') (by '+myTeam+' / '+shiftAccount+')');
+        const hist=appendHist(await freshHist(jobId, j&&j.history),'Negative: '+remark+' ('+ok+' photo'+(ok>1?'s':'')+') (by '+myTeam+' / '+shiftAccount+')');
         const patch={status:'negative', negative_remark:remark, negative_at:now, updated_at:now, history:hist,
           work_account:shiftAccount, crew_driver:shiftDriver, crew_tech1:shiftTech1, crew_tech2:shiftTech2};
         const {error}=await sb.from('jobs').update(patch).eq('id',jobId);
@@ -173,13 +173,19 @@
       btn.disabled=false; btn.textContent='Save as Negative';
     }
 
+    // Re-read the latest history straight from the cloud right before appending, so a concurrent
+    // console/dispatcher edit isn't clobbered by a stale in-memory copy (last-writer-wins guard).
+    async function freshHist(id, fallback){
+      try{ const {data}=await sb.from('jobs').select('history').eq('id',id).single(); if(data) return data.history; }catch(e){}
+      return fallback;
+    }
     // ---------- cancel job (→ Cancelled column on dashboard) ----------
     async function cancelJob(id){
       const job=jobs.find(j=>j.id===id); if(!job)return;
       const reason=prompt('Cancel this job order?\nIt will go to Cancelled on the dashboard.\n\nReason (optional):');
       if(reason===null) return;   // dismissed
       const now=new Date().toISOString();
-      const hist=appendHist(job.history, 'Cancelled (by '+myTeam+')'+(reason.trim()?': '+reason.trim():''));
+      const hist=appendHist(await freshHist(id, job.history), 'Cancelled (by '+myTeam+')'+(reason.trim()?': '+reason.trim():''));
       const patch={status:'cancelled', updated_at:now, history:hist};
       try{
         const {error}=await sb.from('jobs').update(patch).eq('id',id); if(error) throw error;
@@ -207,7 +213,7 @@
       const job=jobs.find(j=>j.id===id); if(!job)return;
       const btn=$('#paySave'); btn.disabled=true; btn.textContent='Saving…';
       const now=new Date().toISOString();
-      const hist=appendHist(job.history, `→ Completed (by ${myTeam} / ${shiftAccount}) · ${mode} ₱${amt} · AR ${ar}`);
+      const hist=appendHist(await freshHist(id, job.history), `→ Completed (by ${myTeam} / ${shiftAccount}) · ${mode} ₱${amt} · AR ${ar}`);
       const patch={status:'completed', payment_mode:mode, payment_amount:amt, ar_no:ar, history:hist, updated_at:now, completed_at:now,
         work_account:shiftAccount, crew_driver:shiftDriver, crew_tech1:shiftTech1, crew_tech2:shiftTech2};
       const {error}=await sb.from('jobs').update(patch).eq('id',id);
@@ -377,28 +383,35 @@
       if(myRole==='security'){ startSecurity(); return; }
       // On a FRESH login, always make the user pick the account manually (no auto-select).
       // On a refresh/resume of the SAME open session, restore the locked account.
-      if(!fresh && await resumeShift()){
-        try{ if(attendanceId) await sb.from('attendance').update({work_account:shiftAccount,crew_driver:shiftDriver,crew_tech1:shiftTech1,crew_tech2:shiftTech2}).eq('id',attendanceId); }catch(e){}
-        startApp(); return;
-      }
+      // resumeShift() already adopted the cloud's crew/account, so there's nothing to write
+      // back — writing here is what used to clobber dispatcher edits with stale values.
+      if(!fresh && await resumeShift()){ startApp(); return; }
       openShift();              // otherwise technicians must set account + crew first
     }
-    // Restore today's account+crew (from local cache, then from the attendance row).
+    // Restore today's account+crew. Cloud is the SOURCE OF TRUTH — a dispatcher may have
+    // changed the crew/account, so read the attendance row FIRST; the local cache is used
+    // only as an offline fallback (never to overwrite newer cloud data).
     async function resumeShift(){
-      try{ const s=JSON.parse(localStorage.getItem(shiftKey())||'null');
-        if(s && s.date===manilaDate() && s.account && s.driver && s.tech1){
-          shiftAccount=s.account; shiftDriver=s.driver; shiftTech1=s.tech1; shiftTech2=s.tech2||''; return true;
-        }
-      }catch(e){}
+      let cloudReached=false;
       try{
         const {data}=await sb.from('attendance').select('work_account,crew_driver,crew_tech1,crew_tech2')
           .eq('username',myTeam).eq('work_date',manilaDate()).not('work_account','is',null).is('time_out',null)
           .order('time_in',{ascending:false}).limit(1);
+        cloudReached=true;
         const a=data&&data[0];
         if(a && a.work_account && a.crew_driver && a.crew_tech1){
           shiftAccount=a.work_account; shiftDriver=a.crew_driver; shiftTech1=a.crew_tech1; shiftTech2=a.crew_tech2||'';
           try{ localStorage.setItem(shiftKey(), JSON.stringify({date:manilaDate(),account:shiftAccount,driver:shiftDriver,tech1:shiftTech1,tech2:shiftTech2})); }catch(e){}
           return true;
+        }
+      }catch(e){}
+      // Cloud reachable but no active shift row (account freed / timed out) → do NOT resume
+      // from a stale cache; send the tech back to the shift picker.
+      if(cloudReached) return false;
+      // Offline only: cloud unreachable → use today's local cache so the tech isn't blocked.
+      try{ const s=JSON.parse(localStorage.getItem(shiftKey())||'null');
+        if(s && s.date===manilaDate() && s.account && s.driver && s.tech1){
+          shiftAccount=s.account; shiftDriver=s.driver; shiftTech1=s.tech1; shiftTech2=s.tech2||''; return true;
         }
       }catch(e){}
       return false;
