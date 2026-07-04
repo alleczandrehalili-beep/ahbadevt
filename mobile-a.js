@@ -27,6 +27,19 @@
     const TZ = 'Asia/Manila';
     const manilaDate = () => new Date().toLocaleDateString('en-CA', {timeZone: TZ}); // YYYY-MM-DD
     const manilaTime = d => new Date(d).toLocaleTimeString('en-PH', {timeZone: TZ, hour:'numeric', minute:'2-digit'});
+
+    // One confirm for ALL date pickers — changing any date asks to confirm; on confirm it switches, on cancel it reverts.
+    document.addEventListener('focus', function(e){ const el=e.target; if(el&&el.tagName==='INPUT'&&el.type==='date'&&!el.dataset.noconfirm) el.dataset.cur=el.value||''; }, true);
+    document.addEventListener('change', function(e){
+      const el=e.target;
+      if(!el || el.tagName!=='INPUT' || el.type!=='date' || el.dataset.noconfirm) return;
+      if(el.dataset.skipconfirm==='1'){ el.dataset.skipconfirm=''; return; }
+      const cur=el.dataset.cur||'', picked=el.value||'';
+      if(picked===cur) return;
+      e.stopImmediatePropagation();
+      if(confirm('Palitan ang petsa sa '+(picked||'—')+'?')){ el.dataset.cur=picked; el.dataset.skipconfirm='1'; el.dispatchEvent(new Event('change',{bubbles:true})); }
+      else { el.value=cur; }
+    }, true);
     const appendHist = (h,line) => {const t=new Date().toLocaleString('en-PH',{timeZone:TZ,month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); return ((h||'')+`\n[${t}] ${line}`).trim();};
 
     const ic = {

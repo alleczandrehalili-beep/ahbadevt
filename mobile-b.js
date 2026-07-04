@@ -328,6 +328,33 @@
       }catch(e){ body.innerHTML='<div class="empty">Could not load.</div>'; }
     }
     function closeMInfo(){ $('#mInfoBack').classList.add('hidden'); $('#mInfoModal').classList.add('hidden'); }
+    // Technician history — browse ALL previously dispatched JOs (any date/status); tap a JO for full detail.
+    function renderTechHistory(el){
+      const dEl=$('#techHistDate');
+      if(dEl && !dEl.dataset.wired){
+        dEl.dataset.wired='1';
+        dEl.onchange=render;
+        const allB=$('#techHistAll'); if(allB) allB.onclick=()=>{ dEl.value=''; dEl.dataset.cur=''; render(); };
+      }
+      const mday=ts=>ts?new Date(ts).toLocaleDateString('en-CA',{timeZone:TZ}):'';
+      const escq=s=>(s==null?'':String(s)).replace(/"/g,'&quot;').replace(/</g,'&lt;');
+      const pick=(dEl&&dEl.value)||'';
+      let rows=jobs.slice().sort((a,b)=>new Date(b.scheduled_at||b.created_at||b.updated_at||0)-new Date(a.scheduled_at||a.created_at||a.updated_at||0));
+      if(pick) rows=rows.filter(j=>mday(j.scheduled_at||j.created_at)===pick);
+      const cEl=$('#techHistCount'); if(cEl) cEl.textContent=`${rows.length} JO${rows.length===1?'':'s'}${pick?(' · '+pick):' total'}`;
+      if(!rows.length){ el.innerHTML=`<div class="empty">${svg('inbox')}${pick?('Walang JO noong '+pick+'.'):'Wala pang naunang job order.'}<br>Lalabas dito ang mga naunang na-dispatch sa inyo.</div>`; return; }
+      el.innerHTML=rows.map(j=>{
+        const when=mday(j.scheduled_at||j.created_at);
+        const meta=[j.plan,j.play_type].filter(Boolean).map(escq).join(' · ');
+        return `<div class="job" data-info="${escq(j.id)}" style="cursor:pointer">
+          <div class="job-head"><div><span class="job-id">${escq(j.id)}</span><h3>${escq(j.subscriber)||'—'}</h3>${meta?`<p class="plan">${meta}</p>`:''}</div><span class="badge b-${j.status}">${statusLabel(j.status)}</span></div>
+          <div class="job-meta"><div class="row">${svg('pin')}<span>${escq(j.area||j.address||'—')}</span></div>${when?`<div class="row">${svg('clock')}<span>${when}</span></div>`:''}${j.job_order_no?`<div class="row">${svg('note')}<span>JO ${escq(j.job_order_no)}</span></div>`:''}</div>
+          <button class="act ghost" data-info="${escq(j.id)}" style="width:100%;margin-top:8px">${svg('note')} Tingnan ang buong detalye</button>
+        </div>`;
+      }).join('');
+      el.querySelectorAll('[data-info]').forEach(b=>b.onclick=()=>showJobInfo(b.dataset.info));
+    }
+
     function render(){
       const order={'en-route':0,'on-site':1,'in-progress':2,assigned:0,pending:1};
       const todo=jobs.filter(j=>['assigned','pending'].includes(j.status));
@@ -345,6 +372,8 @@
       else list.sort((a,b)=>new Date(b.updated_at)-new Date(a.updated_at));
 
       const el=$('#jobsList');
+      const _thb=$('#techHistBar'); if(_thb) _thb.style.display=(viewMode==='history')?'':'none';
+      if(viewMode==='history'){ renderTechHistory(el); return; }
       if(!list.length){
         const msg={todo:'No jobs to do right now.',inprogress:'No jobs in progress.',negative:'No negative job orders today.',done:'No completed jobs yet today.'}[viewMode];
         el.innerHTML=`<div class="empty">${svg('inbox')}${msg}<br>New assignments appear here automatically.</div>`;return;
