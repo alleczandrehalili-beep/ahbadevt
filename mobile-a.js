@@ -370,8 +370,12 @@
     async function openShift(){
       const sel=$('#sf_account');
       const taken=await takenAccounts();
+      // Org-scoped work accounts: RLS returns ONLY this org's pool — subcon sees their own, GC sees theirs.
+      let names=[];
+      try{ const {data}=await sb.from('work_accounts').select('name').eq('active',true).order('name'); names=(data||[]).map(r=>r.name).filter(Boolean); }catch(e){}
+      if(!names.length) names=ACCOUNTS;   // fallback (offline / not-yet-migrated)
       sel.innerHTML='<option value="">— Select account —</option>';
-      ACCOUNTS.forEach(a=>{ const o=document.createElement('option'); o.value=a;
+      names.forEach(a=>{ const o=document.createElement('option'); o.value=a;
         if(taken[a]){ o.textContent=a+' — in use'; o.disabled=true; } else { o.textContent=a; }
         sel.appendChild(o); });
       // No auto-select of the account — the user must pick it manually each login.
