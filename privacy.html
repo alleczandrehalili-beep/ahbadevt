@@ -1,34 +1,135 @@
-<!doctype html>
-<html lang="en"><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AHBA FieldOps — Privacy Policy</title>
-<style>body{font-family:system-ui,Segoe UI,Roboto,sans-serif;max-width:760px;margin:0 auto;padding:28px 20px;color:#1c2a27;line-height:1.6}h1{font-size:24px}h2{font-size:17px;margin-top:26px}small{color:#6b7a76}</style>
-</head><body>
-<h1>AHBA FieldOps — Privacy Policy</h1>
-<small>Last updated: June 2026 · Operated by AHBA Development</small>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — AHBA FieldOps</title>
+<style>
+  :root{ --ink:#1a2a25; --muted:#5c6b66; --line:#e3e8e5; --brand:#0e6b50; --bg:#f7f9f8; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%}
+  .wrap{max-width:760px;margin:0 auto;padding:28px 20px 64px}
+  header{border-bottom:2px solid var(--brand);padding-bottom:16px;margin-bottom:8px}
+  h1{font-size:26px;margin:0 0 4px}
+  h2{font-size:18px;margin:28px 0 8px;color:var(--brand)}
+  p,li{color:var(--ink)}
+  .muted{color:var(--muted);font-size:13px}
+  ul{padding-left:20px;margin:8px 0}
+  li{margin:5px 0}
+  a{color:var(--brand)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#eef4f1}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 22px;margin-top:16px}
+  footer{margin-top:36px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Privacy Policy</h1>
+    <p class="muted">AHBA FieldOps &middot; by AHBA Development</p>
+    <p class="muted">Effective date: 6 July 2026 &middot; Last updated: 6 July 2026</p>
+  </header>
 
-<p>AHBA FieldOps ("the app") is an internal field-operations tool used by authorized AHBA Development teams (technicians and sales agents) to receive dispatched job orders, record job status, upload proof-of-installation photos, and coordinate with the dispatcher. This policy explains what the app collects and how it is used.</p>
+  <div class="card">
+    <p>This Privacy Policy explains how <strong>AHBA Development</strong> ("we", "us", "our")
+    collects, uses, and protects information when you use the <strong>AHBA FieldOps</strong>
+    mobile application and its related web console (together, the "Service").</p>
+    <p>AHBA FieldOps is a <strong>workforce / field-operations tool</strong> intended for use by
+    authorized personnel — field technicians, sales agents, security personnel, dispatchers,
+    and administrators of AHBA Development and its authorized subcontractors. It is not intended
+    for the general public.</p>
+  </div>
 
-<h2>Information we collect</h2>
-<ul>
-<li><b>Account information</b> — your assigned username and display name (used to sign in and identify your team).</li>
-<li><b>Location</b> — while you are signed in and on shift, the app records your device GPS location periodically and when you update a job status, so the dispatcher can coordinate field work and verify deployment. Location is collected only while you are logged in.</li>
-<li><b>Photos</b> — proof-of-installation and document photos that you choose to capture or upload for a job order.</li>
-<li><b>Work data</b> — job-order details, status updates, expenses, remittance/collection entries, attendance (time-in/out), and messages you send within the app.</li>
-</ul>
+  <h2>1. Information We Collect</h2>
+  <p>We collect only the information needed to operate field operations, dispatch work, verify
+  completed jobs, and manage attendance.</p>
 
-<h2>How we use it</h2>
-<p>Information is used solely to operate the field-service workflow: dispatching and tracking job orders, verifying completed work, computing operational costs, coordinating teams, and internal record-keeping. We do not sell your data or use it for advertising.</p>
+  <table>
+    <tr><th>Category</th><th>Examples</th><th>Purpose</th></tr>
+    <tr><td>Account &amp; identity</td><td>Username, work email, display name, assigned role and team, organization</td><td>Sign-in, access control, assigning jobs</td></tr>
+    <tr><td>Precise location (GPS)</td><td>Device location while on an active shift</td><td>Live team map, routing, and monitoring of dispatched work</td></tr>
+    <tr><td>Photos &amp; camera</td><td>Proof-of-work photos, gate-out photos, uploaded documents</td><td>Job validation, quality assurance, records</td></tr>
+    <tr><td>Work activity</td><td>Job orders handled, status updates, attendance (time in/out), remittance/collection entries, expenses, in-app messages</td><td>Operations, payroll/attendance, billing validation</td></tr>
+    <tr><td>Device &amp; technical</td><td>Push-notification token, app/diagnostic data, connection status</td><td>Notifications, reliability, offline sync</td></tr>
+  </table>
 
-<h2>Sharing</h2>
-<p>Data is accessible only to authorized AHBA Development operations staff (dispatchers/administrators) through the operations console. Data is stored on our managed backend (Supabase). We do not share data with third parties except as required to provide the service or by law.</p>
+  <p class="muted">Subscriber/customer details entered as part of a job order are business records
+  processed on behalf of AHBA Development and its authorized subcontractors, and are handled under
+  the same protections described here.</p>
 
-<h2>Data retention</h2>
-<p>Work records are retained for operational and audit purposes. Proof photos may be cleared from cloud storage after archiving. You may request deletion of your account data by contacting AHBA Development.</p>
+  <h2>2. How We Use Information</h2>
+  <ul>
+    <li>To authenticate users and enforce role-based access.</li>
+    <li>To dispatch, track, and validate field work in real time.</li>
+    <li>To record attendance, collections, and expenses accurately.</li>
+    <li>To send operational notifications (assignments, announcements).</li>
+    <li>To keep the Service secure, reliable, and to prevent misuse.</li>
+  </ul>
+  <p>We do <strong>not</strong> sell your personal information, and we do <strong>not</strong> use
+  it for advertising.</p>
 
-<h2>Permissions</h2>
-<p>The app requests Location (for field coordination) and Camera/Photos (to upload job proof). You can manage these permissions in your device settings; some features will not work if disabled.</p>
+  <h2>3. Location Data</h2>
+  <p>Location is used to show authorized dispatchers and administrators the live position and
+  travel history of field teams during work, and to route and verify dispatched jobs. Location is
+  associated with the on-shift work account and is collected only while you are signed in. Where
+  required by the platform, the app requests your permission before accessing location.</p>
 
-<h2>Contact</h2>
-<p>For privacy questions or data requests, contact AHBA Development at <b>admin@ahbafield.app</b>.</p>
-</body></html>
+  <h2>4. How Information Is Shared</h2>
+  <ul>
+    <li><strong>Within your organization:</strong> visible to authorized dispatchers and
+    administrators of your own organization for operational purposes.</li>
+    <li><strong>Service providers:</strong> we host data on <strong>Supabase</strong> (database,
+    authentication, file storage) and use <strong>Google Play services</strong> for app
+    distribution and notifications. These providers process data on our behalf under their own
+    terms.</li>
+    <li><strong>Legal:</strong> we may disclose information if required by law or to protect
+    rights, safety, and the integrity of the Service.</li>
+  </ul>
+  <p>Data is isolated per organization; one subcontractor cannot access another subcontractor's
+  data.</p>
+
+  <h2>5. Data Retention</h2>
+  <p>We retain information for as long as needed to provide the Service and to meet operational,
+  legal, and record-keeping requirements. Operational records (jobs, attendance, photos) are kept
+  for the period necessary for validation, billing, and audit, and are then archived or removed.
+  Deleted records are soft-deleted and remain visible only to authorized administrators before
+  final removal.</p>
+
+  <h2>6. Security</h2>
+  <p>We apply reasonable technical and organizational measures to protect your information,
+  including encrypted connections, encrypted stored passwords, role-based access controls, and
+  organization-level data isolation. No method of transmission or storage is 100% secure, but we
+  work to protect your data.</p>
+
+  <h2>7. Your Choices &amp; Rights</h2>
+  <ul>
+    <li>You may request access to, correction of, or deletion of your personal information,
+    subject to legitimate operational and legal retention needs.</li>
+    <li>You can control device permissions (such as location and camera) in your device settings;
+    disabling them may limit app functionality.</li>
+    <li>Because accounts are issued by your employer/organization, some requests may be directed to
+    your organization's administrator.</li>
+  </ul>
+
+  <h2>8. Children</h2>
+  <p>The Service is intended for authorized workers and is not directed to children under 13 (or
+  the minimum age required in your jurisdiction). We do not knowingly collect information from
+  children.</p>
+
+  <h2>9. Changes to This Policy</h2>
+  <p>We may update this Policy from time to time. Material changes will be reflected by updating the
+  "Last updated" date above and, where appropriate, through in-app or other notice.</p>
+
+  <h2>10. Contact Us</h2>
+  <p>For any questions or requests about this Policy or your data, contact:</p>
+  <p><strong>AHBA Development</strong><br>
+  Email: <a href="mailto:admin@ahbafield.app">admin@ahbafield.app</a></p>
+
+  <footer>
+    &copy; 2026 AHBA Development. All rights reserved. &middot; AHBA FieldOps
+  </footer>
+</div>
+</body>
+</html>
