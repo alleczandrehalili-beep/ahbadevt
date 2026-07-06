@@ -354,8 +354,8 @@
     function show(view){['loginView','pwView','shiftView','appView','saView','secView'].forEach(v=>$('#'+v).classList.toggle('hidden', v!==view));const inApp=(view==='appView'||view==='saView'||view==='secView');$('#menuBtn').classList.toggle('hidden', !inApp);$('#chatFab')&&$('#chatFab').classList.toggle('hidden', !(view==='appView'||view==='saView'));$('#menuPop').classList.add('hidden');try{renderAnnBanner();}catch(e){}}
 
     // ---------- shift setup (account + crew) ----------
-    // Work accounts (msp- display names). Update by re-uploading mobile.html if the list changes.
-    const ACCOUNTS=["msp-vince.abrasaldo","msp-ronnel.agno","msp-joshua.ampuan","msp-arijim.astarani","msp-dave.bolivar","msp-mark.bulan","msp-leo.caroscos","msp-prince.cas","msp-fidel.casica","msp-alfredo.celoso","msp-dionisio.chua","msp-arvin.copada","msp-marc.david","msp-ronie.delosreyes","msp-daniel.dorado","msp-elijah.emilia","msp-john.feniquito","msp-steven.halim","msp-dannie.igot","msp-isagan.lizarondo","msp-reyna.magallanes","msp-dante.martinez","msp-noel.mendoza","msp-johai.pangonotan","msp-joshua.paraiso","msp-marjun.peralta","msp-joshua.regalario","msp-junrasir.sahir","msp-chrisman.samson","msp-clark.tagalog","msp-edzel.tugonon","msp-markjay.alapan","msp-jayrex.ascano"];
+    // Work accounts now come from the org-scoped `work_accounts` table (see openShift) — no hardcoded list,
+    // so no org's account names ship in the shared client and each org sees only its own pool.
     let shiftAccount='', shiftDriver='', shiftTech1='', shiftTech2='';
     function shiftKey(){ return 'ahba_shift_'+myTeam; }
     async function takenAccounts(){
@@ -373,8 +373,8 @@
       // Org-scoped work accounts: RLS returns ONLY this org's pool — subcon sees their own, GC sees theirs.
       let names=[];
       try{ const {data}=await sb.from('work_accounts').select('name').eq('active',true).order('name'); names=(data||[]).map(r=>r.name).filter(Boolean); }catch(e){}
-      if(!names.length) names=ACCOUNTS;   // fallback (offline / not-yet-migrated)
-      sel.innerHTML='<option value="">— Select account —</option>';
+      // NO hardcoded fallback — an empty pool must stay empty; otherwise a subcon would leak the GC list.
+      sel.innerHTML=names.length?'<option value="">— Select account —</option>':'<option value="">— Walang work account na naka-assign. Contact admin. —</option>';
       names.forEach(a=>{ const o=document.createElement('option'); o.value=a;
         if(taken[a]){ o.textContent=a+' — in use'; o.disabled=true; } else { o.textContent=a; }
         sel.appendChild(o); });
