@@ -1,7 +1,7 @@
     const SUPA_URL = 'https://avjzkfxgzeyxtihkofed.supabase.co';
     const SUPA_KEY = 'sb_publishable_2JM51zp2r5GUICznc6Nz4Q_B4UFS1da';
     const EMAIL_DOMAIN = 'ahbafield.app';
-    const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY, {auth:{persistSession:false,autoRefreshToken:true}});   // no auto-login / don't remember device
+    const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     const $ = s => document.querySelector(s);
     const $$ = s => Array.from(document.querySelectorAll(s));

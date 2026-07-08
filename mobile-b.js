@@ -562,7 +562,7 @@
       const {data,error}=await sb.auth.signInWithPassword({email:emailFor(u), password:p});
       btn.disabled=false; btn.textContent='Sign in';
       if(error){ const m=error&&error.message?error.message:'Sign-in failed. Please try again.'; showErr('#loginErr', /invalid/i.test(m)?'Wrong username or password.':m); return; }
-      try{ await sb.auth.signOut({scope:'others'}); }catch(e){}   // single active session — sign out any other device using this account
+      try{ localStorage.setItem('ahba_last_active', String(Date.now())); }catch(_){}
       afterLogin(data.user.email, true);
     });
 
@@ -653,9 +653,21 @@
     // Show/Hide password toggles (all login + change-password fields)
     document.querySelectorAll('[data-eye]').forEach(b=>b.onclick=()=>{ const inp=$('#'+b.dataset.eye); if(!inp)return; const reveal=inp.type==='password'; inp.type=reveal?'text':'password'; b.textContent=reveal?'Hide':'Show'; });
 
-    // resume existing session on load (do NOT create a new time-in)
+    // Keep the "last opened" timestamp fresh while the app is in use (auto-logout counts 48h of NOT opening).
+    function _touchActive(){ try{ localStorage.setItem('ahba_last_active', String(Date.now())); }catch(_){} }
+    document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) _touchActive(); });
+    setInterval(_touchActive, 5*60*1000);
+
+    // resume existing session on refresh/reopen; auto-logout ONLY after 48h of not opening the app.
     (async function init(){
       const {data}=await sb.auth.getSession();
-      if(data.session && data.session.user){ afterLogin(data.session.user.email, false); }
-      else { show('loginView'); }
+      const last=Number(localStorage.getItem('ahba_last_active')||0);
+      const idleTooLong=last>0 && (Date.now()-last > 48*3600*1000);
+      if(data.session && data.session.user && !idleTooLong){
+        _touchActive();
+        afterLogin(data.session.user.email, false);
+      } else {
+        if(data.session && idleTooLong){ try{ await sb.auth.signOut(); }catch(_){} }   // 48h idle → clear session
+        show('loginView');
+      }
     })();
