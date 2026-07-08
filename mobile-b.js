@@ -562,6 +562,7 @@
       const {data,error}=await sb.auth.signInWithPassword({email:emailFor(u), password:p});
       btn.disabled=false; btn.textContent='Sign in';
       if(error){ const m=error&&error.message?error.message:'Sign-in failed. Please try again.'; showErr('#loginErr', /invalid/i.test(m)?'Wrong username or password.':m); return; }
+      try{ await sb.auth.signOut({scope:'others'}); }catch(e){}   // single active session — sign out any other device using this account
       afterLogin(data.user.email, true);
     });
 
