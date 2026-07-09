@@ -371,12 +371,18 @@
       const sel=$('#sf_account');
       const taken=await takenAccounts();
       // Org-scoped work accounts: RLS returns ONLY this org's pool — subcon sees their own, GC sees theirs.
-      let names=[];
-      try{ const {data}=await sb.from('work_accounts').select('name').eq('active',true).order('name'); names=(data||[]).map(r=>r.name).filter(Boolean); }catch(e){}
+      let names=[]; const sharedSet=new Set();
+      try{ const {data}=await sb.from('work_accounts').select('name,shared').eq('active',true).order('name');
+        names=(data||[]).map(r=>r.name).filter(Boolean);
+        (data||[]).forEach(r=>{ if(r.shared && r.name) sharedSet.add(r.name); });
+      }catch(e){}
       // NO hardcoded fallback — an empty pool must stay empty; otherwise a subcon would leak the GC list.
       sel.innerHTML=names.length?'<option value="">— Select account —</option>':'<option value="">— Walang work account na naka-assign. Contact admin. —</option>';
       names.forEach(a=>{ const o=document.createElement('option'); o.value=a;
-        if(taken[a]){ o.textContent=a+' — in use'; o.disabled=true; } else { o.textContent=a; }
+        // Shared accounts can be used by multiple devices at once — never disabled, even if another team is on it.
+        if(taken[a] && !sharedSet.has(a)){ o.textContent=a+' — in use'; o.disabled=true; }
+        else if(sharedSet.has(a)){ o.textContent=a+(taken[a]?' — shared (in use)':' — shared'); }
+        else { o.textContent=a; }
         sel.appendChild(o); });
       // No auto-select of the account — the user must pick it manually each login.
       // (Crew names may prefill for convenience, but the account is always left blank.)
