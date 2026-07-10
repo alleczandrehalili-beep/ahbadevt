@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-07-09.1';
+    const APP_VERSION = '2026-07-10.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -525,7 +525,7 @@
       try{
         let photoPath=null;
         if(isIn && secPhotoFile){
-          try{ const blob=await compressImage(secPhotoFile,1000,90); photoPath=`gate/${team}_${Date.now()}.jpg`; const {error:e2}=await sb.storage.from('job-photos').upload(photoPath,blob,{contentType:'image/jpeg',upsert:false}); if(e2) photoPath=null; }catch(e){ photoPath=null; }
+          try{ const blob=await compressImage(secPhotoFile,1000,90,await buildStamp()); photoPath=`gate/${team}_${Date.now()}.jpg`; const {error:e2}=await sb.storage.from('job-photos').upload(photoPath,blob,{contentType:'image/jpeg',upsert:false}); if(e2) photoPath=null; }catch(e){ photoPath=null; }
         }
         const row={ team, account:m.dataset.acct, plate_no:plate, odometer:Number(odo), fuel_level:fuel, gate_type:mode, security_user:myTeam, checked_at:now };
         if(!isIn){ Object.assign(row,{crew_driver:m.dataset.driver, crew_tech1:m.dataset.t1, crew_tech2:m.dataset.t2, crew_ok:crewok, crew_remarks:rem}); }
@@ -719,7 +719,7 @@
         }
         for(const cat of ['id','billing','premise']){
           for(let i=0;i<saDocs[cat].length;i++){
-            const blob=await compressImage(saDocs[cat][i],1000,90);
+            const blob=await compressImage(saDocs[cat][i],1000,90,await buildStamp());
             const path=`${jobId}/docs/${cat}_${Date.now()}_${i}.jpg`;
             const {error:e2}=await sb.storage.from('job-photos').upload(path,blob,{contentType:'image/jpeg',upsert:false}); if(e2) throw e2;
             await sb.from('job_docs').insert({job_id:jobId, category:cat, path});

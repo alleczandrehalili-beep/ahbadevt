@@ -72,26 +72,71 @@
       logTrack('status:'+next, job.area||job.city);
     }
     // Compress/resize a photo to the smallest readable size (~60 KB) to save cloud space + data.
-    function compressImage(file, maxDim=900, targetKB=60){
+    function compressImage(file, maxDim=900, targetKB=60, stamp=null){
       return new Promise(resolve=>{
         if(!file || !(file.type||'').startsWith('image/')){ resolve(file); return; }
         const img=new Image(); const url=URL.createObjectURL(file);
         img.onload=async ()=>{
           let w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
           let scale=Math.min(1, maxDim/Math.max(w,h)); w=Math.round(w*scale); h=Math.round(h*scale);
-          const draw=(ww,hh)=>{const cv=document.createElement('canvas');cv.width=ww;cv.height=hh;cv.getContext('2d').drawImage(img,0,0,ww,hh);return cv;};
-          let cv=draw(w,h);
+          // render() draws the image and, for proof photos, bakes in the GPS/date watermark.
+          const render=(ww,hh)=>{const cv=document.createElement('canvas');cv.width=ww;cv.height=hh;const cx=cv.getContext('2d');cx.drawImage(img,0,0,ww,hh);if(stamp)drawStamp(cx,ww,hh,stamp);return cv;};
+          let cv=render(w,h);
           const toBlob=(c,q)=>new Promise(r=>c.toBlob(b=>r(b),'image/jpeg',q));
           let q=0.5, blob=await toBlob(cv,q);
           // step quality down to 0.3
           while(blob && blob.size>targetKB*1024 && q>0.3){ q=Math.round((q-0.05)*100)/100; blob=await toBlob(cv,q); }
-          // still too big? shrink dimensions once more and retry at low quality
-          if(blob && blob.size>targetKB*1024 && Math.max(w,h)>640){ w=Math.round(w*0.75); h=Math.round(h*0.75); cv=draw(w,h); blob=await toBlob(cv,0.4); }
+          // still too big? shrink dimensions once more and retry at low quality (watermark re-applied)
+          if(blob && blob.size>targetKB*1024 && Math.max(w,h)>640){ w=Math.round(w*0.75); h=Math.round(h*0.75); cv=render(w,h); blob=await toBlob(cv,0.4); }
           URL.revokeObjectURL(url); resolve(blob||file);
         };
         img.onerror=()=>{ URL.revokeObjectURL(url); resolve(file); };
         img.src=url;
       });
+    }
+    // ---- Photo watermark (proof photos only): date/time + GPS + address, baked into the JPEG ----
+    let _stampCache={t:0,data:null}, _geoCache={};
+    function _getPos(){ return new Promise(res=>{ if(!navigator.geolocation){ res(null); return; }
+      navigator.geolocation.getCurrentPosition(p=>res(p), ()=>res(null), {enableHighAccuracy:true, timeout:8000, maximumAge:60000}); }); }
+    async function _revGeocode(lat,lng){
+      const key=lat.toFixed(4)+','+lng.toFixed(4);
+      if(_geoCache[key]!==undefined) return _geoCache[key];
+      try{
+        const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,{headers:{Accept:'application/json'}});
+        if(!r.ok){ _geoCache[key]=''; return ''; }
+        const j=await r.json(); const a=(j&&j.address)||{};
+        const parts=[a.road||a.pedestrian||a.footway||a.neighbourhood||'', a.suburb||a.village||a.town||a.city_district||'', a.city||a.municipality||a.state||''].filter(Boolean);
+        const addr=parts.join(', ') || String(j.display_name||'').split(',').slice(0,3).join(', ').trim();
+        _geoCache[key]=addr; return addr;
+      }catch(e){ _geoCache[key]=''; return ''; }
+    }
+    async function buildStamp(){
+      const now=Date.now();
+      if(_stampCache.data && (now-_stampCache.t)<20000) return _stampCache.data;   // reuse one fix per burst
+      let dt=''; try{ dt=new Date().toLocaleString('en-PH',{timeZone:TZ,year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}).replace(',','').replace(/(\d) (\d)/,'$1 · $2'); }catch(e){ dt=new Date().toLocaleString(); }
+      let lat=null,lng=null,addr='';
+      const pos=await _getPos();
+      if(pos&&pos.coords){ lat=pos.coords.latitude; lng=pos.coords.longitude; try{ addr=await _revGeocode(lat,lng); }catch(e){} }
+      const data={dt,lat,lng,addr}; _stampCache={t:now,data}; return data;
+    }
+    function drawStamp(ctx,w,h,s){
+      if(!s) return;
+      const lines=[ s.dt||'' ];
+      if(s.lat!=null && s.lng!=null){ const ns=s.lat>=0?'N':'S', ew=s.lng>=0?'E':'W';
+        lines.push(Math.abs(s.lat).toFixed(6)+'°'+ns+', '+Math.abs(s.lng).toFixed(6)+'°'+ew); }
+      else { lines.push('Location unavailable'); }
+      if(s.addr) lines.push(s.addr);
+      const fs=Math.max(13, Math.round(w*0.032)), pad=Math.round(fs*0.6), lh=Math.round(fs*1.34);
+      const boxH=lh*lines.length + pad*2;
+      ctx.save();
+      const g=ctx.createLinearGradient(0,h-boxH-pad*2,0,h);
+      g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(0.4,'rgba(0,0,0,0.55)'); g.addColorStop(1,'rgba(0,0,0,0.74)');
+      ctx.fillStyle=g; ctx.fillRect(0,h-boxH-pad*2,w,boxH+pad*2);
+      ctx.textAlign='left'; ctx.textBaseline='alphabetic'; ctx.font='600 '+fs+'px system-ui,Arial,sans-serif';
+      ctx.shadowColor='rgba(0,0,0,0.9)'; ctx.shadowBlur=3; ctx.shadowOffsetY=1;
+      let y=h-boxH+pad+fs;
+      lines.forEach((ln,i)=>{ ctx.fillStyle=(i===0)?'#c9f36a':'#ffffff'; ctx.fillText(ln, pad, y); y+=lh; });
+      ctx.restore();
     }
     // Upload one image to a given label
     // ---- Photo upload queue (IndexedDB) ----
@@ -123,7 +168,7 @@
       if(changed) render();
     }
     async function uploadOne(jobId, file, label){
-      const blob=await compressImage(file);
+      const blob=await compressImage(file, 1000, 90, await buildStamp());
       const safe=(label||'photo').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'').slice(0,40);
       const path=`${jobId}/${safe}_${Date.now()}_${Math.random().toString(36).slice(2,7)}.jpg`;
       try{
