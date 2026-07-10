@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-07-10.3';
+    const APP_VERSION = '2026-07-10.4';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -15,13 +15,21 @@
       b.onclick=()=>location.reload();
       document.body.appendChild(b);
     }
+    // True only if `dep` is a STRICTLY NEWER version than `cur` (YYYY-MM-DD.N).
+    // Guards against a stale/CDN-cached version.json (older value) causing a false "new version" nudge.
+    function _verNewer(dep,cur){
+      if(!dep||!cur) return false;
+      const a=String(dep).split('.'), b=String(cur).split('.');
+      if(a[0]!==b[0]) return a[0]>b[0];
+      return (parseInt(a[1]||'0',10) > parseInt(b[1]||'0',10));
+    }
     async function checkAppVersion(){
       try{
         const r=await fetch('version.json?t='+Date.now(),{cache:'no-store'});
         if(!r.ok) return;
         const j=await r.json();
         const dep=j&&j.version;
-        if(dep && dep!==APP_VERSION) _showVerNudge();
+        if(dep && _verNewer(dep,APP_VERSION)) _showVerNudge();   // only when deployed is genuinely newer
       }catch(e){}
     }
 
