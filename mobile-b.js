@@ -496,9 +496,12 @@
       $('#teamName').textContent=headerName();
       show('appView'); setSync('syncing','Connecting…'); signature=''; knownJobIds=null; primeAudio();
       refresh();
+      // Coalesce realtime bursts + the poll into ≤1 refetch per ~4s — lighter on the DB, still live.
+      if(!startApp._coal){ startApp._coal=function(){ var now=Date.now(), gap=now-(startApp._rlast||0); if(gap>=4000){ startApp._rlast=now; refresh(); return; } if(startApp._rt) return; startApp._rt=setTimeout(function(){ startApp._rt=null; startApp._rlast=Date.now(); refresh(); }, 4000-gap); }; }
+      var refreshC=startApp._coal;
       if(realtimeChan) sb.removeChannel(realtimeChan);
-      realtimeChan = sb.channel('ahba-tech-'+myTeam).on('postgres_changes',{event:'*',schema:'public',table:'jobs',filter:'team=eq.'+myTeam},()=>refresh()).subscribe();
-      clearInterval(startApp._t); startApp._t=setInterval(refresh,15000);
+      realtimeChan = sb.channel('ahba-tech-'+myTeam).on('postgres_changes',{event:'*',schema:'public',table:'jobs',filter:'team=eq.'+myTeam},refreshC).subscribe();
+      clearInterval(startApp._t); startApp._t=setInterval(refreshC,30000);   // was 15000 — realtime already covers live changes
       if(!startApp._onhook){ startApp._onhook=1; window.addEventListener('online', ()=>{ flushQueue(); flushPhotoQueue(); }); }
       clearInterval(startApp._loc); startApp._loc=setInterval(()=>captureLocation(false),600000); // refresh GPS every 10 min
       clearInterval(startApp._track); startApp._track=setInterval(()=>logTrack('auto'),1200000); // travel trail every 20 min
