@@ -658,6 +658,8 @@
     document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) _touchActive(); });
     setInterval(_touchActive, 5*60*1000);
 
+    _stampVersion(); checkAppVersion(); setInterval(checkAppVersion, 5*60*1000);   // version stamp + auto refresh-nudge
+
     // resume existing session on refresh/reopen; auto-logout ONLY after 48h of not opening the app.
     (async function init(){
       const {data}=await sb.auth.getSession();

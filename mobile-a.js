@@ -3,6 +3,28 @@
     const EMAIL_DOMAIN = 'ahbafield.app';
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
+    // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
+    const APP_VERSION = '2026-07-09.1';
+    function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
+    function _showVerNudge(){
+      if(document.getElementById('verNudge')) return;
+      const b=document.createElement('div');
+      b.id='verNudge';
+      b.textContent='🔄 Bagong bersyon — i-tap para i-refresh';
+      b.style.cssText='position:fixed;left:12px;right:12px;bottom:12px;z-index:99999;background:#0d3b34;color:#fff;font:600 13px system-ui;padding:12px 16px;border-radius:12px;text-align:center;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.3)';
+      b.onclick=()=>location.reload();
+      document.body.appendChild(b);
+    }
+    async function checkAppVersion(){
+      try{
+        const r=await fetch('version.json?t='+Date.now(),{cache:'no-store'});
+        if(!r.ok) return;
+        const j=await r.json();
+        const dep=j&&j.version;
+        if(dep && dep!==APP_VERSION) _showVerNudge();
+      }catch(e){}
+    }
+
     const $ = s => document.querySelector(s);
     const $$ = s => Array.from(document.querySelectorAll(s));
     let myTeam = '';        // AHBA_SLI004
