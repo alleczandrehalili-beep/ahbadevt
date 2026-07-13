@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-07-10.4';
+    const APP_VERSION = '2026-07-13.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -600,24 +600,27 @@
       if($('#sa_play_type')) $('#sa_play_type').value='1-PLAY'; toggleAddonCount();
       saDocs={id:[],billing:[],premise:[]}; saRenderDocs();
     }
+    let saMineAllDates=false, saMineSearchT=null;
     async function saRenderMine(){
       const el=$('#saMineList'); el.innerHTML=`<div class="empty">Loading…</div>`;
-      const dEl=$('#saMineDate');
-      if(dEl && !dEl.dataset.wired){ dEl.dataset.wired='1'; dEl.onchange=saRenderMine; const allB=$('#saMineAll'); if(allB) allB.onclick=()=>{ dEl.value=''; saRenderMine(); }; }
+      const dEl=$('#saMineDate'), qEl=$('#saMineSearch');
+      const today=manilaDate();
+      if(dEl && !dEl.dataset.wired){
+        dEl.dataset.wired='1';
+        if(!dEl.value) dEl.value=today;                 // default the picker to the present date
+        dEl.onchange=()=>{ saMineAllDates=false; saRenderMine(); };
+        const allB=$('#saMineAll'); if(allB) allB.onclick=()=>{ saMineAllDates=true; dEl.value=''; saRenderMine(); };
+        if(qEl) qEl.oninput=()=>{ clearTimeout(saMineSearchT); saMineSearchT=setTimeout(saRenderMine,120); };
+        // Daily refresh: when the app returns to the foreground, re-render so the "today" view rolls over at midnight.
+        document.addEventListener('visibilitychange',()=>{ if(!document.hidden && $('#saMine') && !$('#saMine').classList.contains('hidden')) saRenderMine(); });
+      }
       try{
         const {data}=await sb.from('jobs').select('id,subscriber,status,area,team,plan,ref_no,negative_remark,special_note,created_at,updated_at').eq('created_by',myTeam).is('deleted_at',null).order('created_at',{ascending:false});
-        let rows=data||[];
-        rows.forEach(j=>{ saStatus[j.id]=j.status; });   // seed status map for change detection
+        let all=data||[];
+        all.forEach(j=>{ saStatus[j.id]=j.status; });   // seed status map for change detection
         const mday = ts => ts ? new Date(ts).toLocaleDateString('en-CA',{timeZone:TZ}) : '';
-        const pick=(dEl&&dEl.value)||'';
-        if(pick) rows=rows.filter(j=> mday(j.created_at)===pick );
-        // Monitoring summary — count per status, colored (doubles as a quick legend).
-        const cnt={}; rows.forEach(j=>{ const lab=saStatusLabel(j.status); (cnt[lab]=cnt[lab]||{n:0,cls:saBadgeCls(j.status)}).n++; });
-        const sumEl=$('#saMineSummary'); if(sumEl) sumEl.innerHTML=Object.entries(cnt).map(([lab,o])=>`<span class="badge ${o.cls}">${lab}: ${o.n}</span>`).join('');
-        const cEl=$('#saMineCount'); if(cEl) cEl.textContent=`${rows.length} load${rows.length===1?'':'s'}${pick?(' encoded on '+pick):' total'}`;
-        if(!rows.length){ if(sumEl) sumEl.innerHTML=''; el.innerHTML=`<div class="empty">${svg('inbox')}${pick?('No loads encoded on '+pick+'.'):'No submissions yet.<br>Encode a new job order to get started.'}</div>`; return; }
-        el.innerHTML=rows.map(j=>{
-          const esc=s=>(s||'').replace(/</g,'&lt;');
+        const esc=s=>(s||'').replace(/</g,'&lt;');
+        const cardHTML = j => {
           const assigned = j.team
             ? `<div class="row" style="color:#0e7a59;font-weight:700">${svg('truck')}<span>Assigned to: ${esc(j.team)}</span></div>`
             : `<div class="row" style="color:#9aa6a2">${svg('truck')}<span>Awaiting team assignment</span></div>`;
@@ -632,7 +635,46 @@
           const enc = j.created_at ? `<div class="row" style="color:#9aa6a2"><span>🗓 Encoded: ${mday(j.created_at)} · ${manilaTime(j.created_at)}</span></div>` : '';
           const meta=[j.plan&&('Plan: '+esc(j.plan)), j.ref_no&&('Ref: '+esc(j.ref_no)), esc(j.area)].filter(Boolean).join(' · ');
           return `<div class="submitted"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><h4>${esc(j.subscriber)||'—'}</h4><span class="badge ${saBadgeCls(j.status)}">${saStatusLabel(j.status)}</span></div><p>${j.id}${meta?' · '+meta:''}</p><div class="job-meta">${enc}${assigned}${neg}${rejReason}</div><button class="act ghost" data-info="${j.id}" style="width:100%;margin-top:8px">ℹ︎ View full info</button>${editBtn}${rejBtn}${delBtn}</div>`;
-        }).join('');
+        };
+        const q=(qEl&&qEl.value.trim().toLowerCase())||'';
+        const pick=(dEl&&dEl.value)||'';
+        let priority=[], list=[], note='';
+        if(q){                            // SEARCH — find a subscriber across ALL submissions (name / JO# / ref)
+          list=all.filter(j=> (j.subscriber||'').toLowerCase().includes(q) || (j.id||'').toLowerCase().includes(q) || (j.ref_no||'').toLowerCase().includes(q) );
+          note=`${list.length} result${list.length===1?'':'s'} for “${qEl.value.trim()}”`;
+        } else if(saMineAllDates){        // full history
+          list=all; note=`${all.length} load${all.length===1?'':'s'} · all dates`;
+        } else if(pick && pick!==today){  // a specific past date
+          list=all.filter(j=> mday(j.created_at)===pick );
+          note=`${list.length} load${list.length===1?'':'s'} encoded on ${pick}`;
+        } else {                          // DEFAULT daily view — today's loads + carried-over negatives on top
+          if(dEl && pick!==today) dEl.value=today;   // keep the picker on the current day (midnight roll-over)
+          list=all.filter(j=> mday(j.created_at)===today );
+          priority=all.filter(j=> j.status==='negative' && mday(j.created_at)!==today )
+                      .sort((a,b)=> (b.updated_at||b.created_at||'').localeCompare(a.updated_at||a.created_at||''));
+          note=`${list.length} today${priority.length?(' · '+priority.length+' priority'):''}`;
+        }
+        // Monitoring summary — count per status over what's shown (doubles as a quick legend).
+        const shown=[...priority,...list];
+        const cnt={}; shown.forEach(j=>{ const lab=saStatusLabel(j.status); (cnt[lab]=cnt[lab]||{n:0,cls:saBadgeCls(j.status)}).n++; });
+        const sumEl=$('#saMineSummary'); if(sumEl) sumEl.innerHTML=Object.entries(cnt).map(([lab,o])=>`<span class="badge ${o.cls}">${lab}: ${o.n}</span>`).join('');
+        const cEl=$('#saMineCount'); if(cEl) cEl.textContent=note;
+        if(!shown.length){
+          if(sumEl) sumEl.innerHTML='';
+          const msg = q?('No match for “'+esc(qEl.value.trim())+'”.')
+            : saMineAllDates?'No submissions yet.<br>Encode a new job order to get started.'
+            : (pick&&pick!==today)?('No loads encoded on '+pick+'.')
+            : 'No loads yet today.<br>Encode a new job order to get started.';
+          el.innerHTML=`<div class="empty">${svg('inbox')}${msg}</div>`; return;
+        }
+        let html='';
+        if(priority.length){
+          html+=`<div style="padding:8px 16px 2px;font-size:12px;font-weight:800;color:#c2503a">⚠ Priority — needs follow-up (${priority.length})</div>`;
+          html+=priority.map(cardHTML).join('');
+          if(list.length) html+=`<div style="padding:12px 16px 2px;font-size:12px;font-weight:800;color:#2a3a36">Today · ${today}</div>`;
+        }
+        html+=list.map(cardHTML).join('');
+        el.innerHTML=html;
         el.querySelectorAll('[data-resub]').forEach(b=>b.onclick=()=>saEditResubmit(b.dataset.resub));
         el.querySelectorAll('[data-info]').forEach(b=>b.onclick=()=>showJobInfo(b.dataset.info));
         el.querySelectorAll('[data-sadel]').forEach(b=>b.onclick=()=>saDeleteOrder(b.dataset.sadel));
