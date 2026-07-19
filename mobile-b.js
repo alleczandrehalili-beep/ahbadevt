@@ -459,13 +459,18 @@
         const expBtn=activeJob?`<button class="addphoto" style="margin-top:10px;color:#a4690f;border-color:#f0d9a8;background:#fff8eb" data-exp="${j.id}">+ Add expense for this job</button>`:'';
         const negBtn=activeJob?`<button class="addphoto" style="margin-top:8px;color:#c2503a;border-color:#f0c4b9;background:#fff3f0" data-neg="${j.id}">⚠ Mark as Negative</button>`:'';
         const cancelBtn=activeJob?`<button class="addphoto" style="margin-top:8px;color:#7a7f7d;border-color:#d8dcd9;background:#f5f6f5" data-cancel="${j.id}">✖ Cancel job</button>`:'';
-        // Serial lock: while another load is in progress, disable this one's status actions.
-        const locked = busyId && j.id!==busyId && !['completed','negative','cancelled'].includes(j.status);
-        const actionsF = locked ? `<div class="job-actions">${mapLink}<button class="act ghost" disabled style="flex:1;opacity:.6">🔒 Tapusin muna ang kasalukuyang load</button></div>` : actions;
-        const negBtnF = locked?'':negBtn, cancelBtnF = locked?'':cancelBtn;
+        // Serial lock: while another load is active, the NEXT job order stays LOCKED — its full
+        // details are hidden until the current one is updated (Completed / Incomplete / Cancelled).
+        // A dispatcher can exempt one specific job order via lock_bypass
+        // (console → job detail → "🔓 Unlock for technician").
+        const locked = busyId && j.id!==busyId && !['completed','negative','cancelled'].includes(j.status) && !j.lock_bypass;
+        if(locked){
+          return `<div class="job"><div class="job-head"><div><span class="job-id">${j.id}</span><h3>🔒 Locked</h3></div><span class="badge b-${j.status}">${statusLabel(j.status)}</span></div>
+        <div class="job-meta"><div class="row" style="color:#a4690f;font-weight:700">${svg('note')}<span>Update your current job order first. Finish it — Completed, Incomplete, or Cancelled — before you can view and start your next job order.</span></div></div></div>`;
+        }
         return `<div class="job"><div class="job-head"><div><span class="job-id" data-info="${j.id}" style="cursor:pointer;text-decoration:underline">${j.id} ℹ︎</span><h3>${j.subscriber||'—'}${prio}</h3><p class="plan">${j.service_type||''} · ${j.plan||''}</p></div><span class="badge b-${j.status}">${statusLabel(j.status)}</span></div>
         <div class="job-meta"><div class="row">${svg('pin')}<span>${addr||'—'}</span></div><div class="row">${svg('clock')}<span>${(j.schedule||'Today').replace('Today, ','Today · ')}</span></div>${contact}${acct}${svc}${src}${drem}${note}${negRemark}</div>
-        ${extra}${actionsF}${expBtn}${negBtnF}${cancelBtnF}</div>`;
+        ${extra}${actions}${expBtn}${negBtn}${cancelBtn}</div>`;
       }).join('');
       el.querySelectorAll('[data-next]').forEach(b=>b.onclick=()=>advance(b.dataset.id,b.dataset.next));
       el.querySelectorAll('[data-up]').forEach(inp=>inp.onchange=()=>{const id=inp.dataset.up,files=inp.files;uploadPhotos(id,files,inp.dataset.label);inp.value='';});

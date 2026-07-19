@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-07-13.1';
+    const APP_VERSION = '2026-07-14.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -615,30 +615,34 @@
         document.addEventListener('visibilitychange',()=>{ if(!document.hidden && $('#saMine') && !$('#saMine').classList.contains('hidden')) saRenderMine(); });
       }
       try{
-        const {data}=await sb.from('jobs').select('id,subscriber,status,area,team,plan,ref_no,negative_remark,special_note,created_at,updated_at').eq('created_by',myTeam).is('deleted_at',null).order('created_at',{ascending:false});
+        const {data}=await sb.from('jobs').select('id,subscriber,status,area,team,plan,ref_no,negative_remark,special_note,created_at,updated_at,load_date').eq('created_by',myTeam).is('deleted_at',null).order('created_at',{ascending:false});
         let all=data||[];
         all.forEach(j=>{ saStatus[j.id]=j.status; });   // seed status map for change detection
         const mday = ts => ts ? new Date(ts).toLocaleDateString('en-CA',{timeZone:TZ}) : '';
         const esc=s=>(s||'').replace(/</g,'&lt;');
+        // Which day's crew handled this load (dispatch day; falls back to the encode day).
+        const jobDay = j => (j.load_date?String(j.load_date).slice(0,10):'') || mday(j.created_at);
+        let crewMap={};   // "TEAM|YYYY-MM-DD" → the crew DECLARED for that team that day (from attendance)
         const cardHTML = j => {
           const assigned = j.team
             ? `<div class="row" style="color:#0e7a59;font-weight:700">${svg('truck')}<span>Assigned to: ${esc(j.team)}</span></div>`
             : `<div class="row" style="color:#9aa6a2">${svg('truck')}<span>Awaiting team assignment</span></div>`;
+          const cw = j.team ? crewMap[j.team+'|'+jobDay(j)] : null;
+          const crew = (cw && (cw.d||cw.t1)) ? `<div class="row" style="color:#0e7a59"><span>👷 Driver: ${esc(cw.d||'—')} · Tech: ${esc([cw.t1,cw.t2].filter(Boolean).join(', ')||'—')}</span></div>` : '';
           const neg = (j.status==='negative'&&j.negative_remark) ? `<div class="row" style="color:#c2503a">${svg('note')}<span>${esc(j.negative_remark)}</span></div>` : '';
           const rejReason = (j.status==='rejected'&&j.special_note) ? `<div class="row" style="color:#c2503a">${svg('note')}<span>${esc(j.special_note)}</span></div>` : '';
           const rejBtn = (j.status==='rejected') ? `<button class="act" data-resub="${j.id}" style="width:100%;margin-top:8px;background:#e9a93d;color:#3a2a00">${svg('note')} Edit &amp; resubmit</button>` : '';
           // Still for validation? Let the sales agent edit it before the validator reviews.
           const editBtn = (j.status==='for_validation') ? `<button class="act" data-resub="${j.id}" style="width:100%;margin-top:8px;background:#178262;color:#fff;border-color:#178262">${svg('note')} Edit before validation</button>` : '';
-          // Sales can delete their OWN order — including old ones (any status) — EXCEPT
-          // jobs a technician is actively working (assigned/en-route/on-site/in-progress).
-          const delBtn = (!['assigned','en-route','on-site','in-progress'].includes(j.status)) ? `<button class="act" data-sadel="${j.id}" style="width:100%;margin-top:8px;color:#c2503a;border-color:#f0c4b9">🗑 Delete this order</button>` : '';
+          // NOTE: sales agents can no longer delete their own orders. Mistakes are fixed with
+          // "Edit before validation" / "Edit & resubmit"; deleting is a console (GC) action only.
           const enc = j.created_at ? `<div class="row" style="color:#9aa6a2"><span>🗓 Encoded: ${mday(j.created_at)} · ${manilaTime(j.created_at)}</span></div>` : '';
           const meta=[j.plan&&('Plan: '+esc(j.plan)), j.ref_no&&('Ref: '+esc(j.ref_no)), esc(j.area)].filter(Boolean).join(' · ');
-          return `<div class="submitted"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><h4>${esc(j.subscriber)||'—'}</h4><span class="badge ${saBadgeCls(j.status)}">${saStatusLabel(j.status)}</span></div><p>${j.id}${meta?' · '+meta:''}</p><div class="job-meta">${enc}${assigned}${neg}${rejReason}</div><button class="act ghost" data-info="${j.id}" style="width:100%;margin-top:8px">ℹ︎ View full info</button>${editBtn}${rejBtn}${delBtn}</div>`;
+          return `<div class="submitted"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><h4>${esc(j.subscriber)||'—'}</h4><span class="badge ${saBadgeCls(j.status)}">${saStatusLabel(j.status)}</span></div><p>${j.id}${meta?' · '+meta:''}</p><div class="job-meta">${enc}${assigned}${crew}${neg}${rejReason}</div><button class="act ghost" data-info="${j.id}" style="width:100%;margin-top:8px">ℹ︎ View full info</button>${editBtn}${rejBtn}</div>`;
         };
         const q=(qEl&&qEl.value.trim().toLowerCase())||'';
         const pick=(dEl&&dEl.value)||'';
-        let priority=[], list=[], note='';
+        let priority=[], list=[], note='', isDaily=false;
         if(q){                            // SEARCH — find a subscriber across ALL submissions (name / JO# / ref)
           list=all.filter(j=> (j.subscriber||'').toLowerCase().includes(q) || (j.id||'').toLowerCase().includes(q) || (j.ref_no||'').toLowerCase().includes(q) );
           note=`${list.length} result${list.length===1?'':'s'} for “${qEl.value.trim()}”`;
@@ -647,12 +651,14 @@
         } else if(pick && pick!==today){  // a specific past date
           list=all.filter(j=> mday(j.created_at)===pick );
           note=`${list.length} load${list.length===1?'':'s'} encoded on ${pick}`;
-        } else {                          // DEFAULT daily view — today's loads + carried-over negatives on top
+        } else {                          // DEFAULT daily view — today's loads, then carried-over Incomplete BELOW
+          isDaily=true;
           if(dEl && pick!==today) dEl.value=today;   // keep the picker on the current day (midnight roll-over)
           list=all.filter(j=> mday(j.created_at)===today );
+          // Follow-up block: Incomplete (negative) ONLY, from previous days. Cancelled are excluded.
           priority=all.filter(j=> j.status==='negative' && mday(j.created_at)!==today )
                       .sort((a,b)=> (b.updated_at||b.created_at||'').localeCompare(a.updated_at||a.created_at||''));
-          note=`${list.length} today${priority.length?(' · '+priority.length+' priority'):''}`;
+          note=`${list.length} today${priority.length?(' · '+priority.length+' for follow-up'):''}`;
         }
         // Monitoring summary — count per status over what's shown (doubles as a quick legend).
         const shown=[...priority,...list];
@@ -667,17 +673,28 @@
             : 'No loads yet today.<br>Encode a new job order to get started.';
           el.innerHTML=`<div class="empty">${svg('inbox')}${msg}</div>`; return;
         }
+        // Who actually handled each load: the crew DECLARED for that team on that day (attendance).
+        try{
+          const teams=[...new Set(shown.map(j=>j.team).filter(Boolean))];
+          const days=[...new Set(shown.map(jobDay).filter(Boolean))];
+          if(teams.length && days.length){
+            const {data:att}=await sb.from('attendance').select('username,work_date,crew_driver,crew_tech1,crew_tech2').in('username',teams).in('work_date',days);
+            (att||[]).forEach(a=>{ crewMap[a.username+'|'+a.work_date]={d:a.crew_driver||'',t1:a.crew_tech1||'',t2:a.crew_tech2||''}; });
+          }
+        }catch(e){}
         let html='';
-        if(priority.length){
-          html+=`<div style="padding:8px 16px 2px;font-size:12px;font-weight:800;color:#c2503a">⚠ Priority — needs follow-up (${priority.length})</div>`;
-          html+=priority.map(cardHTML).join('');
-          if(list.length) html+=`<div style="padding:12px 16px 2px;font-size:12px;font-weight:800;color:#2a3a36">Today · ${today}</div>`;
-        }
-        html+=list.map(cardHTML).join('');
+        if(isDaily){
+          if(list.length) html+=`<div style="padding:8px 16px 2px;font-size:12px;font-weight:800;color:#2a3a36">Today · ${today}</div>`;
+          html+=list.map(cardHTML).join('');
+          if(priority.length){
+            html+=`<div style="padding:14px 16px 2px;font-size:12px;font-weight:800;color:#c2503a">⚠ Incomplete — previous days (${priority.length})</div>`;
+            html+=`<div style="padding:0 16px 6px;font-size:10.5px;color:#8a9894">Follow up on these — they were not completed on an earlier day.</div>`;
+            html+=priority.map(cardHTML).join('');
+          }
+        } else html+=list.map(cardHTML).join('');
         el.innerHTML=html;
         el.querySelectorAll('[data-resub]').forEach(b=>b.onclick=()=>saEditResubmit(b.dataset.resub));
         el.querySelectorAll('[data-info]').forEach(b=>b.onclick=()=>showJobInfo(b.dataset.info));
-        el.querySelectorAll('[data-sadel]').forEach(b=>b.onclick=()=>saDeleteOrder(b.dataset.sadel));
       }catch(e){ el.innerHTML=`<div class="empty">Could not load submissions.</div>`; }
     }
     // Sales: delete their OWN submitted order (only while still for-validation / rejected, pre-dispatch).
