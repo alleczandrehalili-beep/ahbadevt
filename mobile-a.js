@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-07-14.2';
+    const APP_VERSION = '2026-07-14.3';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -568,7 +568,9 @@
 };
     function populateSaBrgys(dist){
       const sel=$('#sa_brgy'); if(!sel) return;
-      const list=QC_BRGYS[String(dist)]||[];
+      // ALL CAPS na ang sinasave ng form, kaya ALL CAPS din ang mga option — kung hindi,
+      // hindi na mapipili ang naka-save na barangay kapag nag-Edit & resubmit.
+      const list=(QC_BRGYS[String(dist)]||[]).map(b=>String(b).toUpperCase());
       sel.innerHTML=list.length?'<option value="">— Select barangay —</option>'+list.map(b=>`<option>${b}</option>`).join(''):'<option value="">— Select district first —</option>';
     }
     function populatePlans(){
@@ -717,7 +719,8 @@
         set('first_name',j.first_name); set('middle_name',j.middle_name); set('last_name',j.last_name);
         set('primary_no',j.primary_no); set('other_contact_no',j.other_contact_no);
         set('house_no',j.house_no); set('street_name',j.street_name); set('village',j.village);
-        if($('#sa_district')) $('#sa_district').value=j.district||''; populateSaBrgys(j.district||''); if($('#sa_brgy')) $('#sa_brgy').value=j.brgy||'';
+        if($('#sa_district')) $('#sa_district').value=j.district||''; populateSaBrgys(j.district||'');
+        if($('#sa_brgy')) $('#sa_brgy').value=String(j.brgy||'').toUpperCase();   // itugma sa ALL CAPS na options
         if($('#sa_city')) $('#sa_city').value=j.city||'QUEZON CITY';
         if($('#sa_dwelling')) $('#sa_dwelling').value=(['MDU','MDU DOCSIS'].includes(j.dwelling_type)?j.dwelling_type:'SDU');
         populatePlans(); if($('#sa_plan')) $('#sa_plan').value=j.plan||'';
