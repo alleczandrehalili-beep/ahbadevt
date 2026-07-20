@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-07-14.1';
+    const APP_VERSION = '2026-07-14.2';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -758,7 +758,8 @@
     }
     async function saSubmit(){
       clearErr('#saErr');
-      const v=id=>($('#'+id)?$('#'+id).value.trim():'');
+      // ALL CAPS lahat ng ini-encode — pantay sa console at sa extraction.
+      const v=id=>($('#'+id)?$('#'+id).value.trim().toUpperCase():'');
       const fn=v('sa_first_name'), ln=v('sa_last_name'), dist=v('sa_district'), brgy=v('sa_brgy'), city=v('sa_city')||'QUEZON CITY', pno=v('sa_primary_no'), ono=v('sa_other_contact_no');
       if(!fn||!ln||!pno||!dist||!brgy){ showErr('#saErr','Please fill: first & last name, primary no., district, and barangay.'); return; }
       if(!/^\d{11}$/.test(pno)){ showErr('#saErr','Primary no. must be exactly 11 digits (numbers only).'); return; }

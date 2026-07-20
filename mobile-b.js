@@ -270,8 +270,11 @@
         const j=jobs.find(x=>x.id===jobId);
         const verb = mode==='cancel'?'Cancelled':'Negative';
         const hist=appendHist(await freshHist(jobId, j&&j.history), verb+': '+remark+' ('+ok+' photo'+(ok>1?'s':'')+') (by '+myTeam+(shiftAccount?' / '+shiftAccount:'')+')');
+        // Ang dahilan ng Cancelled ay dating naitatala LANG sa history, kaya hindi ito
+        // lumalabas sa extraction ng Billing Validation. Isinusulat na rin ito ngayon sa
+        // sariling column — katumbas ng negative_remark para sa Incomplete.
         const patch = mode==='cancel'
-          ? {status:'cancelled', updated_at:now, history:hist}
+          ? {status:'cancelled', cancel_remark:remark, updated_at:now, history:hist}
           : {status:'negative', negative_remark:remark, negative_at:now, updated_at:now, history:hist};
         if(mode!=='cancel' && shiftAccount){ patch.work_account=shiftAccount; patch.crew_driver=shiftDriver; patch.crew_tech1=shiftTech1; patch.crew_tech2=shiftTech2; }
         const synced=await saveJobPatch(jobId, patch);

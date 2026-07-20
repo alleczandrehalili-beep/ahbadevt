@@ -134,7 +134,11 @@
     .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
     .hidden{display:none!important}
     @media(prefers-reduced-motion:reduce){*{transition-duration:.001ms!important}}
-  </style>
+  
+    /* Sales encoding is ALL CAPS — show it while typing so it matches what is stored
+       (saSubmit uppercases on save). Numbers/dates are unaffected. */
+    #saNew input[type="text"],#saNew input:not([type]),#saNew textarea{text-transform:uppercase}
+</style>
 </head>
 <body>
   <div class="wrap">
@@ -440,7 +444,7 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="mobile-a.js?v=2026-07-14.1"></script>
-  <script src="mobile-b.js?v=2026-07-14.1"></script>
+  <script src="mobile-a.js?v=2026-07-14.2"></script>
+  <script src="mobile-b.js?v=2026-07-14.2"></script>
 </body>
 </html>
