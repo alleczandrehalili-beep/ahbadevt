@@ -91,6 +91,8 @@
     .empty{text-align:center;color:#9aa6a2;padding:48px 20px;font-size:13px}
     .empty svg{width:40px;height:40px;color:#c2ccc8;display:block;margin:0 auto 12px}
 
+    .sched-blk{border:none;box-sizing:border-box;cursor:default;font:inherit;line-height:1.15}
+    button.sched-blk{cursor:pointer}
     .jobtabs,.sa-tabs{display:flex;gap:6px;padding:12px 16px 2px}
     .jt{flex:1;border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px;font-weight:700;font-size:12px;color:#647571}
     .jt.active{background:var(--deep);border-color:var(--deep);color:#fff}
@@ -319,6 +321,7 @@
       <div class="sa-tabs">
         <button class="jt active" id="saTabNew" data-saview="new">New job order</button>
         <button class="jt" id="saTabMine" data-saview="mine">My submissions</button>
+        <button class="jt" id="saTabSched" data-saview="sched">Schedule</button>
       </div>
 
       <div class="sa-pane" id="saNew">
@@ -385,6 +388,14 @@
         <div id="saMineSummary" style="display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 8px"></div>
         <div id="saMineList"></div>
       </div>
+
+      <div class="sa-pane hidden" id="saSched">
+        <div style="display:flex;gap:8px;align-items:center;padding:10px 16px 4px">
+          <input type="date" id="saSchedDate" style="flex:1;min-width:120px;padding:9px 11px;border:1px solid #dfe5df;border-radius:9px;font-size:12px;color:#2a3a36;background:#fff">
+        </div>
+        <div id="saSchedCount" style="font-size:11px;color:#8a9894;padding:2px 16px 8px"></div>
+        <div id="saSchedBody" style="padding:0 12px"><div class="empty">Loading…</div></div>
+      </div>
     </div>
   </div>
 
@@ -444,7 +455,7 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="mobile-a.js?v=2026-07-14.3"></script>
-  <script src="mobile-b.js?v=2026-07-14.3"></script>
+  <script src="mobile-a.js?v=2026-07-14.4"></script>
+  <script src="mobile-b.js?v=2026-07-14.4"></script>
 </body>
 </html>

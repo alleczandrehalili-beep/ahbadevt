@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-07-14.3';
+    const APP_VERSION = '2026-07-14.4';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -548,9 +548,14 @@
     // Badge color synced to status — en-route/on-site/in-progress share the "In progress" color so the badge always matches its label.
     const saBadgeCls = s => ({for_validation:'b-for_validation',rejected:'b-rejected',pending:'b-pending',assigned:'b-assigned','en-route':'b-in-progress','on-site':'b-in-progress','in-progress':'b-in-progress',completed:'b-completed',negative:'b-negative',cancelled:'b-cancelled'}[s]||'b-pending');
     function saSwitch(view){
-      $('#saTabNew').classList.toggle('active',view==='new'); $('#saTabMine').classList.toggle('active',view==='mine');
-      $('#saNew').classList.toggle('hidden',view!=='new'); $('#saMine').classList.toggle('hidden',view!=='mine');
+      $('#saTabNew').classList.toggle('active',view==='new');
+      $('#saTabMine').classList.toggle('active',view==='mine');
+      $('#saTabSched').classList.toggle('active',view==='sched');
+      $('#saNew').classList.toggle('hidden',view!=='new');
+      $('#saMine').classList.toggle('hidden',view!=='mine');
+      $('#saSched').classList.toggle('hidden',view!=='sched');
       if(view==='mine') saRenderMine();
+      if(view==='sched') saRenderSched();
     }
     // Plan dropdowns — different lists per unit type, plus optional SKY TV add-on
     const PLANS_SDU=['PLAN 999 - 100MBPS','PLAN 1500 - 300MBPS','PLAN 1699 - 600MBPS / 400MBPS (VICE VERSA)','PLAN 2000 - 500MBPS','PLAN 2500 - 2500MBPS','PLAN 3000 - 700MBPS / 1GBPS (VICE VERSA)','PLAN 3500 - 1GBPS'];
@@ -698,6 +703,58 @@
         el.querySelectorAll('[data-resub]').forEach(b=>b.onclick=()=>saEditResubmit(b.dataset.resub));
         el.querySelectorAll('[data-info]').forEach(b=>b.onclick=()=>showJobInfo(b.dataset.info));
       }catch(e){ el.innerHTML=`<div class="empty">Could not load submissions.</div>`; }
+    }
+    // READ-ONLY dispatcher-style timeline for the sales agent. Shows, per team the agent has a
+    // load on, the whole team's day as a horizontal strip: the agent's own loads are named &
+    // tappable; every other stop is a faded block (time + status only — no name). Data comes
+    // from the anonymised sales_team_lineup RPC, so other subscribers' PII never reaches here.
+    async function saRenderSched(){
+      const el=$('#saSchedBody'); el.innerHTML=`<div class="empty">Loading…</div>`;
+      const dEl=$('#saSchedDate'); const today=manilaDate();
+      if(dEl && !dEl.dataset.wired){ dEl.dataset.wired='1'; if(!dEl.value) dEl.value=today; dEl.onchange=saRenderSched; }
+      const day=(dEl&&dEl.value)||today;
+      const esc=s=>(s||'').replace(/</g,'&lt;');
+      const START=8, END=20, SPAN=END-START;   // time axis 8AM–8PM (Manila)
+      const manilaHour=ts=>{ if(!ts) return null; const s=new Date(ts).toLocaleString('en-US',{timeZone:TZ,hour:'numeric',minute:'2-digit',hour12:false}); const m=s.match(/(\d+):(\d+)/); return m?(+m[1]+(+m[2])/60):null; };
+      const manilaLabel=ts=>ts?new Date(ts).toLocaleTimeString('en-US',{timeZone:TZ,hour:'numeric',minute:'2-digit'}):'—';
+      let rows=[];
+      try{ const {data,error}=await sb.rpc('sales_team_lineup',{p_date:day}); if(error) throw error; rows=data||[]; }
+      catch(e){ el.innerHTML=`<div class="empty">${svg('inbox')}Couldn't load the schedule. Tap Schedule again to retry.</div>`; return; }
+      if(!rows.length){ $('#saSchedCount').textContent=''; el.innerHTML=`<div class="empty">${svg('inbox')}No dispatched loads for ${day}.</div>`; return; }
+      const teams=[...new Set(rows.map(r=>r.team).filter(Boolean))];
+      let crew={};
+      try{ const {data:att}=await sb.from('attendance').select('username,crew_driver,crew_tech1,crew_tech2').in('username',teams).eq('work_date',day);
+        (att||[]).forEach(a=>{ crew[a.username]={d:a.crew_driver||'',t1:a.crew_tech1||'',t2:a.crew_tech2||''}; }); }catch(e){}
+      const byTeam={}; rows.forEach(r=>{ (byTeam[r.team]=byTeam[r.team]||[]).push(r); });
+      const mineTotal=rows.filter(r=>r.is_mine).length;
+      $('#saSchedCount').textContent=`${mineTotal} of your load${mineTotal===1?'':'s'} · ${teams.length} team${teams.length===1?'':'s'} · ${day}`;
+      const ticks=[]; for(let h=START;h<=END;h+=2){ const pct=((h-START)/SPAN)*100; const lab=(h>12?h-12:h)+(h>=12?'PM':'AM'); ticks.push(`<span style="position:absolute;left:${pct}%;transform:translateX(-50%);font-size:10px;color:#9aa6a2">${lab}</span>`); }
+      let html=`<div style="overflow-x:auto"><div style="min-width:560px">`;
+      html+=`<div style="position:relative;height:16px;margin-left:104px;border-bottom:1px solid #e3e8e2">${ticks.join('')}</div>`;
+      teams.forEach(t=>{
+        const list=(byTeam[t]||[]).slice().sort((a,b)=>String(a.scheduled_at||'').localeCompare(String(b.scheduled_at||'')));
+        const c=crew[t]; const crewTxt=c&&(c.d||c.t1)?`${esc(c.d||'—')} / ${esc([c.t1,c.t2].filter(Boolean).join(', ')||'—')}`:'—';
+        const mineCnt=list.filter(r=>r.is_mine).length;
+        html+=`<div style="display:flex;align-items:stretch;border-bottom:1px solid #f0f2ef">`;
+        html+=`<div style="width:104px;flex:none;padding:6px 6px 6px 2px"><div style="font-size:12px;font-weight:800;color:#2a3a36">${esc(t)}</div><div style="font-size:9.5px;color:#9aa6a2">${crewTxt}</div><div style="font-size:9.5px;color:#0e7a59">${mineCnt} yours</div></div>`;
+        html+=`<div style="position:relative;flex:1;min-height:40px">`;
+        list.forEach(r=>{
+          const h=manilaHour(r.scheduled_at); if(h==null) return;
+          const left=Math.max(0,Math.min(100,((h-START)/SPAN)*100));
+          const wPct=Math.max(9,Math.min(30,((r.est_minutes||60)/60)/SPAN*100));
+          const cls=saBadgeCls(r.status);
+          if(r.is_mine){
+            html+=`<button class="sched-blk ${cls}" data-info="${r.id}" title="${manilaLabel(r.scheduled_at)} · ${esc(saStatusLabel(r.status))}" style="position:absolute;left:${left}%;width:${wPct}%;top:4px;bottom:4px;border-radius:6px;padding:3px 5px;overflow:hidden;text-align:left;border:1.5px solid #178262"><span style="font-size:9.5px;font-weight:800;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.subscriber||'Your load')}</span><span style="font-size:9px">${manilaLabel(r.scheduled_at)}</span></button>`;
+          } else {
+            html+=`<div class="sched-blk ${cls}" title="${manilaLabel(r.scheduled_at)} · ${esc(saStatusLabel(r.status))}" style="position:absolute;left:${left}%;width:${wPct}%;top:8px;bottom:8px;border-radius:5px;opacity:.4"></div>`;
+          }
+        });
+        html+=`</div></div>`;
+      });
+      html+=`</div></div>`;
+      html+=`<div style="font-size:10px;color:#8a9894;padding:8px 4px 20px">Faded blocks are the team's other stops (time only). Your loads are outlined — tap for details.</div>`;
+      el.innerHTML=html;
+      el.querySelectorAll('[data-info]').forEach(b=>b.onclick=()=>showJobInfo(b.dataset.info));
     }
     // Sales: delete their OWN submitted order (only while still for-validation / rejected, pre-dispatch).
     async function saDeleteOrder(jobId){
