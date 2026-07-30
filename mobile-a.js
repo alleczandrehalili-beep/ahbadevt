@@ -51,6 +51,8 @@
     const PHOTO_LABELS = ['SUBS HOUSE','NAP QR CODE','NAP STENCIL','PORT LOCATION & TAGGING','S-CLAMP AT THE J-HOOK ABOVE THE NAP','MIDSPAN BEFORE THE HOUSE','HOUSE BRACKET','LAYOUT OF THE DROP CABLE ON SUBS PREMISES BEFORE CPE','NIU LOCATION WITH CORRECT TAGGING','INSIDE THE NIU BOX WITH PROPER LOOPING','ACTUAL LOCATION OF THE MODEM NIU','SAR'];
     const PHOTOS_REQUIRED = PHOTO_LABELS.length;
     const pubUrl = path => `${SUPA_URL}/storage/v1/object/public/job-photos/${path}`;
+    // Resized copy for thumbnails/feeds — big data saver on mobile connections (originals open on tap).
+    const thumbUrl = (path,w=360) => `${SUPA_URL}/storage/v1/render/image/public/job-photos/${path}?width=${w}&quality=60`;
 
     const emailFor = u => u.trim().toLowerCase() + '@' + EMAIL_DOMAIN;
     const teamFromEmail = e => (e||'').split('@')[0].toUpperCase();
@@ -257,7 +259,7 @@
         const mine=(m.role==='team' && m.team===myTeam);
         const who=mine?'You':((m.sender||(m.role==='dispatch'?'Dispatch':(m.team||''))));
         const roleTag=(!mine && m.role==='dispatch' && m.sender_role)?(' · '+String(m.sender_role).replace(/</g,'&lt;')):'';
-        const img=m.image_path?`<a href="${pubUrl(m.image_path)}" target="_blank" rel="noopener"><img src="${pubUrl(m.image_path)}" alt="photo" style="max-width:100%;max-height:220px;border-radius:9px;display:block"></a>`:'';
+        const img=m.image_path?`<a href="${pubUrl(m.image_path)}" target="_blank" rel="noopener"><img src="${thumbUrl(m.image_path,480)}" alt="photo" style="max-width:100%;max-height:220px;border-radius:9px;display:block"></a>`:'';
         const txt=(m.body||'').trim()?`<div>${(m.body||'').replace(/</g,'&lt;')}</div>`:'';
         const bubble=`<div style="background:${mine?'#18a57b':'#eef1ed'};color:${mine?'#fff':'#26352f'};padding:${img&&!txt?'4px':'8px 11px'};border-radius:12px;font-size:13px;display:flex;flex-direction:column;gap:5px">${img}${txt}</div>`;
         return `<div style="align-self:${mine?'flex-end':'flex-start'};max-width:80%">${bubble}<div style="font-size:9px;color:#9aa6a2;margin-top:2px;text-align:${mine?'right':'left'}">${String(who).replace(/</g,'&lt;')}${roleTag} · ${fmtChatTime(m.created_at)}</div></div>`;
@@ -298,7 +300,7 @@
     function audienceOk(a){ const aud=(a.audience||'all'); return aud==='all' || (myRole==='sales_agent'?aud==='sales':aud==='technician'); }
     function renderAnn(){
       const el=$('#annList'); if(!el)return; const list=annList.filter(audienceOk);
-      el.innerHTML=list.length?list.map(a=>`<div style="border:1px solid #e3e8e2;border-radius:11px;padding:11px">${a.photo_path?`<img src="${pubUrl(a.photo_path)}" alt="" style="width:100%;max-height:200px;object-fit:cover;border-radius:9px;margin-bottom:8px">`:''}<div style="font-weight:800;font-size:13px;color:#0e2b27">${a.photo_path?'🏆 ':''}${(a.title||'Announcement').replace(/</g,'&lt;')}</div><div style="font-size:12px;color:#3a4a45;margin-top:3px;white-space:pre-wrap">${(a.body||'').replace(/</g,'&lt;')}</div><div style="font-size:9px;color:#9aa6a2;margin-top:5px">${a.audience||'all'} · ${fmtChatTime(a.created_at)}</div></div>`).join(''):'<div style="text-align:center;color:#9aa6a2;font-size:12px;padding:20px">No announcements.</div>';
+      el.innerHTML=list.length?list.map(a=>`<div style="border:1px solid #e3e8e2;border-radius:11px;padding:11px">${a.photo_path?`<img src="${thumbUrl(a.photo_path,480)}" alt="" style="width:100%;max-height:200px;object-fit:cover;border-radius:9px;margin-bottom:8px">`:''}<div style="font-weight:800;font-size:13px;color:#0e2b27">${a.photo_path?'🏆 ':''}${(a.title||'Announcement').replace(/</g,'&lt;')}</div><div style="font-size:12px;color:#3a4a45;margin-top:3px;white-space:pre-wrap">${(a.body||'').replace(/</g,'&lt;')}</div><div style="font-size:9px;color:#9aa6a2;margin-top:5px">${a.audience||'all'} · ${fmtChatTime(a.created_at)}</div></div>`).join(''):'<div style="text-align:center;color:#9aa6a2;font-size:12px;padding:20px">No announcements.</div>';
     }
     async function loadAnn(){
       try{ const {data}=await sb.from('announcements').select('*').order('created_at',{ascending:false}).limit(50); annList=data||[]; annSeen=annList.filter(audienceOk).length; renderAnn(); renderAnnBanner(); }catch(e){}
@@ -435,7 +437,7 @@
 
     // ---------- SECURITY (gate-out validation) ----------
     let secTab='out';
-    function startSecurity(){ $('#teamName').textContent=headerName(); show('secView'); secSwitch(secTab); initSecMap(); setTimeout(()=>{ if(secMap) secMap.invalidateSize(); },200); renderSecMapPins(); loadSecTeams(); clearInterval(startSecurity._t); startSecurity._t=setInterval(()=>{ loadSecTeams(); renderSecMapPins(); },20000); }
+    function startSecurity(){ $('#teamName').textContent=headerName(); show('secView'); secSwitch(secTab); initSecMap(); setTimeout(()=>{ if(secMap) secMap.invalidateSize(); },200); renderSecMapPins(); loadSecTeams(); clearInterval(startSecurity._t); startSecurity._t=setInterval(()=>{ if(document.hidden) return; loadSecTeams(); renderSecMapPins(); },60000); }   // was 20s; slower + paused in background
     function secSwitch(tab){
       secTab=tab;
       $$('.sec-tab').forEach(b=>b.classList.toggle('active', b.dataset.sectab===tab));

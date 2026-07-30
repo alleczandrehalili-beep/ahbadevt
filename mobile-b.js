@@ -18,7 +18,7 @@
       const done=PHOTO_LABELS.filter(l=>byLabel[l]&&byLabel[l].length).length;
       const rows=PHOTO_LABELS.map((l,i)=>{
         const arr=byLabel[l]||[]; const has=arr.length>0; const lab=l.replace(/"/g,'&quot;');
-        const thumb=has?`<div class="thumbs">${arr.map(p=>`<span style="position:relative;display:inline-block"><img src="${pubUrl(p)}" alt=""><button type="button" data-delp="${p}" data-deljob="${id}" title="Delete" style="position:absolute;top:-6px;right:-6px;background:#c2503a;color:#fff;border:0;border-radius:50%;width:19px;height:19px;font-size:11px;line-height:1;padding:0">✕</button></span>`).join('')}</div>`:'';
+        const thumb=has?`<div class="thumbs">${arr.map(p=>`<span style="position:relative;display:inline-block"><img src="${thumbUrl(p,240)}" alt=""><button type="button" data-delp="${p}" data-deljob="${id}" title="Delete" style="position:absolute;top:-6px;right:-6px;background:#c2503a;color:#fff;border:0;border-radius:50%;width:19px;height:19px;font-size:11px;line-height:1;padding:0">✕</button></span>`).join('')}</div>`:'';
         return `<div class="pslot ${has?'done':''}"><div class="pslot-head"><span>${i+1}. ${l}</span><span class="pchk ${has?'ok':'need'}">${has?'✓':'•'}</span></div>${thumb}<div style="display:flex;gap:6px;margin-top:6px"><label class="addphoto pmini">${svg('camera')} Camera<input type="file" accept="image/*" capture="environment" hidden data-up="${id}" data-label="${lab}"></label><label class="addphoto pmini">${svg('note')} Album<input type="file" accept="image/*" hidden data-up="${id}" data-label="${lab}"></label></div></div>`;
       }).join('');
       return `<div class="photos"><div class="photos-head"><span>Proof photos (${PHOTOS_REQUIRED} required)</span><span class="count ${done>=PHOTOS_REQUIRED?'ok':'need'}">${done}/${PHOTOS_REQUIRED}</span></div>
@@ -433,7 +433,7 @@
         const addr=(j.address||j.area||'').replace(/"/g,'');
         const n=photoCount(j.id);
         const allPhotos=jobPhotos(j.id);
-        const thumbs=allPhotos.slice(0,6).map(p=>`<img src="${pubUrl(p.path)}" alt="proof">`).join('')+(allPhotos.length>6?`<span class="more">+${allPhotos.length-6}</span>`:'');
+        const thumbs=allPhotos.slice(0,6).map(p=>`<img src="${thumbUrl(p.path,240)}" alt="proof">`).join('')+(allPhotos.length>6?`<span class="more">+${allPhotos.length-6}</span>`:'');
 
         let extra='', actions='';
         const mapLink=`<a class="act ghost" href="https://maps.google.com/?q=${encodeURIComponent(addr)}" target="_blank" rel="noopener" aria-label="Map">${svg('pin')}</a>`;
@@ -509,7 +509,8 @@
       var refreshC=startApp._coal;
       if(realtimeChan) sb.removeChannel(realtimeChan);
       realtimeChan = sb.channel('ahba-tech-'+myTeam).on('postgres_changes',{event:'*',schema:'public',table:'jobs',filter:'team=eq.'+myTeam},refreshC).subscribe();
-      clearInterval(startApp._t); startApp._t=setInterval(refreshC,30000);   // was 15000 — realtime already covers live changes
+      clearInterval(startApp._t); startApp._t=setInterval(()=>{ if(!document.hidden) refreshC(); },30000);   // paused in background; realtime + the visibilitychange catch-up below cover live changes
+      if(!startApp._vis){ startApp._vis=1; document.addEventListener('visibilitychange',()=>{ if(!document.hidden && myTeam) refreshC(); }); }
       if(!startApp._onhook){ startApp._onhook=1; window.addEventListener('online', ()=>{ flushQueue(); flushPhotoQueue(); }); }
       clearInterval(startApp._loc); startApp._loc=setInterval(()=>captureLocation(false),600000); // refresh GPS every 10 min
       clearInterval(startApp._track); startApp._track=setInterval(()=>logTrack('auto'),1200000); // travel trail every 20 min
