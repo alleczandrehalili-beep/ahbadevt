@@ -601,7 +601,7 @@
       });
     }
     function saReset(){
-      ['first_name','middle_name','last_name','primary_no','other_contact_no','house_no','street_name','village','ref_no','amount','source_of_sales','referral_name','special_note'].forEach(k=>{const el=$('#sa_'+k);if(el)el.value='';});
+      ['first_name','middle_name','last_name','primary_no','other_contact_no','email','house_no','street_name','village','ref_no','amount','source_of_sales','referral_name','special_note'].forEach(k=>{const el=$('#sa_'+k);if(el)el.value='';});
       if($('#sa_district')) $('#sa_district').value=''; populateSaBrgys('');
       if($('#sa_city')) $('#sa_city').value='QUEZON CITY';
       if($('#sa_dwelling')) $('#sa_dwelling').value='SDU'; if($('#sa_install_fee')) $('#sa_install_fee').value='One Time Payment';
@@ -639,7 +639,12 @@
           const cw = j.team ? crewMap[j.team+'|'+jobDay(j)] : null;
           const crew = (cw && (cw.d||cw.t1)) ? `<div class="row" style="color:#0e7a59"><span>👷 Driver: ${esc(cw.d||'—')} · Tech: ${esc([cw.t1,cw.t2].filter(Boolean).join(', ')||'—')}</span></div>` : '';
           const neg = (j.status==='negative'&&j.negative_remark) ? `<div class="row" style="color:#c2503a">${svg('note')}<span>${esc(j.negative_remark)}</span></div>` : '';
-          const rejReason = (j.status==='rejected'&&j.special_note) ? `<div class="row" style="color:#c2503a">${svg('note')}<span>${esc(j.special_note)}</span></div>` : '';
+          // The remark now has its own column; older orders kept it inside special_note as
+          // "REJECTED: <reason>" — read both so nothing a validator wrote ever disappears.
+          const rejTxt = j.status==='rejected'
+            ? (String(j.reject_reason||'').trim() || (/^REJECTED/i.test(String(j.special_note||'').trim()) ? String(j.special_note).replace(/^REJECTED:?\s*/i,'').trim() : ''))
+            : '';
+          const rejReason = rejTxt ? `<div class="row" style="color:#c2503a">${svg('note')}<span>${esc(rejTxt)}${j.rejected_by?(' — '+esc(j.rejected_by)):''}</span></div>` : '';
           const rejBtn = (j.status==='rejected') ? `<button class="act" data-resub="${j.id}" style="width:100%;margin-top:8px;background:#e9a93d;color:#3a2a00">${svg('note')} Edit &amp; resubmit</button>` : '';
           // Still for validation? Let the sales agent edit it before the validator reviews.
           const editBtn = (j.status==='for_validation') ? `<button class="act" data-resub="${j.id}" style="width:100%;margin-top:8px;background:#178262;color:#fff;border-color:#178262">${svg('note')} Edit before validation</button>` : '';
@@ -776,7 +781,7 @@
         saEditingId=jobId;
         const set=(id,val)=>{const el=$('#sa_'+id); if(el) el.value=(val==null?'':val);};
         set('first_name',j.first_name); set('middle_name',j.middle_name); set('last_name',j.last_name);
-        set('primary_no',j.primary_no); set('other_contact_no',j.other_contact_no);
+        set('primary_no',j.primary_no); set('other_contact_no',j.other_contact_no); set('email',j.email);
         set('house_no',j.house_no); set('street_name',j.street_name); set('village',j.village);
         if($('#sa_district')) $('#sa_district').value=j.district||''; populateSaBrgys(j.district||'');
         if($('#sa_brgy')) $('#sa_brgy').value=String(j.brgy||'').toUpperCase();   // itugma sa ALL CAPS na options
@@ -827,13 +832,17 @@
       if(!/^\d{11}$/.test(pno)){ showErr('#saErr','Primary no. must be exactly 11 digits (numbers only).'); return; }
       if(ono && !/^\d{11}$/.test(ono)){ showErr('#saErr','Other contact no. must be 11 digits (numbers only).'); return; }
       const editing=!!saEditingId;
+      // Email keeps its original casing (v() upper-cases everything else).
+      const em=($('#sa_email')?$('#sa_email').value.trim():'');
+      if(em && !/^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$/.test(em)){ showErr('#saErr','Enter a valid email address (e.g. juan@email.com).'); return; }
+      if(!em && !editing){ showErr('#saErr','Email address is required.'); return; }
       if(v('sa_play_type')==='2-PLAY' && !v('sa_addon_count')){ showErr('#saErr','For 2-PLAY, select how many add-ons are included.'); return; }
       if(!editing && !saDocs.id.length){ showErr('#saErr','A Valid ID photo is required.'); return; }
       const btn=$('#saSubmit'); btn.disabled=true; btn.textContent=editing?'Resubmitting…':'Submitting…';
       const full=[fn,v('sa_middle_name'),ln].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
       const addr=[v('sa_house_no'),v('sa_street_name'),v('sa_village'),brgy,'District '+dist,city].filter(Boolean).join(', ');
       const fields={subscriber:full,plan:v('sa_plan'),ref_no:v('sa_ref_no'),area:city,address:addr,status:'for_validation',
-        first_name:fn,middle_name:v('sa_middle_name'),last_name:ln,primary_no:pno,other_contact_no:v('sa_other_contact_no'),
+        first_name:fn,middle_name:v('sa_middle_name'),last_name:ln,primary_no:pno,other_contact_no:v('sa_other_contact_no'),email:em,
         house_no:v('sa_house_no'),street_name:v('sa_street_name'),village:v('sa_village'),district:dist,brgy:brgy,city:city,
         play_type:v('sa_play_type'),source_of_sales:v('sa_source_of_sales'),referral_name:v('sa_referral_name'),
         dwelling_type:v('sa_dwelling'),install_fee_type:v('sa_install_fee'),amount_to_collect:(v('sa_amount')!==''?Number(v('sa_amount')):null),add_on:v('sa_addon'),addon_count:(v('sa_play_type')==='2-PLAY'&&v('sa_addon_count')!==''?Number(v('sa_addon_count')):null),

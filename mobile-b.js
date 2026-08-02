@@ -363,7 +363,15 @@
         const money=v=>(v!=null&&v!=='')?('₱'+Number(v).toLocaleString()):'';
         body.innerHTML=[
           sec('Status'), row('Status',saStatusLabel(j.status)), row('Team',j.team), row('Sales Agent',agentLbl), row('Priority',j.priority),
-          sec('Subscriber'), row('Name',j.subscriber), row('Primary no.',j.primary_no), row('Other no.',j.other_contact_no),
+          row('Validated by',j.validated_by), row('Rejected by',j.rejected_by),
+          // Full validator remark history — every round, newest first, so the uploader can
+          // see exactly what was asked for and by whom (not just the latest reason).
+          (function(){
+            const lines=String(j.history||'').split('\n').filter(l=>/VALIDATED|REJECTED|resubmit/i.test(l));
+            if(!lines.length) return '';
+            return sec('Validator remarks')+`<div style="font-size:11.5px;color:#2a3a36;background:#fff7f5;border:1px solid #f3d9d2;border-radius:9px;padding:9px 11px;white-space:pre-wrap;margin-top:4px">${esc(lines.reverse().join('\n'))}</div>`;
+          })(),
+          sec('Subscriber'), row('Name',j.subscriber), row('Primary no.',j.primary_no), row('Other no.',j.other_contact_no), row('Email',j.email),
           sec('Address'), row('Address',j.address), row('District',j.district?('District '+j.district):''), row('Barangay',j.brgy), row('City',j.city||j.area),
           sec('Service'), row('Unit type',j.dwelling_type), row('Plan',j.plan), row('Add-on',j.add_on), row('Reference no.',j.ref_no),
           row('1P/2P',j.play_type), row('Add-ons (2P)',j.addon_count), row('Installation fee',j.install_fee_type), row('Amount to collect',money(j.amount_to_collect)),
