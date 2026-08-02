@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-08-03.3';
+    const APP_VERSION = '2026-07-14.5';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -12,7 +12,7 @@
       b.id='verNudge';
       b.textContent='🔄 Bagong bersyon — i-tap para i-refresh';
       b.style.cssText='position:fixed;left:12px;right:12px;bottom:12px;z-index:99999;background:#0d3b34;color:#fff;font:600 13px system-ui;padding:12px 16px;border-radius:12px;text-align:center;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.3)';
-      b.onclick=()=>{ try{ location.replace(location.pathname+'?r='+Date.now()); }catch(_){ location.reload(true); } };
+      b.onclick=()=>location.reload();
       document.body.appendChild(b);
     }
     // True only if `dep` is a STRICTLY NEWER version than `cur` (YYYY-MM-DD.N).
@@ -51,8 +51,6 @@
     const PHOTO_LABELS = ['SUBS HOUSE','NAP QR CODE','NAP STENCIL','PORT LOCATION & TAGGING','S-CLAMP AT THE J-HOOK ABOVE THE NAP','MIDSPAN BEFORE THE HOUSE','HOUSE BRACKET','LAYOUT OF THE DROP CABLE ON SUBS PREMISES BEFORE CPE','NIU LOCATION WITH CORRECT TAGGING','INSIDE THE NIU BOX WITH PROPER LOOPING','ACTUAL LOCATION OF THE MODEM NIU','SAR'];
     const PHOTOS_REQUIRED = PHOTO_LABELS.length;
     const pubUrl = path => `${SUPA_URL}/storage/v1/object/public/job-photos/${path}`;
-    // Resized copy for thumbnails/feeds — big data saver on mobile connections (originals open on tap).
-    const thumbUrl = (path,w=360) => `${SUPA_URL}/storage/v1/render/image/public/job-photos/${path}?width=${w}&quality=60`;
 
     const emailFor = u => u.trim().toLowerCase() + '@' + EMAIL_DOMAIN;
     const teamFromEmail = e => (e||'').split('@')[0].toUpperCase();
@@ -259,7 +257,7 @@
         const mine=(m.role==='team' && m.team===myTeam);
         const who=mine?'You':((m.sender||(m.role==='dispatch'?'Dispatch':(m.team||''))));
         const roleTag=(!mine && m.role==='dispatch' && m.sender_role)?(' · '+String(m.sender_role).replace(/</g,'&lt;')):'';
-        const img=m.image_path?`<a href="${pubUrl(m.image_path)}" target="_blank" rel="noopener"><img src="${thumbUrl(m.image_path,480)}" alt="photo" style="max-width:100%;max-height:220px;border-radius:9px;display:block"></a>`:'';
+        const img=m.image_path?`<a href="${pubUrl(m.image_path)}" target="_blank" rel="noopener"><img src="${pubUrl(m.image_path)}" alt="photo" style="max-width:100%;max-height:220px;border-radius:9px;display:block"></a>`:'';
         const txt=(m.body||'').trim()?`<div>${(m.body||'').replace(/</g,'&lt;')}</div>`:'';
         const bubble=`<div style="background:${mine?'#18a57b':'#eef1ed'};color:${mine?'#fff':'#26352f'};padding:${img&&!txt?'4px':'8px 11px'};border-radius:12px;font-size:13px;display:flex;flex-direction:column;gap:5px">${img}${txt}</div>`;
         return `<div style="align-self:${mine?'flex-end':'flex-start'};max-width:80%">${bubble}<div style="font-size:9px;color:#9aa6a2;margin-top:2px;text-align:${mine?'right':'left'}">${String(who).replace(/</g,'&lt;')}${roleTag} · ${fmtChatTime(m.created_at)}</div></div>`;
@@ -300,7 +298,7 @@
     function audienceOk(a){ const aud=(a.audience||'all'); return aud==='all' || (myRole==='sales_agent'?aud==='sales':aud==='technician'); }
     function renderAnn(){
       const el=$('#annList'); if(!el)return; const list=annList.filter(audienceOk);
-      el.innerHTML=list.length?list.map(a=>`<div style="border:1px solid #e3e8e2;border-radius:11px;padding:11px">${a.photo_path?`<img src="${thumbUrl(a.photo_path,480)}" alt="" style="width:100%;max-height:200px;object-fit:cover;border-radius:9px;margin-bottom:8px">`:''}<div style="font-weight:800;font-size:13px;color:#0e2b27">${a.photo_path?'🏆 ':''}${(a.title||'Announcement').replace(/</g,'&lt;')}</div><div style="font-size:12px;color:#3a4a45;margin-top:3px;white-space:pre-wrap">${(a.body||'').replace(/</g,'&lt;')}</div><div style="font-size:9px;color:#9aa6a2;margin-top:5px">${a.audience||'all'} · ${fmtChatTime(a.created_at)}</div></div>`).join(''):'<div style="text-align:center;color:#9aa6a2;font-size:12px;padding:20px">No announcements.</div>';
+      el.innerHTML=list.length?list.map(a=>`<div style="border:1px solid #e3e8e2;border-radius:11px;padding:11px">${a.photo_path?`<img src="${pubUrl(a.photo_path)}" alt="" style="width:100%;max-height:200px;object-fit:cover;border-radius:9px;margin-bottom:8px">`:''}<div style="font-weight:800;font-size:13px;color:#0e2b27">${a.photo_path?'🏆 ':''}${(a.title||'Announcement').replace(/</g,'&lt;')}</div><div style="font-size:12px;color:#3a4a45;margin-top:3px;white-space:pre-wrap">${(a.body||'').replace(/</g,'&lt;')}</div><div style="font-size:9px;color:#9aa6a2;margin-top:5px">${a.audience||'all'} · ${fmtChatTime(a.created_at)}</div></div>`).join(''):'<div style="text-align:center;color:#9aa6a2;font-size:12px;padding:20px">No announcements.</div>';
     }
     async function loadAnn(){
       try{ const {data}=await sb.from('announcements').select('*').order('created_at',{ascending:false}).limit(50); annList=data||[]; annSeen=annList.filter(audienceOk).length; renderAnn(); renderAnnBanner(); }catch(e){}
@@ -437,7 +435,7 @@
 
     // ---------- SECURITY (gate-out validation) ----------
     let secTab='out';
-    function startSecurity(){ $('#teamName').textContent=headerName(); show('secView'); secSwitch(secTab); initSecMap(); setTimeout(()=>{ if(secMap) secMap.invalidateSize(); },200); renderSecMapPins(); loadSecTeams(); clearInterval(startSecurity._t); startSecurity._t=setInterval(()=>{ if(document.hidden) return; loadSecTeams(); renderSecMapPins(); },60000); }   // was 20s; slower + paused in background
+    function startSecurity(){ $('#teamName').textContent=headerName(); show('secView'); secSwitch(secTab); initSecMap(); setTimeout(()=>{ if(secMap) secMap.invalidateSize(); },200); renderSecMapPins(); loadSecTeams(); clearInterval(startSecurity._t); startSecurity._t=setInterval(()=>{ loadSecTeams(); renderSecMapPins(); },20000); }
     function secSwitch(tab){
       secTab=tab;
       $$('.sec-tab').forEach(b=>b.classList.toggle('active', b.dataset.sectab===tab));
@@ -601,7 +599,7 @@
       });
     }
     function saReset(){
-      ['first_name','middle_name','last_name','primary_no','other_contact_no','email','house_no','street_name','village','ref_no','amount','source_of_sales','referral_name','special_note'].forEach(k=>{const el=$('#sa_'+k);if(el)el.value='';});
+      ['first_name','middle_name','last_name','primary_no','other_contact_no','house_no','street_name','village','ref_no','amount','source_of_sales','referral_name','special_note'].forEach(k=>{const el=$('#sa_'+k);if(el)el.value='';});
       if($('#sa_district')) $('#sa_district').value=''; populateSaBrgys('');
       if($('#sa_city')) $('#sa_city').value='QUEZON CITY';
       if($('#sa_dwelling')) $('#sa_dwelling').value='SDU'; if($('#sa_install_fee')) $('#sa_install_fee').value='One Time Payment';
@@ -639,12 +637,7 @@
           const cw = j.team ? crewMap[j.team+'|'+jobDay(j)] : null;
           const crew = (cw && (cw.d||cw.t1)) ? `<div class="row" style="color:#0e7a59"><span>👷 Driver: ${esc(cw.d||'—')} · Tech: ${esc([cw.t1,cw.t2].filter(Boolean).join(', ')||'—')}</span></div>` : '';
           const neg = (j.status==='negative'&&j.negative_remark) ? `<div class="row" style="color:#c2503a">${svg('note')}<span>${esc(j.negative_remark)}</span></div>` : '';
-          // The remark now has its own column; older orders kept it inside special_note as
-          // "REJECTED: <reason>" — read both so nothing a validator wrote ever disappears.
-          const rejTxt = j.status==='rejected'
-            ? (String(j.reject_reason||'').trim() || (/^REJECTED/i.test(String(j.special_note||'').trim()) ? String(j.special_note).replace(/^REJECTED:?\s*/i,'').trim() : ''))
-            : '';
-          const rejReason = rejTxt ? `<div class="row" style="color:#c2503a">${svg('note')}<span>${esc(rejTxt)}${j.rejected_by?(' — '+esc(j.rejected_by)):''}</span></div>` : '';
+          const rejReason = (j.status==='rejected'&&j.special_note) ? `<div class="row" style="color:#c2503a">${svg('note')}<span>${esc(j.special_note)}</span></div>` : '';
           const rejBtn = (j.status==='rejected') ? `<button class="act" data-resub="${j.id}" style="width:100%;margin-top:8px;background:#e9a93d;color:#3a2a00">${svg('note')} Edit &amp; resubmit</button>` : '';
           // Still for validation? Let the sales agent edit it before the validator reviews.
           const editBtn = (j.status==='for_validation') ? `<button class="act" data-resub="${j.id}" style="width:100%;margin-top:8px;background:#178262;color:#fff;border-color:#178262">${svg('note')} Edit before validation</button>` : '';
@@ -827,22 +820,22 @@
       clearErr('#saErr');
       // ALL CAPS lahat ng ini-encode — pantay sa console at sa extraction.
       const v=id=>($('#'+id)?$('#'+id).value.trim().toUpperCase():'');
+      // Email is NOT uppercased (case matters in the local part) — read raw, lowercased.
+      const email=($('#sa_email')?$('#sa_email').value.trim().toLowerCase():'');
       const fn=v('sa_first_name'), ln=v('sa_last_name'), dist=v('sa_district'), brgy=v('sa_brgy'), city=v('sa_city')||'QUEZON CITY', pno=v('sa_primary_no'), ono=v('sa_other_contact_no');
       if(!fn||!ln||!pno||!dist||!brgy){ showErr('#saErr','Please fill: first & last name, primary no., district, and barangay.'); return; }
+      if(!email){ showErr('#saErr','Email address is required.'); return; }
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ showErr('#saErr','Enter a valid email address (name@email.com).'); return; }
       if(!/^\d{11}$/.test(pno)){ showErr('#saErr','Primary no. must be exactly 11 digits (numbers only).'); return; }
       if(ono && !/^\d{11}$/.test(ono)){ showErr('#saErr','Other contact no. must be 11 digits (numbers only).'); return; }
       const editing=!!saEditingId;
-      // Email keeps its original casing (v() upper-cases everything else).
-      const em=($('#sa_email')?$('#sa_email').value.trim():'');
-      if(em && !/^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$/.test(em)){ showErr('#saErr','Enter a valid email address (e.g. juan@email.com).'); return; }
-      if(!em && !editing){ showErr('#saErr','Email address is required.'); return; }
       if(v('sa_play_type')==='2-PLAY' && !v('sa_addon_count')){ showErr('#saErr','For 2-PLAY, select how many add-ons are included.'); return; }
       if(!editing && !saDocs.id.length){ showErr('#saErr','A Valid ID photo is required.'); return; }
       const btn=$('#saSubmit'); btn.disabled=true; btn.textContent=editing?'Resubmitting…':'Submitting…';
       const full=[fn,v('sa_middle_name'),ln].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
       const addr=[v('sa_house_no'),v('sa_street_name'),v('sa_village'),brgy,'District '+dist,city].filter(Boolean).join(', ');
       const fields={subscriber:full,plan:v('sa_plan'),ref_no:v('sa_ref_no'),area:city,address:addr,status:'for_validation',
-        first_name:fn,middle_name:v('sa_middle_name'),last_name:ln,primary_no:pno,other_contact_no:v('sa_other_contact_no'),email:em,
+        first_name:fn,middle_name:v('sa_middle_name'),last_name:ln,primary_no:pno,other_contact_no:v('sa_other_contact_no'),email:email,
         house_no:v('sa_house_no'),street_name:v('sa_street_name'),village:v('sa_village'),district:dist,brgy:brgy,city:city,
         play_type:v('sa_play_type'),source_of_sales:v('sa_source_of_sales'),referral_name:v('sa_referral_name'),
         dwelling_type:v('sa_dwelling'),install_fee_type:v('sa_install_fee'),amount_to_collect:(v('sa_amount')!==''?Number(v('sa_amount')):null),add_on:v('sa_addon'),addon_count:(v('sa_play_type')==='2-PLAY'&&v('sa_addon_count')!==''?Number(v('sa_addon_count')):null),

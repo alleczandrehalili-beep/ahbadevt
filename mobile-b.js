@@ -18,7 +18,7 @@
       const done=PHOTO_LABELS.filter(l=>byLabel[l]&&byLabel[l].length).length;
       const rows=PHOTO_LABELS.map((l,i)=>{
         const arr=byLabel[l]||[]; const has=arr.length>0; const lab=l.replace(/"/g,'&quot;');
-        const thumb=has?`<div class="thumbs">${arr.map(p=>`<span style="position:relative;display:inline-block"><img src="${thumbUrl(p,240)}" alt=""><button type="button" data-delp="${p}" data-deljob="${id}" title="Delete" style="position:absolute;top:-6px;right:-6px;background:#c2503a;color:#fff;border:0;border-radius:50%;width:19px;height:19px;font-size:11px;line-height:1;padding:0">✕</button></span>`).join('')}</div>`:'';
+        const thumb=has?`<div class="thumbs">${arr.map(p=>`<span style="position:relative;display:inline-block"><img src="${pubUrl(p)}" alt=""><button type="button" data-delp="${p}" data-deljob="${id}" title="Delete" style="position:absolute;top:-6px;right:-6px;background:#c2503a;color:#fff;border:0;border-radius:50%;width:19px;height:19px;font-size:11px;line-height:1;padding:0">✕</button></span>`).join('')}</div>`:'';
         return `<div class="pslot ${has?'done':''}"><div class="pslot-head"><span>${i+1}. ${l}</span><span class="pchk ${has?'ok':'need'}">${has?'✓':'•'}</span></div>${thumb}<div style="display:flex;gap:6px;margin-top:6px"><label class="addphoto pmini">${svg('camera')} Camera<input type="file" accept="image/*" capture="environment" hidden data-up="${id}" data-label="${lab}"></label><label class="addphoto pmini">${svg('note')} Album<input type="file" accept="image/*" hidden data-up="${id}" data-label="${lab}"></label></div></div>`;
       }).join('');
       return `<div class="photos"><div class="photos-head"><span>Proof photos (${PHOTOS_REQUIRED} required)</span><span class="count ${done>=PHOTOS_REQUIRED?'ok':'need'}">${done}/${PHOTOS_REQUIRED}</span></div>
@@ -363,15 +363,7 @@
         const money=v=>(v!=null&&v!=='')?('₱'+Number(v).toLocaleString()):'';
         body.innerHTML=[
           sec('Status'), row('Status',saStatusLabel(j.status)), row('Team',j.team), row('Sales Agent',agentLbl), row('Priority',j.priority),
-          row('Validated by',j.validated_by), row('Rejected by',j.rejected_by),
-          // Full validator remark history — every round, newest first, so the uploader can
-          // see exactly what was asked for and by whom (not just the latest reason).
-          (function(){
-            const lines=String(j.history||'').split('\n').filter(l=>/VALIDATED|REJECTED|resubmit/i.test(l));
-            if(!lines.length) return '';
-            return sec('Validator remarks')+`<div style="font-size:11.5px;color:#2a3a36;background:#fff7f5;border:1px solid #f3d9d2;border-radius:9px;padding:9px 11px;white-space:pre-wrap;margin-top:4px">${esc(lines.reverse().join('\n'))}</div>`;
-          })(),
-          sec('Subscriber'), row('Name',j.subscriber), row('Primary no.',j.primary_no), row('Other no.',j.other_contact_no), row('Email',j.email),
+          sec('Subscriber'), row('Name',j.subscriber), row('Primary no.',j.primary_no), row('Other no.',j.other_contact_no),
           sec('Address'), row('Address',j.address), row('District',j.district?('District '+j.district):''), row('Barangay',j.brgy), row('City',j.city||j.area),
           sec('Service'), row('Unit type',j.dwelling_type), row('Plan',j.plan), row('Add-on',j.add_on), row('Reference no.',j.ref_no),
           row('1P/2P',j.play_type), row('Add-ons (2P)',j.addon_count), row('Installation fee',j.install_fee_type), row('Amount to collect',money(j.amount_to_collect)),
@@ -441,7 +433,7 @@
         const addr=(j.address||j.area||'').replace(/"/g,'');
         const n=photoCount(j.id);
         const allPhotos=jobPhotos(j.id);
-        const thumbs=allPhotos.slice(0,6).map(p=>`<img src="${thumbUrl(p.path,240)}" alt="proof">`).join('')+(allPhotos.length>6?`<span class="more">+${allPhotos.length-6}</span>`:'');
+        const thumbs=allPhotos.slice(0,6).map(p=>`<img src="${pubUrl(p.path)}" alt="proof">`).join('')+(allPhotos.length>6?`<span class="more">+${allPhotos.length-6}</span>`:'');
 
         let extra='', actions='';
         const mapLink=`<a class="act ghost" href="https://maps.google.com/?q=${encodeURIComponent(addr)}" target="_blank" rel="noopener" aria-label="Map">${svg('pin')}</a>`;
@@ -517,8 +509,7 @@
       var refreshC=startApp._coal;
       if(realtimeChan) sb.removeChannel(realtimeChan);
       realtimeChan = sb.channel('ahba-tech-'+myTeam).on('postgres_changes',{event:'*',schema:'public',table:'jobs',filter:'team=eq.'+myTeam},refreshC).subscribe();
-      clearInterval(startApp._t); startApp._t=setInterval(()=>{ if(!document.hidden) refreshC(); },30000);   // paused in background; realtime + the visibilitychange catch-up below cover live changes
-      if(!startApp._vis){ startApp._vis=1; document.addEventListener('visibilitychange',()=>{ if(!document.hidden && myTeam) refreshC(); }); }
+      clearInterval(startApp._t); startApp._t=setInterval(refreshC,30000);   // was 15000 — realtime already covers live changes
       if(!startApp._onhook){ startApp._onhook=1; window.addEventListener('online', ()=>{ flushQueue(); flushPhotoQueue(); }); }
       clearInterval(startApp._loc); startApp._loc=setInterval(()=>captureLocation(false),600000); // refresh GPS every 10 min
       clearInterval(startApp._track); startApp._track=setInterval(()=>logTrack('auto'),1200000); // travel trail every 20 min
