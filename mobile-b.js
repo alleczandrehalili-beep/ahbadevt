@@ -441,7 +441,7 @@
 
         if(j.status==='in-progress'){
           const canDone=n>=PHOTOS_REQUIRED;
-          extra=photoSlots(j.id)+'<div class="wims-slot" data-wjob="'+j.id+'" data-2play="'+(j.play_type==='2-PLAY'?'1':'0')+'"></div>';
+          extra=photoSlots(j.id)+'<div class="wims-slot" data-wjob="'+j.id+'" data-iptvn="'+(j.play_type==='2-PLAY'?Math.max(1,parseInt(j.addon_count,10)||1):0)+'"></div>';
           actions=`<div class="job-actions">${mapLink}<button class="act done" data-next="completed" data-id="${j.id}" ${canDone?'':'disabled'}>${svg('check')}Mark complete${canDone?'':` (${n}/${PHOTOS_REQUIRED})`}</button></div>`;
         } else if(j.status==='completed'){
           extra=allPhotos.length?`<div class="photos"><div class="photos-head"><span>Proof photos</span><span class="count ok">${allPhotos.length}</span></div><div class="thumbs">${thumbs}</div></div>`:'';

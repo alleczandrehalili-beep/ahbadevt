@@ -31,7 +31,7 @@
     catch(e){ cpeCache=[]; }
     return cpeCache;
   }
-  function st(id){ return wState[id]||(wState[id]={modem:'',iptv:'',kit:defaultKit(),mats:{}}); }
+  function st(id){ return wState[id]||(wState[id]={modem:'',iptv:[],kit:defaultKit(),mats:{}}); }
 
   // Called at the end of render(): fill any inline WIMS slots (enrolled techs only).
   window.wimsMountAll = async function(){
@@ -45,12 +45,20 @@
     slots.forEach(function(slot){
       if(slot.getAttribute('data-mounted')==='1' && slot.innerHTML) return; // keep user input across re-renders
       var jid=slot.getAttribute('data-wjob'); var s=st(jid);
-      var is2 = slot.getAttribute('data-2play')==='1';   // 2-PLAY => modem + IPTV; 1-PLAY => modem only
-      if(!is2) s.iptv='';
+      var iptvn = parseInt(slot.getAttribute('data-iptvn'),10)||0;  // # of IPTV from the JO (2-PLAY add-ons); 0 = 1-PLAY
+      var is2 = iptvn>0;
+      if(!Array.isArray(s.iptv)) s.iptv=[];
+      if(!is2) s.iptv=[];
       slot.setAttribute('data-mounted','1');
-      var iptvBlock = is2
-        ? '<div class="field"><label>Installed IPTV box</label><select data-wf="iptv" data-j="'+jid+'">'+opt(iptv,s.iptv)+'</select></div>'
-        : '<div style="font-size:11px;color:#8a9a94;margin:2px 0 8px">📶 1-PLAY · internet only — walang IPTV para sa JO na ito</div>';
+      var iptvBlock;
+      if(is2){
+        iptvBlock = '<div style="font-weight:700;font-size:11px;color:#4a5c56;margin:2px 0 4px">Installed IPTV box'+(iptvn>1?'es · '+iptvn+' add-ons sa JO':'')+'</div>';
+        for(var ii=0; ii<iptvn; ii++){
+          iptvBlock += '<div class="field" style="margin-bottom:6px"><select data-wf="iptv" data-idx="'+ii+'" data-j="'+jid+'">'+opt(iptv,(s.iptv[ii]||''))+'</select></div>';
+        }
+      } else {
+        iptvBlock = '<div style="font-size:11px;color:#8a9a94;margin:2px 0 8px">📶 1-PLAY · internet only — walang IPTV para sa JO na ito</div>';
+      }
       var kitRows = KIT.map(function(k){ var q=(s.kit&&s.kit[k[0]]!=null)?s.kit[k[0]]:k[2]; return '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #eef4f1"><span style="flex:1;font-size:11px;color:#4a5c56">'+k[1]+'</span><input type="number" inputmode="numeric" min="0" value="'+q+'" data-wf="kitq" data-kk="'+k[0]+'" data-j="'+jid+'" style="width:54px;padding:5px;text-align:center"></div>'; }).join('');
       slot.innerHTML=
         '<div style="border:1.5px solid #bfe6d5;background:#f6fcf9;border-radius:14px;padding:12px;margin-top:10px">'+
@@ -71,7 +79,7 @@
     var el=e.target.closest('[data-wf]'); if(!el) return;
     var jid=el.getAttribute('data-j'), f=el.getAttribute('data-wf'), s=st(jid);
     if(f==='modem') s.modem=el.value;
-    else if(f==='iptv') s.iptv=el.value;
+    else if(f==='iptv'){ if(!Array.isArray(s.iptv)) s.iptv=[]; s.iptv[parseInt(el.getAttribute('data-idx'),10)||0]=el.value; }
     else if(f==='kitq'){ if(!s.kit||typeof s.kit!=='object') s.kit={}; s.kit[el.getAttribute('data-kk')]=parseFloat(el.value)||0; }
     else if(f==='mat') s.mats[el.getAttribute('data-mk')]=parseFloat(el.value)||0;
   });
@@ -88,7 +96,7 @@
         p_subscriber: (job&&job.subscriber)||'',
         p_account: (job&&(job.ibass_acct_no||job.job_order_no||job.account))||'',
         p_modem_serial: s.modem,
-        p_iptv_serial: s.iptv||null,
+        p_iptv_serials: (function(){ var a=Array.isArray(s.iptv)?s.iptv:[]; var seen={},out=[]; a.forEach(function(x){ if(x&&!seen[x]){seen[x]=1;out.push(x);} }); return out; })(),
         p_kit: (s.kit&&typeof s.kit==='object'?s.kit:{}),
         p_materials: mats,
         p_photos: photos
