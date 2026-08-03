@@ -14,7 +14,9 @@
 
   var access=null, accLoaded=false, cpeCache=null, wState={};
   var MATS=[['foc','FOC (m)'],['clip5','Clip 5mm'],['clip7','Clip 7mm'],['tie','Cable Tie'],['dtape','D-Tape (in)'],['etape','E-Tape (in)']];
-  var KIT_BOM=[['Fast Connector · SC/APC','×2'],['Patch Cord · SC/APC 1.5m','×1'],['Terminal Box · FTTH','×1'],['F-17 · anchor clamp','×5'],['F-20 · mid-span hook','×1'],['F-19 · house bracket','×1']];
+  // standard kit BOM — key, label, default qty (1 full kit). Editable per install.
+  var KIT=[['conn','Fast Connector · SC/APC',2],['patch','Patch Cord · SC/APC 1.5m',1],['tbox','Terminal Box · FTTH',1],['f17','F-17 · anchor clamp',5],['f20','F-20 · mid-span hook',1],['f19','F-19 · house bracket',1]];
+  function defaultKit(){ var o={}; KIT.forEach(function(k){ o[k[0]]=k[2]; }); return o; }
 
   async function ensureAccess(){
     if(accLoaded) return access;
@@ -29,7 +31,7 @@
     catch(e){ cpeCache=[]; }
     return cpeCache;
   }
-  function st(id){ return wState[id]||(wState[id]={modem:'',iptv:'',kit:true,mats:{}}); }
+  function st(id){ return wState[id]||(wState[id]={modem:'',iptv:'',kit:defaultKit(),mats:{}}); }
 
   // Called at the end of render(): fill any inline WIMS slots (enrolled techs only).
   window.wimsMountAll = async function(){
@@ -49,14 +51,14 @@
       var iptvBlock = is2
         ? '<div class="field"><label>Installed IPTV box</label><select data-wf="iptv" data-j="'+jid+'">'+opt(iptv,s.iptv)+'</select></div>'
         : '<div style="font-size:11px;color:#8a9a94;margin:2px 0 8px">📶 1-PLAY · internet only — walang IPTV para sa JO na ito</div>';
-      var kitBom = KIT_BOM.map(function(k){return '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #eef4f1"><span>'+k[0]+'</span><span style="font-weight:700;color:#0e6f52">'+k[1]+'</span></div>';}).join('');
+      var kitRows = KIT.map(function(k){ var q=(s.kit&&s.kit[k[0]]!=null)?s.kit[k[0]]:k[2]; return '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #eef4f1"><span style="flex:1;font-size:11px;color:#4a5c56">'+k[1]+'</span><input type="number" inputmode="numeric" min="0" value="'+q+'" data-wf="kitq" data-kk="'+k[0]+'" data-j="'+jid+'" style="width:54px;padding:5px;text-align:center"></div>'; }).join('');
       slot.innerHTML=
         '<div style="border:1.5px solid #bfe6d5;background:#f6fcf9;border-radius:14px;padding:12px;margin-top:10px">'+
           '<div style="font-weight:800;font-size:12px;color:#0e6f52;margin-bottom:8px">📦 WIMS material report <span style="font-weight:600;color:#8a9a94">· optional · '+(is2?'2-PLAY':'1-PLAY')+'</span></div>'+
           '<div class="field"><label>Installed MODEM</label><select data-wf="modem" data-j="'+jid+'">'+opt(modems,s.modem)+'</select></div>'+
           iptvBlock+
-          '<label style="display:flex;align-items:center;gap:8px;font-size:12px;margin:6px 0 4px"><input type="checkbox" data-wf="kit" data-j="'+jid+'"'+(s.kit?' checked':'')+'> 1 standard kit used</label>'+
-          '<details style="margin:0 0 10px"><summary style="font-size:11px;color:#0e6f52;cursor:pointer;font-weight:700">🧰 What&rsquo;s in 1 kit?</summary><div style="margin-top:4px;font-size:11px;color:#4a5c56">'+kitBom+'</div></details>'+
+          '<div style="font-weight:700;font-size:11px;color:#4a5c56;margin:8px 0 2px">🧰 Standard kit used <span style="font-weight:600;color:#8a9a94">· i-edit kung hindi buong kit ang nagamit</span></div>'+
+          '<div style="margin-bottom:10px">'+kitRows+'</div>'+
           '<div style="font-size:11px;font-weight:700;color:#4a5c56;margin:0 0 4px">Drop materials used</div>'+
           '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">'+MATS.map(function(m){return '<div class="field" style="margin:0"><label style="font-size:10px">'+m[1]+'</label><input type="number" inputmode="numeric" min="0" value="'+(s.mats[m[0]]||0)+'" data-wf="mat" data-mk="'+m[0]+'" data-j="'+jid+'" style="padding:6px"></div>';}).join('')+'</div>'+
           '<div style="font-size:10px;color:#9aa6a2;margin-top:6px">Only CPE issued to your team'+(acc.team_code?(' ('+acc.team_code+')'):'')+' appears here. Optional — you can complete the job without it.</div>'+
@@ -70,7 +72,7 @@
     var jid=el.getAttribute('data-j'), f=el.getAttribute('data-wf'), s=st(jid);
     if(f==='modem') s.modem=el.value;
     else if(f==='iptv') s.iptv=el.value;
-    else if(f==='kit') s.kit=!!el.checked;
+    else if(f==='kitq'){ if(!s.kit||typeof s.kit!=='object') s.kit={}; s.kit[el.getAttribute('data-kk')]=parseFloat(el.value)||0; }
     else if(f==='mat') s.mats[el.getAttribute('data-mk')]=parseFloat(el.value)||0;
   });
 
@@ -87,7 +89,7 @@
         p_account: (job&&(job.ibass_acct_no||job.job_order_no||job.account))||'',
         p_modem_serial: s.modem,
         p_iptv_serial: s.iptv||null,
-        p_kit: (s.kit?{standard:1}:{}),
+        p_kit: (s.kit&&typeof s.kit==='object'?s.kit:{}),
         p_materials: mats,
         p_photos: photos
       });
