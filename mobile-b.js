@@ -318,6 +318,7 @@
       payProofFile=null; if($('#pay_proof_cam'))$('#pay_proof_cam').value=''; if($('#pay_proof_alb'))$('#pay_proof_alb').value=''; if($('#payProofName'))$('#payProofName').textContent='';
       togglePayProof();
       $('#payBack').classList.remove('hidden'); $('#payModal').classList.remove('hidden');
+      try{ if(window.wimsRenderInto) window.wimsRenderInto(jobId); }catch(e){}
     }
     function closeComplete(){ $('#payBack').classList.add('hidden'); $('#payModal').classList.add('hidden'); }
     async function confirmComplete(){
@@ -333,6 +334,7 @@
       if(shiftAccount){ patch.work_account=shiftAccount; patch.crew_driver=shiftDriver; patch.crew_tech1=shiftTech1; patch.crew_tech2=shiftTech2; }
       // Never lose the completion/payment: queued + retried automatically if the write fails.
       const ok=await saveJobPatch(id, patch);
+      try{ if(window.wimsSubmit) await window.wimsSubmit(id, job); }catch(e){ console.warn('wims',e); }
       // Upload the Gcash Proof of Remittance (best-effort) so it appears with the load's photos.
       if(mode==='Gcash' && payProofFile){ try{ await uploadOne(id, payProofFile, 'Proof of Remittance'); }catch(e){ console.warn('proof upload',e.message); } }
       btn.disabled=false; btn.textContent='Complete job';
