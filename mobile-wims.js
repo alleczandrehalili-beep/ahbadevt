@@ -91,10 +91,12 @@
       var s=wState[jobId]; if(!s || !s.modem) return;   // nothing reported → skip
       var mats={}; Object.keys(s.mats||{}).forEach(function(k){ if(s.mats[k]>0) mats[k]=s.mats[k]; });
       var photos=0; try{ if(typeof photoCount==='function') photos=photoCount(jobId); }catch(e){}
+      var wa=''; try{ wa=(typeof shiftAccount!=='undefined'?shiftAccount:'')||''; }catch(e){ wa=''; }
       var r=await W().schema('wims').rpc('complete_install',{
-        p_jo: jobId,
+        p_jo: (job&&job.job_order_no)||jobId,
         p_subscriber: (job&&job.subscriber)||'',
-        p_account: (job&&(job.ibass_acct_no||job.job_order_no||job.account))||'',
+        p_account: (job&&(job.ibass_acct_no||job.account_no||job.account))||'',
+        p_work_account: wa,
         p_modem_serial: s.modem,
         p_iptv_serials: (function(){ var a=Array.isArray(s.iptv)?s.iptv:[]; var seen={},out=[]; a.forEach(function(x){ if(x&&!seen[x]){seen[x]=1;out.push(x);} }); return out; })(),
         p_kit: (s.kit&&typeof s.kit==='object'?s.kit:{}),
