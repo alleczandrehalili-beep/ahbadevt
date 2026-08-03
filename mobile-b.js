@@ -318,7 +318,6 @@
       payProofFile=null; if($('#pay_proof_cam'))$('#pay_proof_cam').value=''; if($('#pay_proof_alb'))$('#pay_proof_alb').value=''; if($('#payProofName'))$('#payProofName').textContent='';
       togglePayProof();
       $('#payBack').classList.remove('hidden'); $('#payModal').classList.remove('hidden');
-      try{ if(window.wimsRenderInto) window.wimsRenderInto(jobId); }catch(e){}
     }
     function closeComplete(){ $('#payBack').classList.add('hidden'); $('#payModal').classList.add('hidden'); }
     async function confirmComplete(){
@@ -442,7 +441,7 @@
 
         if(j.status==='in-progress'){
           const canDone=n>=PHOTOS_REQUIRED;
-          extra=photoSlots(j.id);
+          extra=photoSlots(j.id)+'<div class="wims-slot" data-wjob="'+j.id+'"></div>';
           actions=`<div class="job-actions">${mapLink}<button class="act done" data-next="completed" data-id="${j.id}" ${canDone?'':'disabled'}>${svg('check')}Mark complete${canDone?'':` (${n}/${PHOTOS_REQUIRED})`}</button></div>`;
         } else if(j.status==='completed'){
           extra=allPhotos.length?`<div class="photos"><div class="photos-head"><span>Proof photos</span><span class="count ok">${allPhotos.length}</span></div><div class="thumbs">${thumbs}</div></div>`:'';
@@ -484,6 +483,7 @@
       el.querySelectorAll('[data-exp]').forEach(b=>b.onclick=()=>openMobileExpense(b.dataset.exp));
       el.querySelectorAll('[data-neg]').forEach(b=>b.onclick=()=>openNegative(b.dataset.neg));
       el.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>openNegative(b.dataset.cancel,'cancel'));
+      try{ if(window.wimsMountAll) window.wimsMountAll(); }catch(e){}
       el.querySelectorAll('[data-info]').forEach(b=>b.onclick=()=>showJobInfo(b.dataset.info));
     }
 
