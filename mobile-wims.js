@@ -13,7 +13,17 @@
   function W(){ try{ return sb; }catch(e){ return (window.sb||null); } }
 
   var access=null, accLoaded=false, cpeCache=null, wState={};
+  // Fallback list only — the live catalog loads from wims.materials (loadMats),
+  // so bagong materials sa DB ay lalabas dito nang walang app update.
   var MATS=[['foc','FOC (m)'],['clip5','Clip 5mm'],['clip7','Clip 7mm'],['tie','Cable Tie'],['dtape','D-Tape (in)'],['etape','E-Tape (in)']];
+  var matsLoaded=false;
+  async function loadMats(){
+    if(matsLoaded) return; matsLoaded=true;
+    try{
+      var r=await W().schema('wims').from('materials').select('key,name,consume_unit').order('sort');
+      if(r&&r.data&&r.data.length) MATS=r.data.map(function(m){ return [m.key, m.name+' ('+m.consume_unit+')']; });
+    }catch(e){}
+  }
   // standard kit BOM — key, label, default qty (1 full kit). Editable per install.
   var KIT=[['conn','Fast Connector · SC/APC',2],['patch','Patch Cord · SC/APC 1.5m',1],['tbox','Terminal Box · FTTH',1],['f17','F-17 · anchor clamp',5],['f20','F-20 · mid-span hook',1],['f19','F-19 · house bracket',1]];
   function defaultKit(){ var o={}; KIT.forEach(function(k){ o[k[0]]=k[2]; }); return o; }
@@ -55,6 +65,7 @@
     var slots=document.querySelectorAll('.wims-slot[data-wjob]'); if(!slots.length) return;
     var acc=await ensureAccess();
     if(!acc){ slots.forEach(function(s){ s.innerHTML=''; }); return; }   // not enrolled → invisible
+    await loadMats();
     var cpe=await loadCpe();
     var modems=cpe.filter(function(u){return u.category==='modem';});
     var iptv=cpe.filter(function(u){return u.category==='iptv';});
