@@ -41,7 +41,9 @@
     catch(e){ cpeCache=[]; }
     return cpeCache;
   }
-  function st(id){ return wState[id]||(wState[id]={modem:'',iptv:[],kit:defaultKit(),mats:{}}); }
+  function st(id){ return wState[id]||(wState[id]={modem:'',iptv:[],kit:defaultKit(),mats:{},focReel:'',focStart:'',focEnd:''}); }
+  // FOC used = |end − start| mula sa meter markings ng cable; server ang final compute
+  function focUsed(s){ var a=parseFloat(s.focStart), b=parseFloat(s.focEnd); if(isNaN(a)||isNaN(b)) return null; return Math.abs(b-a); }
   // IPTV options for one slot: hide serials already chosen in the OTHER slots (no duplicates)
   function iptvOptions(all, taken, mine){
     return '<option value="">— none —</option>'+all.filter(function(u){ return u.serial===mine || taken.indexOf(u.serial)<0; })
@@ -90,10 +92,19 @@
           '<div style="font-weight:800;font-size:12px;color:#0e6f52;margin-bottom:8px">📦 WIMS material report <span style="font-weight:600;color:#8a9a94">· optional · '+(is2?'2-PLAY':'1-PLAY')+'</span></div>'+
           '<div class="field"><label>Installed MODEM</label><select data-wf="modem" data-j="'+jid+'">'+opt(modems,s.modem)+'</select></div>'+
           iptvBlock+
+          '<div style="border:1px solid #f0d9a8;background:#fffdf5;border-radius:10px;padding:9px 10px;margin:6px 0 8px">'+
+            '<div style="font-weight:700;font-size:11px;color:#8a6a24;margin-bottom:6px">📏 FOC · drop fiber <span style="font-weight:600;color:#b09a5e">· footage REQUIRED kapag gumamit</span></div>'+
+            '<div class="field" style="margin-bottom:6px"><label>Reel # (optional muna)</label><input data-wf="focreel" data-j="'+jid+'" value="'+(s.focReel||'')+'" placeholder="e.g. RL-04521" autocapitalize="characters" style="text-transform:uppercase"></div>'+
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">'+
+              '<div class="field" style="margin:0"><label>START meters *</label><input type="number" inputmode="decimal" min="0" data-wf="focstart" data-j="'+jid+'" value="'+(s.focStart||'')+'" placeholder="hal. 850"></div>'+
+              '<div class="field" style="margin:0"><label>END meters *</label><input type="number" inputmode="decimal" min="0" data-wf="focend" data-j="'+jid+'" value="'+(s.focEnd||'')+'" placeholder="hal. 812"></div>'+
+            '</div>'+
+            '<div data-focused-for="'+jid+'" style="font-size:11px;font-weight:700;color:#0e6f52;margin-top:5px">'+(focUsed(s)!=null?('Nagamit: '+focUsed(s)+' m'):'&nbsp;')+'</div>'+
+          '</div>'+
           '<div style="font-weight:700;font-size:11px;color:#4a5c56;margin:8px 0 2px">🧰 Standard kit used <span style="font-weight:600;color:#8a9a94">· i-edit kung hindi buong kit ang nagamit</span></div>'+
           '<div style="margin-bottom:10px">'+kitRows+'</div>'+
           '<div style="font-size:11px;font-weight:700;color:#4a5c56;margin:0 0 4px">Drop materials used</div>'+
-          '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">'+MATS.map(function(m){return '<div class="field" style="margin:0"><label style="font-size:10px">'+m[1]+'</label><input type="number" inputmode="numeric" min="0" value="'+(s.mats[m[0]]||0)+'" data-wf="mat" data-mk="'+m[0]+'" data-j="'+jid+'" style="padding:6px"></div>';}).join('')+'</div>'+
+          '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">'+MATS.filter(function(m){return m[0]!=='foc';}).map(function(m){return '<div class="field" style="margin:0"><label style="font-size:10px">'+m[1]+'</label><input type="number" inputmode="numeric" min="0" value="'+(s.mats[m[0]]||0)+'" data-wf="mat" data-mk="'+m[0]+'" data-j="'+jid+'" style="padding:6px"></div>';}).join('')+'</div>'+
           '<div style="font-size:10px;color:#9aa6a2;margin-top:6px">Only CPE issued to your team'+(acc.team_code?(' ('+acc.team_code+')'):'')+' appears here. Optional — you can complete the job without it.</div>'+
         '</div>';
       if(is2) mountIptv(jid);
@@ -108,6 +119,12 @@
     else if(f==='iptv'){ if(!Array.isArray(s.iptv)) s.iptv=[]; s.iptv[parseInt(el.getAttribute('data-idx'),10)||0]=el.value; mountIptv(jid); }
     else if(f==='kitq'){ if(!s.kit||typeof s.kit!=='object') s.kit={}; s.kit[el.getAttribute('data-kk')]=parseFloat(el.value)||0; }
     else if(f==='mat') s.mats[el.getAttribute('data-mk')]=parseFloat(el.value)||0;
+    else if(f==='focreel') s.focReel=el.value.trim().toUpperCase();
+    else if(f==='focstart'||f==='focend'){
+      s[f==='focstart'?'focStart':'focEnd']=el.value;
+      var u=focUsed(s), d=document.querySelector('[data-focused-for="'+jid+'"]');
+      if(d) d.innerHTML=(u!=null)?('Nagamit: '+u+' m'):'&nbsp;';
+    }
   });
 
   // Called from confirmComplete AFTER the job is saved. Optional; reads wState.
@@ -115,10 +132,18 @@
     try{
       var acc=await ensureAccess(); if(!acc) return;
       var s=wState[jobId]; if(!s || !s.modem) return;   // nothing reported → skip
-      var mats={}; Object.keys(s.mats||{}).forEach(function(k){ if(s.mats[k]>0) mats[k]=s.mats[k]; });
+      var mats={}; Object.keys(s.mats||{}).forEach(function(k){ if(k!=='foc'&&s.mats[k]>0) mats[k]=s.mats[k]; });
+      // FOC FOOTAGE RULE: kapag may start O end, kailangan pareho; used = |end − start|
+      var hasStart=(s.focStart!==''&&s.focStart!=null), hasEnd=(s.focEnd!==''&&s.focEnd!=null);
+      if(hasStart!==hasEnd){ say('⚠ WIMS: kulang ang FOC footage — kailangan ang START at END meters'); return; }
+      var used=focUsed(s);
+      if(hasStart&&hasEnd){
+        if(!(used>0)){ say('⚠ WIMS: pareho ang FOC start at end meters — walang nagamit?'); return; }
+        mats.foc=used;
+      }
       var photos=0; try{ if(typeof photoCount==='function') photos=photoCount(jobId); }catch(e){}
       var wa=''; try{ wa=(typeof shiftAccount!=='undefined'?shiftAccount:'')||''; }catch(e){ wa=''; }
-      var r=await W().schema('wims').rpc('complete_install',{
+      var args={
         p_jo: (job&&job.job_order_no)||jobId,
         p_subscriber: (job&&job.subscriber)||'',
         p_account: (job&&(job.ibass_acct_no||job.account_no||job.account))||'',
@@ -127,8 +152,17 @@
         p_iptv_serials: (function(){ var a=Array.isArray(s.iptv)?s.iptv:[]; var seen={},out=[]; a.forEach(function(x){ if(x&&!seen[x]){seen[x]=1;out.push(x);} }); return out; })(),
         p_kit: (s.kit&&typeof s.kit==='object'?s.kit:{}),
         p_materials: mats,
-        p_photos: photos
-      });
+        p_photos: photos,
+        p_foc_reel: s.focReel||null,
+        p_foc_start: hasStart?parseFloat(s.focStart):null,
+        p_foc_end: hasEnd?parseFloat(s.focEnd):null
+      };
+      var r=await W().schema('wims').rpc('complete_install',args);
+      // fallback: kung LUMA pa ang backend (walang FOC params), subukan ang legacy signature
+      if(r&&r.error&&/could not find the function|schema cache/i.test(String(r.error.message||''))){
+        delete args.p_foc_reel; delete args.p_foc_start; delete args.p_foc_end;
+        r=await W().schema('wims').rpc('complete_install',args);
+      }
       if(r&&r.error) throw r.error;
       cpeCache=null;   // installed CPE leaves the issued pool
       say('📦 WIMS material report filed');
