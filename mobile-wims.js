@@ -43,9 +43,23 @@
     catch(e){ cpeCache=[]; }
     return cpeCache;
   }
-  function st(id){ return wState[id]||(wState[id]={modem:'',iptv:[],kit:defaultKit(),mats:{},focReel:'',focStart:'',focEnd:''}); }
+  function st(id){ return wState[id]||(wState[id]={modem:'',iptv:[],kit:defaultKit(),mats:{},focReel:'',focStart:'',focEnd:'',foc2On:false,foc2Reel:'',foc2End:''}); }
+  // FOC CONTINUITY: the START of this JO is LOCKED to the END of the team's
+  // previous JO (server-enforced too). A different/new reel starts at 0.
+  var focPrev=null, focPrevLoaded=false;
+  async function loadPrevFoc(){
+    if(focPrevLoaded) return focPrev; focPrevLoaded=true;
+    try{ var r=await W().schema('wims').rpc('my_last_foc'); focPrev=(r&&r.data&&r.data[0])||null; }catch(e){ focPrev=null; }
+    return focPrev;
+  }
+  function lockedStart(s){   // ano dapat ang START ayon sa continuity rule
+    if(!focPrev||focPrev.end_m==null) return null;              // walang history → editable
+    var cur=(s.focReel||'').trim().toUpperCase(), prev=(focPrev.reel_no||'').trim().toUpperCase();
+    return (!cur||!prev||cur===prev) ? String(+focPrev.end_m) : '0';
+  }
   // FOC used = |end − start| mula sa meter markings ng cable; server ang final compute
-  function focUsed(s){ var a=parseFloat(s.focStart), b=parseFloat(s.focEnd); if(isNaN(a)||isNaN(b)) return null; return Math.abs(b-a); }
+  function focUsed(s){ var a=parseFloat(s.focStart), b=parseFloat(s.focEnd); if(isNaN(a)||isNaN(b)) return null;
+    var u=Math.abs(b-a); if(s.foc2On){ var c=parseFloat(s.foc2End); if(!isNaN(c)) u+=c; } return u; }
   // IPTV options for one slot: hide serials already chosen in the OTHER slots (no duplicates)
   function iptvOptions(all, taken, mine){
     return '<option value="">— none —</option>'+all.filter(function(u){ return u.serial===mine || taken.indexOf(u.serial)<0; })
@@ -70,6 +84,7 @@
     var acc=await ensureAccess();
     if(!acc){ slots.forEach(function(s){ s.innerHTML=''; }); return; }   // not enrolled → invisible
     await loadMats();
+    await loadPrevFoc();
     var cpe=await loadCpe();
     var modems=cpe.filter(function(u){return u.category==='modem';});
     var iptv=cpe.filter(function(u){return u.category==='iptv';});
@@ -94,15 +109,36 @@
           '<div style="font-weight:800;font-size:12px;color:#0e6f52;margin-bottom:8px">📦 WIMS material report <span style="font-weight:600;color:#8a9a94">· optional · '+(is2?'2-PLAY':'1-PLAY')+'</span></div>'+
           '<div class="field"><label>Installed MODEM</label><select data-wf="modem" data-j="'+jid+'">'+opt(modems,s.modem)+'</select></div>'+
           iptvBlock+
-          '<div style="border:1px solid #f0d9a8;background:#fffdf5;border-radius:10px;padding:9px 10px;margin:6px 0 8px">'+
+          (function(){
+            var ls=lockedStart(s);
+            if(ls!=null && !s._focInit){ s._focInit=1; if(!s.focReel) s.focReel=(focPrev.reel_no||''); s.focStart=ls; }
+            var lock=(ls!=null);
+            var startInp = lock
+              ? '<input type="number" data-wf="focstart" data-j="'+jid+'" value="'+(s.focStart||'')+'" readonly style="background:#eef2f0;color:#556;pointer-events:none">'
+              : '<input type="number" inputmode="decimal" min="0" data-wf="focstart" data-j="'+jid+'" value="'+(s.focStart||'')+'" placeholder="e.g. 0">';
+            var reel2='';
+            if(s.foc2On){
+              reel2='<div style="border-top:1px dashed #e3d3a8;margin-top:8px;padding-top:8px">'+
+                '<div style="font-weight:700;font-size:11px;color:#8a6a24;margin-bottom:5px">🆕 Reel 2 <span style="font-weight:600;color:#b09a5e">· starts at 0 (auto)</span></div>'+
+                '<div class="field" style="margin-bottom:6px"><label>Reel 2 # *</label><input data-wf="foc2reel" data-j="'+jid+'" value="'+(s.foc2Reel||'')+'" placeholder="e.g. RL-04522" autocapitalize="characters" style="text-transform:uppercase"></div>'+
+                '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">'+
+                  '<div class="field" style="margin:0"><label>START</label><input value="0" readonly style="background:#eef2f0;color:#556;pointer-events:none"></div>'+
+                  '<div class="field" style="margin:0"><label>END meters *</label><input type="number" inputmode="decimal" min="0" data-wf="foc2end" data-j="'+jid+'" value="'+(s.foc2End||'')+'" placeholder="e.g. 35"></div>'+
+                '</div></div>';
+            }
+            return '<div style="border:1px solid #f0d9a8;background:#fffdf5;border-radius:10px;padding:9px 10px;margin:6px 0 8px">'+
             '<div style="font-weight:700;font-size:11px;color:#8a6a24;margin-bottom:6px">📏 FOC · drop fiber <span style="font-weight:600;color:#b09a5e">· footage REQUIRED when used</span></div>'+
             '<div class="field" style="margin-bottom:6px"><label>Reel # (optional)</label><input data-wf="focreel" data-j="'+jid+'" value="'+(s.focReel||'')+'" placeholder="e.g. RL-04521" autocapitalize="characters" style="text-transform:uppercase"></div>'+
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">'+
-              '<div class="field" style="margin:0"><label>START meters *</label><input type="number" inputmode="decimal" min="0" data-wf="focstart" data-j="'+jid+'" value="'+(s.focStart||'')+'" placeholder="e.g. 850"></div>'+
-              '<div class="field" style="margin:0"><label>END meters *</label><input type="number" inputmode="decimal" min="0" data-wf="focend" data-j="'+jid+'" value="'+(s.focEnd||'')+'" placeholder="e.g. 812"></div>'+
+              '<div class="field" style="margin:0"><label>START meters *'+(lock?' 🔒':'')+'</label>'+startInp+'</div>'+
+              '<div class="field" style="margin:0"><label>'+(s.foc2On?'Reel 1 END (last marking) *':'END meters *')+'</label><input type="number" inputmode="decimal" min="0" data-wf="focend" data-j="'+jid+'" value="'+(s.focEnd||'')+'" placeholder="e.g. 812"></div>'+
             '</div>'+
+            (lock?'<div style="font-size:10px;color:#8a9a94;margin-top:3px">🔒 START is carried from your previous JO — hindi ito pwedeng i-edit. Ibang reel # = auto 0.</div>':'')+
+            reel2+
+            '<button type="button" data-wf="foc2toggle" data-j="'+jid+'" style="margin-top:7px;font:700 10.5px system-ui;border:1px dashed #d8c58e;background:#fff;color:#8a6a24;border-radius:8px;padding:6px 10px">'+(s.foc2On?'✕ Remove reel 2':'➕ Reel emptied — used a 2nd reel')+'</button>'+
             '<div data-focused-for="'+jid+'" style="font-size:11px;font-weight:700;color:#0e6f52;margin-top:5px">'+(focUsed(s)!=null?('Used: '+focUsed(s)+' m'):'&nbsp;')+'</div>'+
-          '</div>'+
+          '</div>';
+          })()+
           '<div style="font-weight:700;font-size:11px;color:#4a5c56;margin:8px 0 2px">🧰 Standard kit used <span style="font-weight:600;color:#8a9a94">· edit if less than a full kit was used</span></div>'+
           '<div style="margin-bottom:10px">'+kitRows+'</div>'+
           '<div style="font-size:11px;font-weight:700;color:#4a5c56;margin:0 0 4px">Drop materials used</div>'+
@@ -121,7 +157,16 @@
     else if(f==='iptv'){ if(!Array.isArray(s.iptv)) s.iptv=[]; s.iptv[parseInt(el.getAttribute('data-idx'),10)||0]=el.value; mountIptv(jid); }
     else if(f==='kitq'){ if(!s.kit||typeof s.kit!=='object') s.kit={}; s.kit[el.getAttribute('data-kk')]=parseFloat(el.value)||0; }
     else if(f==='mat') s.mats[el.getAttribute('data-mk')]=parseFloat(el.value)||0;
-    else if(f==='focreel') s.focReel=el.value.trim().toUpperCase();
+    else if(f==='focreel'){ s.focReel=el.value.trim().toUpperCase();
+      var ls=lockedStart(s);
+      if(ls!=null){ s.focStart=ls;
+        var si=document.querySelector('input[data-wf="focstart"][data-j="'+jid+'"]'); if(si) si.value=ls;
+        var d0=document.querySelector('[data-focused-for="'+jid+'"]'); var u0=focUsed(s);
+        if(d0) d0.innerHTML=(u0!=null)?('Used: '+u0+' m'):'&nbsp;'; } }
+    else if(f==='foc2reel') s.foc2Reel=el.value.trim().toUpperCase();
+    else if(f==='foc2end'){ s.foc2End=el.value;
+      var d2=document.querySelector('[data-focused-for="'+jid+'"]'); var u2=focUsed(s);
+      if(d2) d2.innerHTML=(u2!=null)?('Used: '+u2+' m'):'&nbsp;'; }
     else if(f==='focstart'||f==='focend'){
       s[f==='focstart'?'focStart':'focEnd']=el.value;
       var u=focUsed(s), d=document.querySelector('[data-focused-for="'+jid+'"]');
@@ -130,6 +175,14 @@
   });
 
   // Called from confirmComplete AFTER the job is saved. Optional; reads wState.
+  document.addEventListener('click', function(e){
+    var b=e.target.closest&&e.target.closest('[data-wf="foc2toggle"]'); if(!b) return;
+    var jid=b.getAttribute('data-j'), s=st(jid);
+    s.foc2On=!s.foc2On; if(!s.foc2On){ s.foc2Reel=''; s.foc2End=''; }
+    var slot=document.querySelector('.wims-slot[data-wjob="'+jid+'"]');
+    if(slot){ slot.removeAttribute('data-mounted'); slot.innerHTML=''; window.wimsMountAll(); }
+  });
+
   window.wimsSubmit = async function(jobId, job){
     try{
       var acc=await ensureAccess(); if(!acc) return;
@@ -138,6 +191,11 @@
       // FOC FOOTAGE RULE: kapag may start O end, kailangan pareho; used = |end − start|
       var hasStart=(s.focStart!==''&&s.focStart!=null), hasEnd=(s.focEnd!==''&&s.focEnd!=null);
       if(hasStart!==hasEnd){ say('⚠ WIMS: incomplete FOC footage — START and END meters are required'); return; }
+      if(s.foc2On){
+        if(!(s.foc2Reel||'').trim()){ say('⚠ WIMS: Reel 2 # is required'); return; }
+        if(!(parseFloat(s.foc2End)>0)){ say('⚠ WIMS: Reel 2 END meters must be greater than 0'); return; }
+        if(!hasStart||!hasEnd){ say('⚠ WIMS: complete reel 1 footage first (START and END)'); return; }
+      }
       var used=focUsed(s);
       if(hasStart&&hasEnd){
         if(!(used>0)){ say('⚠ WIMS: FOC start and end meters are the same — nothing used?'); return; }
@@ -157,15 +215,27 @@
         p_photos: photos,
         p_foc_reel: s.focReel||null,
         p_foc_start: hasStart?parseFloat(s.focStart):null,
-        p_foc_end: hasEnd?parseFloat(s.focEnd):null
+        p_foc_end: hasEnd?parseFloat(s.focEnd):null,
+        p_foc2_reel: (s.foc2On&&s.foc2Reel)?s.foc2Reel:null,
+        p_foc2_end: (s.foc2On&&parseFloat(s.foc2End)>0)?parseFloat(s.foc2End):null
       };
       var r=await W().schema('wims').rpc('complete_install',args);
       // fallback: kung LUMA pa ang backend (walang FOC params), subukan ang legacy signature
       if(r&&r.error&&/could not find the function|schema cache/i.test(String(r.error.message||''))){
-        delete args.p_foc_reel; delete args.p_foc_start; delete args.p_foc_end;
+        // legacy backend fallback: try 12-param, then 9-param
+        delete args.p_foc2_reel; delete args.p_foc2_end;
         r=await W().schema('wims').rpc('complete_install',args);
+        if(r&&r.error&&/could not find the function|schema cache/i.test(String(r.error.message||''))){
+          delete args.p_foc_reel; delete args.p_foc_start; delete args.p_foc_end;
+          r=await W().schema('wims').rpc('complete_install',args);
+        }
       }
       if(r&&r.error) throw r.error;
+      // chain continuity for the NEXT JO in this session
+      if(hasStart&&hasEnd){
+        focPrev={ reel_no:(s.foc2On&&s.foc2Reel)?s.foc2Reel:(s.focReel||null),
+                  end_m:(s.foc2On&&parseFloat(s.foc2End)>0)?parseFloat(s.foc2End):parseFloat(s.focEnd) };
+      }
       cpeCache=null;   // installed CPE leaves the issued pool
       say('📦 WIMS material report filed');
     }catch(e){ say('WIMS not saved: '+(e.message||e)); try{console.warn('wimsSubmit',e);}catch(_){ } }
