@@ -15,7 +15,7 @@
   var access=null, accLoaded=false, cpeCache=null, wState={};
   // Fallback list only — the live catalog loads from wims.materials (loadMats),
   // so bagong materials sa DB ay lalabas dito nang walang app update.
-  var MATS=[['foc','FOC (m)'],['clip5','Clip 5mm'],['clip7','Clip 7mm'],['tie','Cable Tie'],['dtape','D-Tape (in)'],['etape','E-Tape (in)']];
+  var MATS=[['foc','FOC (m)'],['clip5','Clip 5mm'],['clip7','Clip 7mm'],['tie','Cable Tie'],['dtape','D-Tape (in)'],['etape','E-Tape (in)'],['f17','F-17 Clamp'],['f19','F-19 Bracket'],['f20','F-20 Hook']];
   var matsLoaded=false;
   async function loadMats(){
     if(matsLoaded) return; matsLoaded=true;
@@ -25,7 +25,9 @@
     }catch(e){}
   }
   // standard kit BOM — key, label, default qty (1 full kit). Editable per install.
-  var KIT=[['conn','Fast Connector · SC/APC',2],['patch','Patch Cord · SC/APC 1.5m',1],['tbox','Terminal Box · FTTH',1],['f17','F-17 · anchor clamp',5],['f20','F-20 · mid-span hook',1],['f19','F-19 · house bracket',1]];
+  // 2026-08-05 restructure: F-17/F-19/F-20 ay INDIVIDUAL materials na (nasa
+  // drop-materials grid, galing wims.materials); kapalit sa kit ang SAR + SAF.
+  var KIT=[['conn','Fast Connector · SC/APC',2],['patch','Patch Cord · SC/APC 1.5m',1],['tbox','Terminal Box · FTTH',1],['sar','SAR · Service Acceptance Report',1],['saf','SAF · Service Activation Form',1]];
   function defaultKit(){ var o={}; KIT.forEach(function(k){ o[k[0]]=k[2]; }); return o; }
 
   async function ensureAccess(){
