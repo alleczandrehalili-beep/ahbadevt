@@ -152,7 +152,7 @@
             '<input data-wf="kitrem" data-j="'+jid+'" value="'+(s.kitRemarks||'')+'" placeholder="Why the extra usage? (e.g. connector damaged during splice)" style="width:100%;box-sizing:border-box;padding:7px;font-size:12px">'+
           '</div>'+
           '<div style="font-size:11px;font-weight:700;color:#4a5c56;margin:0 0 4px">Drop materials used</div>'+
-          '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">'+MATS.filter(function(m){return m[0]!=='foc';}).map(function(m){return '<div class="field" style="margin:0"><label style="font-size:10px">'+m[1]+'</label><input type="number" inputmode="numeric" min="0" value="'+(s.mats[m[0]]||0)+'" data-wf="mat" data-mk="'+m[0]+'" data-j="'+jid+'" style="padding:6px"></div>';}).join('')+'</div>'+
+          '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">'+MATS.filter(function(m){return ['foc','conn','patch','tbox','sar','saf'].indexOf(m[0])<0;}).map(function(m){return '<div class="field" style="margin:0"><label style="font-size:10px">'+m[1]+'</label><input type="number" inputmode="numeric" min="0" value="'+(s.mats[m[0]]||0)+'" data-wf="mat" data-mk="'+m[0]+'" data-j="'+jid+'" style="padding:6px"></div>';}).join('')+'</div>'+
           '<div style="font-size:10px;color:#9aa6a2;margin-top:6px">Only CPE issued to your team'+(acc.team_code?(' ('+acc.team_code+')'):'')+' appears here. Optional — you can complete the job without it.</div>'+
         '</div>';
       if(is2) mountIptv(jid);
