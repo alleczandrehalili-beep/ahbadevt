@@ -43,7 +43,13 @@
     catch(e){ cpeCache=[]; }
     return cpeCache;
   }
-  function st(id){ return wState[id]||(wState[id]={modem:'',iptv:[],kit:defaultKit(),mats:{},focReel:'',focStart:'',focEnd:'',foc2On:false,foc2Reel:'',foc2End:''}); }
+  function st(id){ return wState[id]||(wState[id]={modem:'',iptv:[],kit:defaultKit(),mats:{},focReel:'',focStart:'',focEnd:'',foc2On:false,foc2Reel:'',foc2End:'',kitRemarks:''}); }
+  // KIT-EXCESS RULE: declaring MORE than the standard kit needs remarks (server-enforced too)
+  function kitExcess(s){
+    var ex=false;
+    KIT.forEach(function(k){ var q=(s.kit&&s.kit[k[0]]!=null)?+s.kit[k[0]]:k[2]; if(q>k[2]) ex=true; });
+    return ex;
+  }
   // FOC CONTINUITY: the START of this JO is LOCKED to the END of the team's
   // previous JO (server-enforced too). A different/new reel starts at 0.
   var focPrev=null, focPrevLoaded=false;
@@ -140,7 +146,11 @@
           '</div>';
           })()+
           '<div style="font-weight:700;font-size:11px;color:#4a5c56;margin:8px 0 2px">🧰 Standard kit used <span style="font-weight:600;color:#8a9a94">· edit if less than a full kit was used</span></div>'+
-          '<div style="margin-bottom:10px">'+kitRows+'</div>'+
+          '<div style="margin-bottom:4px">'+kitRows+'</div>'+
+          '<div data-kitrem-wrap="'+jid+'" style="display:'+(kitExcess(s)?'block':'none')+';margin-bottom:10px;border:1px solid #f4c4b7;background:#fdf2ef;border-radius:8px;padding:7px 9px">'+
+            '<div style="font-weight:700;font-size:10.5px;color:#8a2013;margin-bottom:4px">⚠ MORE than the standard kit — remarks REQUIRED</div>'+
+            '<input data-wf="kitrem" data-j="'+jid+'" value="'+(s.kitRemarks||'')+'" placeholder="Why the extra usage? (e.g. connector damaged during splice)" style="width:100%;box-sizing:border-box;padding:7px;font-size:12px">'+
+          '</div>'+
           '<div style="font-size:11px;font-weight:700;color:#4a5c56;margin:0 0 4px">Drop materials used</div>'+
           '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">'+MATS.filter(function(m){return m[0]!=='foc';}).map(function(m){return '<div class="field" style="margin:0"><label style="font-size:10px">'+m[1]+'</label><input type="number" inputmode="numeric" min="0" value="'+(s.mats[m[0]]||0)+'" data-wf="mat" data-mk="'+m[0]+'" data-j="'+jid+'" style="padding:6px"></div>';}).join('')+'</div>'+
           '<div style="font-size:10px;color:#9aa6a2;margin-top:6px">Only CPE issued to your team'+(acc.team_code?(' ('+acc.team_code+')'):'')+' appears here. Optional — you can complete the job without it.</div>'+
@@ -155,7 +165,9 @@
     var jid=el.getAttribute('data-j'), f=el.getAttribute('data-wf'), s=st(jid);
     if(f==='modem') s.modem=el.value;
     else if(f==='iptv'){ if(!Array.isArray(s.iptv)) s.iptv=[]; s.iptv[parseInt(el.getAttribute('data-idx'),10)||0]=el.value; mountIptv(jid); }
-    else if(f==='kitq'){ if(!s.kit||typeof s.kit!=='object') s.kit={}; s.kit[el.getAttribute('data-kk')]=parseFloat(el.value)||0; }
+    else if(f==='kitq'){ if(!s.kit||typeof s.kit!=='object') s.kit={}; s.kit[el.getAttribute('data-kk')]=parseFloat(el.value)||0;
+      var kw=document.querySelector('[data-kitrem-wrap="'+jid+'"]'); if(kw) kw.style.display=kitExcess(s)?'block':'none'; }
+    else if(f==='kitrem') s.kitRemarks=el.value;
     else if(f==='mat') s.mats[el.getAttribute('data-mk')]=parseFloat(el.value)||0;
     else if(f==='focreel'){ s.focReel=el.value.trim().toUpperCase();
       var ls=lockedStart(s);
@@ -191,6 +203,7 @@
       // FOC FOOTAGE RULE: kapag may start O end, kailangan pareho; used = |end − start|
       var hasStart=(s.focStart!==''&&s.focStart!=null), hasEnd=(s.focEnd!==''&&s.focEnd!=null);
       if(hasStart!==hasEnd){ say('⚠ WIMS: incomplete FOC footage — START and END meters are required'); return; }
+      if(kitExcess(s) && !(s.kitRemarks||'').trim()){ say('⚠ WIMS: kit usage exceeds the standard kit — remarks are REQUIRED'); return; }
       if(s.foc2On){
         if(!(s.foc2Reel||'').trim()){ say('⚠ WIMS: Reel 2 # is required'); return; }
         if(!(parseFloat(s.foc2End)>0)){ say('⚠ WIMS: Reel 2 END meters must be greater than 0'); return; }
@@ -217,12 +230,17 @@
         p_foc_start: hasStart?parseFloat(s.focStart):null,
         p_foc_end: hasEnd?parseFloat(s.focEnd):null,
         p_foc2_reel: (s.foc2On&&s.foc2Reel)?s.foc2Reel:null,
-        p_foc2_end: (s.foc2On&&parseFloat(s.foc2End)>0)?parseFloat(s.foc2End):null
+        p_foc2_end: (s.foc2On&&parseFloat(s.foc2End)>0)?parseFloat(s.foc2End):null,
+        p_kit_remarks: (s.kitRemarks||'').trim()||null
       };
       var r=await W().schema('wims').rpc('complete_install',args);
       // fallback: kung LUMA pa ang backend (walang FOC params), subukan ang legacy signature
       if(r&&r.error&&/could not find the function|schema cache/i.test(String(r.error.message||''))){
-        // legacy backend fallback: try 12-param, then 9-param
+        // legacy backend fallback: 14 → 12 → 9 params
+        delete args.p_kit_remarks;
+        r=await W().schema('wims').rpc('complete_install',args);
+      }
+      if(r&&r.error&&/could not find the function|schema cache/i.test(String(r.error.message||''))){
         delete args.p_foc2_reel; delete args.p_foc2_end;
         r=await W().schema('wims').rpc('complete_install',args);
         if(r&&r.error&&/could not find the function|schema cache/i.test(String(r.error.message||''))){
