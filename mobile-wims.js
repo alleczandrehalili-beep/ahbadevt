@@ -84,9 +84,9 @@
       slot.setAttribute('data-mounted','1');
       var iptvBlock;
       if(is2){
-        iptvBlock = '<div style="font-weight:700;font-size:11px;color:#4a5c56;margin:2px 0 4px">Installed IPTV box'+(iptvn>1?'es · '+iptvn+' add-ons sa JO':'')+'</div><div class="wiptv-wrap" data-j="'+jid+'" data-n="'+iptvn+'"></div>';
+        iptvBlock = '<div style="font-weight:700;font-size:11px;color:#4a5c56;margin:2px 0 4px">Installed IPTV box'+(iptvn>1?'es · '+iptvn+' add-ons on the JO':'')+'</div><div class="wiptv-wrap" data-j="'+jid+'" data-n="'+iptvn+'"></div>';
       } else {
-        iptvBlock = '<div style="font-size:11px;color:#8a9a94;margin:2px 0 8px">📶 1-PLAY · internet only — walang IPTV para sa JO na ito</div>';
+        iptvBlock = '<div style="font-size:11px;color:#8a9a94;margin:2px 0 8px">📶 1-PLAY · internet only — no IPTV for this JO</div>';
       }
       var kitRows = KIT.map(function(k){ var q=(s.kit&&s.kit[k[0]]!=null)?s.kit[k[0]]:k[2]; return '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #eef4f1"><span style="flex:1;font-size:11px;color:#4a5c56">'+k[1]+'</span><input type="number" inputmode="numeric" min="0" value="'+q+'" data-wf="kitq" data-kk="'+k[0]+'" data-j="'+jid+'" style="width:54px;padding:5px;text-align:center"></div>'; }).join('');
       slot.innerHTML=
@@ -95,15 +95,15 @@
           '<div class="field"><label>Installed MODEM</label><select data-wf="modem" data-j="'+jid+'">'+opt(modems,s.modem)+'</select></div>'+
           iptvBlock+
           '<div style="border:1px solid #f0d9a8;background:#fffdf5;border-radius:10px;padding:9px 10px;margin:6px 0 8px">'+
-            '<div style="font-weight:700;font-size:11px;color:#8a6a24;margin-bottom:6px">📏 FOC · drop fiber <span style="font-weight:600;color:#b09a5e">· footage REQUIRED kapag gumamit</span></div>'+
-            '<div class="field" style="margin-bottom:6px"><label>Reel # (optional muna)</label><input data-wf="focreel" data-j="'+jid+'" value="'+(s.focReel||'')+'" placeholder="e.g. RL-04521" autocapitalize="characters" style="text-transform:uppercase"></div>'+
+            '<div style="font-weight:700;font-size:11px;color:#8a6a24;margin-bottom:6px">📏 FOC · drop fiber <span style="font-weight:600;color:#b09a5e">· footage REQUIRED when used</span></div>'+
+            '<div class="field" style="margin-bottom:6px"><label>Reel # (optional)</label><input data-wf="focreel" data-j="'+jid+'" value="'+(s.focReel||'')+'" placeholder="e.g. RL-04521" autocapitalize="characters" style="text-transform:uppercase"></div>'+
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">'+
-              '<div class="field" style="margin:0"><label>START meters *</label><input type="number" inputmode="decimal" min="0" data-wf="focstart" data-j="'+jid+'" value="'+(s.focStart||'')+'" placeholder="hal. 850"></div>'+
-              '<div class="field" style="margin:0"><label>END meters *</label><input type="number" inputmode="decimal" min="0" data-wf="focend" data-j="'+jid+'" value="'+(s.focEnd||'')+'" placeholder="hal. 812"></div>'+
+              '<div class="field" style="margin:0"><label>START meters *</label><input type="number" inputmode="decimal" min="0" data-wf="focstart" data-j="'+jid+'" value="'+(s.focStart||'')+'" placeholder="e.g. 850"></div>'+
+              '<div class="field" style="margin:0"><label>END meters *</label><input type="number" inputmode="decimal" min="0" data-wf="focend" data-j="'+jid+'" value="'+(s.focEnd||'')+'" placeholder="e.g. 812"></div>'+
             '</div>'+
-            '<div data-focused-for="'+jid+'" style="font-size:11px;font-weight:700;color:#0e6f52;margin-top:5px">'+(focUsed(s)!=null?('Nagamit: '+focUsed(s)+' m'):'&nbsp;')+'</div>'+
+            '<div data-focused-for="'+jid+'" style="font-size:11px;font-weight:700;color:#0e6f52;margin-top:5px">'+(focUsed(s)!=null?('Used: '+focUsed(s)+' m'):'&nbsp;')+'</div>'+
           '</div>'+
-          '<div style="font-weight:700;font-size:11px;color:#4a5c56;margin:8px 0 2px">🧰 Standard kit used <span style="font-weight:600;color:#8a9a94">· i-edit kung hindi buong kit ang nagamit</span></div>'+
+          '<div style="font-weight:700;font-size:11px;color:#4a5c56;margin:8px 0 2px">🧰 Standard kit used <span style="font-weight:600;color:#8a9a94">· edit if less than a full kit was used</span></div>'+
           '<div style="margin-bottom:10px">'+kitRows+'</div>'+
           '<div style="font-size:11px;font-weight:700;color:#4a5c56;margin:0 0 4px">Drop materials used</div>'+
           '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">'+MATS.filter(function(m){return m[0]!=='foc';}).map(function(m){return '<div class="field" style="margin:0"><label style="font-size:10px">'+m[1]+'</label><input type="number" inputmode="numeric" min="0" value="'+(s.mats[m[0]]||0)+'" data-wf="mat" data-mk="'+m[0]+'" data-j="'+jid+'" style="padding:6px"></div>';}).join('')+'</div>'+
@@ -125,7 +125,7 @@
     else if(f==='focstart'||f==='focend'){
       s[f==='focstart'?'focStart':'focEnd']=el.value;
       var u=focUsed(s), d=document.querySelector('[data-focused-for="'+jid+'"]');
-      if(d) d.innerHTML=(u!=null)?('Nagamit: '+u+' m'):'&nbsp;';
+      if(d) d.innerHTML=(u!=null)?('Used: '+u+' m'):'&nbsp;';
     }
   });
 
@@ -137,10 +137,10 @@
       var mats={}; Object.keys(s.mats||{}).forEach(function(k){ if(k!=='foc'&&s.mats[k]>0) mats[k]=s.mats[k]; });
       // FOC FOOTAGE RULE: kapag may start O end, kailangan pareho; used = |end − start|
       var hasStart=(s.focStart!==''&&s.focStart!=null), hasEnd=(s.focEnd!==''&&s.focEnd!=null);
-      if(hasStart!==hasEnd){ say('⚠ WIMS: kulang ang FOC footage — kailangan ang START at END meters'); return; }
+      if(hasStart!==hasEnd){ say('⚠ WIMS: incomplete FOC footage — START and END meters are required'); return; }
       var used=focUsed(s);
       if(hasStart&&hasEnd){
-        if(!(used>0)){ say('⚠ WIMS: pareho ang FOC start at end meters — walang nagamit?'); return; }
+        if(!(used>0)){ say('⚠ WIMS: FOC start and end meters are the same — nothing used?'); return; }
         mats.foc=used;
       }
       var photos=0; try{ if(typeof photoCount==='function') photos=photoCount(jobId); }catch(e){}
