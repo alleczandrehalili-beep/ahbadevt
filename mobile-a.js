@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-08-07.1';
+    const APP_VERSION = '2026-08-07.2';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -213,6 +213,9 @@
         await sb.from('push_subscriptions').upsert({team:myTeam, role:(myRole==='sales_agent'?'sales':'technician'), endpoint:sub.endpoint, p256dh:j.keys.p256dh, auth:j.keys.auth}, {onConflict:'endpoint'});
       }catch(e){ console.warn('push',e.message); }
     }
+    // Fire a phone push (banner kahit sarado ang app) sa isang team/encoder via the
+    // send-push Edge Function — best-effort, hindi kailanman haharang sa mismong aksyon.
+    function pushNotify(payload){ try{ fetch(SUPA_URL+'/functions/v1/send-push',{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY},body:JSON.stringify(payload)}).catch(()=>{}); }catch(e){} }
 
     // ---------- team chat ----------
     let chatChan=null, chatMsgs=[], chatUnread=0;

@@ -278,6 +278,10 @@
           : {status:'negative', negative_remark:remark, negative_at:now, updated_at:now, history:hist};
         if(mode!=='cancel' && shiftAccount){ patch.work_account=shiftAccount; patch.crew_driver=shiftDriver; patch.crew_tech1=shiftTech1; patch.crew_tech2=shiftTech2; }
         const synced=await saveJobPatch(jobId, patch);
+        // Phone push sa encoder (sales agent) — banner kahit sarado ang app niya.
+        try{ if(j&&j.created_by&&typeof pushNotify==='function') pushNotify(mode==='cancel'
+          ? {team:j.created_by,title:'🚫 JO cancelled',body:(j.subscriber||jobId)+' — '+remark}
+          : {team:j.created_by,title:'⚠ JO incomplete',body:(j.subscriber||jobId)+' — '+remark}); }catch(e){}
         if(j){ Object.assign(j, patch); logTrack('status:'+patch.status, j.area||j.city); }
         closeNegative(); viewMode = mode==='cancel'?'todo':'negative'; render();
         toast(synced ? (mode==='cancel'?'Job cancelled':'Marked as Incomplete') : 'Saved — will sync when back online');
@@ -333,6 +337,8 @@
       if(shiftAccount){ patch.work_account=shiftAccount; patch.crew_driver=shiftDriver; patch.crew_tech1=shiftTech1; patch.crew_tech2=shiftTech2; }
       // Never lose the completion/payment: queued + retried automatically if the write fails.
       const ok=await saveJobPatch(id, patch);
+      // Phone push sa encoder (sales agent) — banner kahit sarado ang app niya.
+      try{ if(job.created_by&&typeof pushNotify==='function') pushNotify({team:job.created_by,title:'✔ JO completed',body:(job.subscriber||id)}); }catch(e){}
       try{ if(window.wimsSubmit) await window.wimsSubmit(id, job); }catch(e){ console.warn('wims',e); }
       // Upload the Gcash Proof of Remittance (best-effort) so it appears with the load's photos.
       if(mode==='Gcash' && payProofFile){ try{ await uploadOne(id, payProofFile, 'Proof of Remittance'); }catch(e){ console.warn('proof upload',e.message); } }
