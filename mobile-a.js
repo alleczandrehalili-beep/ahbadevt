@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-08-07.3';
+    const APP_VERSION = '2026-08-07.4';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -227,6 +227,22 @@
     // Fire a phone push (banner kahit sarado ang app) sa isang team/encoder via the
     // send-push Edge Function — best-effort, hindi kailanman haharang sa mismong aksyon.
     function pushNotify(payload){ try{ fetch(SUPA_URL+'/functions/v1/send-push',{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY},body:JSON.stringify(payload)}).catch(()=>{}); }catch(e){} }
+    // iOS only allows the notification-permission prompt from a USER TAP (never from the
+    // automatic registerPush at boot), kaya isang one-time button ang hinihingi nito:
+    // lumalabas lang habang 'default' pa ang permission, nawawala pagka-grant/deny.
+    function notifPromptCheck(){
+      try{
+        if(!('Notification' in window) || !('PushManager' in window)) return;   // unsupported (e.g. iOS Safari tab — needs Add to Home Screen)
+        const old=document.getElementById('notifBanner');
+        if(Notification.permission!=='default'){ if(old) old.remove(); return; }
+        if(old) return;
+        const b=document.createElement('button'); b.id='notifBanner';
+        b.textContent='🔔 Tap to enable notifications';
+        b.style.cssText='position:fixed;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 14px);z-index:60;border:0;background:#082c28;color:#c9f36a;border-radius:12px;padding:13px;font:700 13px "DM Sans",system-ui;box-shadow:0 10px 24px rgba(8,44,40,.35)';
+        b.onclick=async ()=>{ b.disabled=true; try{ await registerPush(); }catch(e){} if(Notification.permission!=='default') b.remove(); else b.disabled=false; };
+        document.body.appendChild(b);
+      }catch(e){}
+    }
 
     // ---------- team chat ----------
     let chatChan=null, chatMsgs=[], chatUnread=0;
@@ -357,7 +373,7 @@
     function updateAnnBadge(){ const b=$('#annBadge'); if(!b)return; b.textContent=annUnread; b.classList.toggle('hidden', annUnread<=0); }
 
     function startComms(){
-      askNotify(); registerPush(); loadChat(); loadAnn();
+      askNotify(); registerPush(); notifPromptCheck(); loadChat(); loadAnn();
       if(chatChan) sb.removeChannel(chatChan);
       // No team filter: RLS delivers only messages this user may read (their team
       // broadcast + their private DMs). We route each one to the right thread.
