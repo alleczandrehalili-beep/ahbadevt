@@ -97,6 +97,13 @@
     .jt{flex:1;border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px;font-weight:700;font-size:12px;color:#647571}
     .jt.active{background:var(--deep);border-color:var(--deep);color:#fff}
     .sa-pane{padding:6px 16px calc(env(safe-area-inset-bottom) + 28px)}
+    /* Validation-check banner — sino ang UNANG nag-check ng JO + remarks (shown when editing a rejected order) */
+    .val-first-check{margin:10px 0 12px;padding:10px 12px;border:1px solid #f0c3ba;border-left:4px solid #c2503a;border-radius:10px;background:#fdf3f0}
+    .val-first-check .vfc-t{font-weight:800;font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:#c2503a;margin-bottom:5px}
+    .val-first-check .vfc-row{font-size:12px;line-height:1.55;color:#3c4a46}
+    .val-first-check .vfc-row b{font-weight:800;color:#082c28}
+    .val-first-check .vfc-when{color:#8a9894;font-size:11px}
+    .val-first-check .vfc-sep{margin-top:6px;padding-top:6px;border-top:1px dashed #f0c3ba}
     .sa-card{background:#fff;border:1px solid var(--line);border-radius:15px;padding:16px;margin-top:11px;box-shadow:0 4px 16px rgba(25,48,43,.04)}
     .sa-card .form-sec{font:800 10px Manrope;letter-spacing:.1em;text-transform:uppercase;color:#107b5e;border-bottom:1px solid var(--line);padding-bottom:6px;margin:6px 0 10px}
     .docblock{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
@@ -325,6 +332,7 @@
       </div>
 
       <div class="sa-pane" id="saNew">
+        <div id="saValBanner" style="display:none"></div>
         <div class="sa-card">
           <div class="form-sec">Subscriber</div>
           <div class="field"><label>First name *</label><input id="sa_first_name" autocapitalize="characters"></div>
@@ -457,8 +465,8 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="mobile-a.js?v=2026-08-05.7"></script>
-  <script src="mobile-b.js?v=2026-08-05.7"></script>
-  <script src="mobile-wims.js?v=2026-08-05.7"></script>
+  <script src="mobile-a.js?v=2026-08-07.1"></script>
+  <script src="mobile-b.js?v=2026-08-07.1"></script>
+  <script src="mobile-wims.js?v=2026-08-07.1"></script>
 </body>
 </html>

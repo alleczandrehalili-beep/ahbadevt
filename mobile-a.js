@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-08-05.7';
+    const APP_VERSION = '2026-08-07.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -599,6 +599,7 @@
       });
     }
     function saReset(){
+      const svb=$('#saValBanner'); if(svb){svb.style.display='none';svb.innerHTML='';}
       ['first_name','middle_name','last_name','primary_no','other_contact_no','house_no','street_name','village','ref_no','amount','source_of_sales','referral_name','special_note'].forEach(k=>{const el=$('#sa_'+k);if(el)el.value='';});
       if($('#sa_district')) $('#sa_district').value=''; populateSaBrgys('');
       if($('#sa_city')) $('#sa_city').value='QUEZON CITY';
@@ -767,11 +768,35 @@
     }
     // Edit a REJECTED order and resubmit it for validation (loads info back into the form)
     let saEditingId=null;
+    // History lines "[Aug 5, 2:14 PM] Rejected by X: reason" / "Approved at intake by X (...)" →
+    // ipakita kung SINO ang UNANG nag-check for validation at ANO ang remarks (+ latest kung iba).
+    function saValBanner(j){
+      const cs=[];
+      String((j&&j.history)||'').split('\n').forEach(ln=>{
+        const m=ln.match(/^\[([^\]]+)\]\s+(Rejected by|Approved at intake by)\s+(.+)$/i);
+        if(!m) return;
+        const rej=/^Rejected/i.test(m[2]); let who=m[3].trim(), remarks='';
+        if(rej){ const i=who.indexOf(':'); if(i>=0){ remarks=who.slice(i+1).trim(); who=who.slice(0,i).trim(); } remarks=remarks||'No reason given'; }
+        else { who=who.replace(/\s*\(JO .*$/i,'').trim(); remarks='APPROVED → sent to dispatch'; }
+        cs.push({when:m[1], who, remarks});
+      });
+      if(!cs.length && j && j.validated_by){ const r=((j.special_note||'').replace(/^REJECTED:?\s*/i,'').trim())||'—'; cs.push({when:'', who:j.validated_by, remarks:r}); }
+      if(!cs.length) return '';
+      const f=cs[0], l=cs[cs.length-1];
+      let h=`<div class="vfc-t">🔎 Validation check — this order was reviewed</div>`
+        +`<div class="vfc-row"><b>First checked for validation by:</b> ${esc(f.who)}${f.when?` <span class="vfc-when">· ${esc(f.when)}</span>`:''}</div>`
+        +`<div class="vfc-row"><b>JO remarks:</b> ${esc(f.remarks)}</div>`;
+      if(cs.length>1) h+=`<div class="vfc-row vfc-sep"><b>Latest check by:</b> ${esc(l.who)}${l.when?` <span class="vfc-when">· ${esc(l.when)}</span>`:''}</div>`
+        +`<div class="vfc-row"><b>Latest remarks:</b> ${esc(l.remarks)}</div>`;
+      return `<div class="val-first-check">${h}</div>`;
+    }
     async function saEditResubmit(jobId){
       try{
         const {data:j}=await sb.from('jobs').select('*').eq('id',jobId).single();
         if(!j){ toast('Order not found'); return; }
         saEditingId=jobId;
+        const svb=$('#saValBanner');
+        if(svb){ const h=saValBanner(j); svb.innerHTML=h; svb.style.display=h?'':'none'; }
         const set=(id,val)=>{const el=$('#sa_'+id); if(el) el.value=(val==null?'':val);};
         set('first_name',j.first_name); set('middle_name',j.middle_name); set('last_name',j.last_name);
         set('primary_no',j.primary_no); set('other_contact_no',j.other_contact_no); set('email',j.email);
