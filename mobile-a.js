@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-08-07.2';
+    const APP_VERSION = '2026-08-07.3';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -197,7 +197,10 @@
     // Sales: JO CANCELLED — sad slow "wah-wah" downward glide
     function playCancelledSound(){ try{ const ctx=audioCtx(); if(!ctx)return; const o=ctx.createOscillator(),g=ctx.createGain(); o.type='sine'; const t=ctx.currentTime; o.frequency.setValueAtTime(440,t); o.frequency.exponentialRampToValueAtTime(196,t+0.95); o.connect(g); g.connect(ctx.destination); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.35,t+0.06); g.gain.exponentialRampToValueAtTime(0.0001,t+1.05); o.start(t); o.stop(t+1.1); if(navigator.vibrate)navigator.vibrate([400,160,250]); }catch(e){} }
     // ---------- Web Push (notifications even when app is closed) ----------
-    const VAPID_PUBLIC='BMhNkASCHb5OSL3uw6p8OXnqF10IfPGqAyGlLg2utnoIISvlI0NrR5QgJcbPqEDtrzItqRVmOLwkkU7bHAP-MXc';
+    // ROTATED 2026-08-07: ang private half ng lumang key ay hindi kailanman na-save sa
+    // Supabase secrets, kaya bagong keypair — ang registerPush ay awtomatikong
+    // nagre-resubscribe ng phone kapag iba ang key ng existing subscription.
+    const VAPID_PUBLIC='BMyBroyhiJCI9VTOjNONpkNn1f95J4ay2QChGD6htdZE_hE6h_O_E-kopwp6vJF-EEEGIphvJ_qsZ7mtnpe3QOs';
     function urlB64ToU8(b){ const p='='.repeat((4-b.length%4)%4); const s=(b+p).replace(/-/g,'+').replace(/_/g,'/'); const raw=atob(s); const a=new Uint8Array(raw.length); for(let i=0;i<raw.length;i++)a[i]=raw.charCodeAt(i); return a; }
     async function registerPush(){
       try{
@@ -208,7 +211,15 @@
         if(perm==='default') perm=await Notification.requestPermission();
         if(perm!=='granted') return;
         let sub=await reg.pushManager.getSubscription();
-        if(!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:urlB64ToU8(VAPID_PUBLIC)});
+        // Key rotation: kapag ang existing subscription ay naka-bind sa IBANG VAPID key,
+        // i-unsubscribe at burahin ang lumang row para gumawa ng sariwang subscription.
+        const curKey=urlB64ToU8(VAPID_PUBLIC);
+        if(sub){
+          const k=(sub.options&&sub.options.applicationServerKey)?new Uint8Array(sub.options.applicationServerKey):null;
+          const same=!!k && k.length===curKey.length && k.every((v,i)=>v===curKey[i]);
+          if(!same){ const oldEp=sub.endpoint; try{ await sub.unsubscribe(); }catch(e){} try{ await sb.from('push_subscriptions').delete().eq('endpoint',oldEp); }catch(e){} sub=null; }
+        }
+        if(!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:curKey});
         const j=sub.toJSON();
         await sb.from('push_subscriptions').upsert({team:myTeam, role:(myRole==='sales_agent'?'sales':'technician'), endpoint:sub.endpoint, p256dh:j.keys.p256dh, auth:j.keys.auth}, {onConflict:'endpoint'});
       }catch(e){ console.warn('push',e.message); }
