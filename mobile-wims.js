@@ -16,12 +16,16 @@
   // Fallback list only — the live catalog loads from wims.materials (loadMats),
   // so bagong materials sa DB ay lalabas dito nang walang app update.
   var MATS=[['foc','FOC (m)'],['clip5','Clip 5mm'],['clip7','Clip 7mm'],['tie','Cable Tie'],['dtape','D-Tape (in)'],['etape','E-Tape (in)'],['f17','F-17 Clamp'],['f19','F-19 Bracket'],['f20','F-20 Hook']];
-  var matsLoaded=false;
+  var matsLoaded=false, SPOOL=2000;   // FOC reel length (m) — markings count DOWN to 0
   async function loadMats(){
     if(matsLoaded) return; matsLoaded=true;
     try{
-      var r=await W().schema('wims').from('materials').select('key,name,consume_unit').order('sort');
-      if(r&&r.data&&r.data.length) MATS=r.data.map(function(m){ return [m.key, m.name+' ('+m.consume_unit+')']; });
+      var r=await W().schema('wims').from('materials').select('key,name,consume_unit,unit_qty').order('sort');
+      if(r&&r.data&&r.data.length){
+        MATS=r.data.map(function(m){ return [m.key, m.name+' ('+m.consume_unit+')']; });
+        var f=r.data.filter(function(m){return m.key==='foc';})[0];
+        if(f&&+f.unit_qty>0) SPOOL=+f.unit_qty;
+      }
     }catch(e){}
   }
   // standard kit BOM — key, label, default qty (1 full kit). Editable per install.
@@ -61,11 +65,11 @@
   function lockedStart(s){   // ano dapat ang START ayon sa continuity rule
     if(!focPrev||focPrev.end_m==null) return null;              // walang history → editable
     var cur=(s.focReel||'').trim().toUpperCase(), prev=(focPrev.reel_no||'').trim().toUpperCase();
-    return (!cur||!prev||cur===prev) ? String(+focPrev.end_m) : '0';
+    return (!cur||!prev||cur===prev) ? String(+focPrev.end_m) : String(SPOOL);   // bagong reel = SPOOL pababa
   }
   // FOC used = |end − start| mula sa meter markings ng cable; server ang final compute
   function focUsed(s){ var a=parseFloat(s.focStart), b=parseFloat(s.focEnd); if(isNaN(a)||isNaN(b)) return null;
-    var u=Math.abs(b-a); if(s.foc2On){ var c=parseFloat(s.foc2End); if(!isNaN(c)) u+=c; } return u; }
+    var u=Math.abs(b-a); if(s.foc2On){ var c=parseFloat(s.foc2End); if(!isNaN(c)) u+=Math.max(0,SPOOL-c); } return u; }
   // IPTV options for one slot: hide serials already chosen in the OTHER slots (no duplicates)
   function iptvOptions(all, taken, mine){
     return '<option value="">— none —</option>'+all.filter(function(u){ return u.serial===mine || taken.indexOf(u.serial)<0; })
@@ -83,6 +87,77 @@
     }
     wrap.innerHTML=html;
   }
+
+  // MODEM picker: parehong daan (search o scan) ay valid — mula LANG sa naka-issue sa team
+  function pickIssuedModem(q){
+    q=String(q||'').trim().toUpperCase(); if(!q) return null;
+    var ms=(cpeCache||[]).filter(function(u){return u.category==='modem';});
+    var exact=ms.filter(function(u){return u.serial.toUpperCase()===q;})[0];
+    if(exact) return exact.serial;
+    var ends=ms.filter(function(u){return u.serial.toUpperCase().slice(-q.length)===q;});
+    if(ends.length===1) return ends[0].serial;
+    var inc=ms.filter(function(u){return u.serial.toUpperCase().indexOf(q)>=0;});
+    if(inc.length===1) return inc[0].serial;
+    return null;
+  }
+  function remountSlot(jid){
+    var slot=document.querySelector('.wims-slot[data-wjob="'+jid+'"]');
+    if(slot){ slot.removeAttribute('data-mounted'); slot.innerHTML=''; window.wimsMountAll(); }
+  }
+  // 📷 barcode scanner (BarcodeDetector; kapag walang suporta ang phone → search box)
+  var scanStream=null, scanRaf=null;
+  function stopScan(){
+    try{ if(scanRaf) cancelAnimationFrame(scanRaf); }catch(e){}
+    try{ if(scanStream) scanStream.getTracks().forEach(function(t){t.stop();}); }catch(e){}
+    scanStream=null; scanRaf=null;
+    var m=document.getElementById('wimsScanModal'); if(m) m.remove();
+  }
+  async function startScan(jid){
+    if(!('BarcodeDetector' in window)){ say('⚠ Scanner is not supported on this phone — type the last 6 digits instead'); return; }
+    var det;
+    try{ det=new BarcodeDetector({formats:['code_128','code_39','ean_13','qr_code','upc_a']}); }
+    catch(e){ say('⚠ Scanner unavailable — use the search box'); return; }
+    var m=document.createElement('div'); m.id='wimsScanModal';
+    m.style.cssText='position:fixed;inset:0;background:rgba(8,44,40,.96);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px';
+    m.innerHTML='<div style="color:#c9f36a;font:800 14px system-ui">📷 I-scan ang MODEM serial barcode</div>'+
+      '<video id="wimsScanVid" playsinline muted style="width:92%;max-width:480px;border-radius:14px;background:#000"></video>'+
+      '<div id="wimsScanMsg" style="color:#fff;font:600 12px system-ui;min-height:16px;max-width:90%;text-align:center"></div>'+
+      '<button type="button" id="wimsScanClose" style="font:800 13px system-ui;background:#fff;border:0;border-radius:10px;padding:10px 22px">✕ Cancel</button>';
+    document.body.appendChild(m);
+    document.getElementById('wimsScanClose').onclick=stopScan;
+    try{ scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}}); }
+    catch(e){ stopScan(); say('⚠ Camera permission denied — use the search box'); return; }
+    var vid=document.getElementById('wimsScanVid'); vid.srcObject=scanStream;
+    try{ await vid.play(); }catch(e){}
+    var st_=st(jid);
+    var loop=async function(){
+      if(!document.getElementById('wimsScanModal')) return;
+      try{
+        var codes=await det.detect(vid);
+        if(codes&&codes.length){
+          var raw=String(codes[0].rawValue||'').trim().toUpperCase();
+          var hit=pickIssuedModem(raw);
+          if(hit){ stopScan(); st_.modem=hit; remountSlot(jid); say('✓ Modem '+hit+' selected'); return; }
+          var msg=document.getElementById('wimsScanMsg'); if(msg) msg.textContent='"'+raw+'" is NOT issued to your team — keep scanning';
+        }
+      }catch(e){}
+      scanRaf=requestAnimationFrame(loop);
+    };
+    loop();
+  }
+  // live search habang nagta-type (min 3 chars, huling digits ang priority)
+  document.addEventListener('input',function(e){
+    var el=e.target; if(!el||!el.matches||!el.matches('input[data-wf="modemq"]')) return;
+    var jid=el.getAttribute('data-j');
+    var wrap=document.querySelector('[data-modem-matches="'+jid+'"]'); if(!wrap) return;
+    var q=el.value.trim().toUpperCase();
+    if(q.length<3){ wrap.innerHTML=q.length?'<div style="font-size:10.5px;color:#8a9a94;padding:4px 0">Type at least 3 characters…</div>':''; return; }
+    var ms=(cpeCache||[]).filter(function(u){return u.category==='modem'&&u.serial.toUpperCase().indexOf(q)>=0;});
+    ms.sort(function(a,b){ var ae=a.serial.toUpperCase().slice(-q.length)===q?0:1, be=b.serial.toUpperCase().slice(-q.length)===q?0:1; return ae-be; });
+    wrap.innerHTML=ms.length?ms.slice(0,6).map(function(u){
+      return '<button type="button" data-modempick="'+u.serial+'" data-j="'+jid+'" style="display:block;width:100%;text-align:left;font:700 13px system-ui;background:#f3fbf7;border:1px solid #bfe6d5;border-radius:9px;padding:9px 11px;margin-top:6px">📶 '+u.serial+'</button>';
+    }).join(''):'<div style="font-size:11px;color:#c2503a;font-weight:700;padding:6px 0">No ISSUED modem matches "'+q+'" — check the serial o baka hindi pa naka-issue sa team ninyo</div>';
+  });
 
   // Called at the end of render(): fill any inline WIMS slots (enrolled techs only).
   window.wimsMountAll = async function(){
@@ -113,7 +188,16 @@
       slot.innerHTML=
         '<div style="border:1.5px solid #bfe6d5;background:#f6fcf9;border-radius:14px;padding:12px;margin-top:10px">'+
           '<div style="font-weight:800;font-size:12px;color:#0e6f52;margin-bottom:8px">📦 WIMS material report <span style="font-weight:600;color:#8a9a94">· optional · '+(is2?'2-PLAY':'1-PLAY')+'</span></div>'+
-          '<div class="field"><label>Installed MODEM</label><select data-wf="modem" data-j="'+jid+'">'+opt(modems,s.modem)+'</select></div>'+
+          '<div class="field"><label>Installed MODEM *</label>'+
+          (s.modem
+            ? '<div style="display:flex;gap:8px;align-items:center;border:1.5px solid #bfe6d5;background:#f3fbf7;border-radius:10px;padding:9px 11px">'+
+                '<b class="tnum" style="flex:1;font-size:13.5px">📶 '+s.modem+'</b>'+
+                '<button type="button" data-wf="modemclear" data-j="'+jid+'" style="font:700 11px system-ui;background:#fff;border:1px solid #e3e8e2;border-radius:8px;padding:6px 10px">✕ Change</button></div>'
+            : '<div style="display:flex;gap:6px">'+
+                '<input data-wf="modemq" data-j="'+jid+'" placeholder="Type the LAST 6 digits of the serial" autocapitalize="characters" style="flex:1;text-transform:uppercase">'+
+                '<button type="button" data-wf="modemscan" data-j="'+jid+'" style="font:800 12px system-ui;background:#082c28;color:#c9f36a;border:0;border-radius:10px;padding:0 14px;white-space:nowrap">📷 Scan</button></div>'+
+              '<div data-modem-matches="'+jid+'"></div>')+
+          '</div>'+
           iptvBlock+
           (function(){
             var ls=lockedStart(s);
@@ -121,25 +205,25 @@
             var lock=(ls!=null);
             var startInp = lock
               ? '<input type="number" data-wf="focstart" data-j="'+jid+'" value="'+(s.focStart||'')+'" readonly style="background:#eef2f0;color:#556;pointer-events:none">'
-              : '<input type="number" inputmode="decimal" min="0" data-wf="focstart" data-j="'+jid+'" value="'+(s.focStart||'')+'" placeholder="e.g. 0">';
+              : '<input type="number" inputmode="decimal" min="0" data-wf="focstart" data-j="'+jid+'" value="'+(s.focStart||'')+'" placeholder="e.g. '+SPOOL+'">';
             var reel2='';
             if(s.foc2On){
               reel2='<div style="border-top:1px dashed #e3d3a8;margin-top:8px;padding-top:8px">'+
-                '<div style="font-weight:700;font-size:11px;color:#8a6a24;margin-bottom:5px">🆕 Reel 2 <span style="font-weight:600;color:#b09a5e">· starts at 0 (auto)</span></div>'+
+                '<div style="font-weight:700;font-size:11px;color:#8a6a24;margin-bottom:5px">🆕 Reel 2 <span style="font-weight:600;color:#b09a5e">· starts at '+SPOOL+' (auto, pababa)</span></div>'+
                 '<div class="field" style="margin-bottom:6px"><label>Reel 2 # *</label><input data-wf="foc2reel" data-j="'+jid+'" value="'+(s.foc2Reel||'')+'" placeholder="e.g. RL-04522" autocapitalize="characters" style="text-transform:uppercase"></div>'+
                 '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">'+
-                  '<div class="field" style="margin:0"><label>START</label><input value="0" readonly style="background:#eef2f0;color:#556;pointer-events:none"></div>'+
-                  '<div class="field" style="margin:0"><label>END meters *</label><input type="number" inputmode="decimal" min="0" data-wf="foc2end" data-j="'+jid+'" value="'+(s.foc2End||'')+'" placeholder="e.g. 35"></div>'+
+                  '<div class="field" style="margin:0"><label>START</label><input value="'+SPOOL+'" readonly style="background:#eef2f0;color:#556;pointer-events:none"></div>'+
+                  '<div class="field" style="margin:0"><label>END meters *</label><input type="number" inputmode="decimal" min="0" max="'+SPOOL+'" data-wf="foc2end" data-j="'+jid+'" value="'+(s.foc2End||'')+'" placeholder="e.g. '+(SPOOL-110)+'"></div>'+
                 '</div></div>';
             }
             return '<div style="border:1px solid #f0d9a8;background:#fffdf5;border-radius:10px;padding:9px 10px;margin:6px 0 8px">'+
-            '<div style="font-weight:700;font-size:11px;color:#8a6a24;margin-bottom:6px">📏 FOC · drop fiber <span style="font-weight:600;color:#b09a5e">· footage REQUIRED when used</span></div>'+
+            '<div style="font-weight:700;font-size:11px;color:#8a6a24;margin-bottom:6px">📏 FOC · drop fiber <span style="font-weight:600;color:#b09a5e">· footage REQUIRED · reel = '+SPOOL+' m pababa sa 0</span></div>'+
             '<div class="field" style="margin-bottom:6px"><label>Reel # (optional)</label><input data-wf="focreel" data-j="'+jid+'" value="'+(s.focReel||'')+'" placeholder="e.g. RL-04521" autocapitalize="characters" style="text-transform:uppercase"></div>'+
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">'+
               '<div class="field" style="margin:0"><label>START meters *'+(lock?' 🔒':'')+'</label>'+startInp+'</div>'+
-              '<div class="field" style="margin:0"><label>'+(s.foc2On?'Reel 1 END (last marking) *':'END meters *')+'</label><input type="number" inputmode="decimal" min="0" data-wf="focend" data-j="'+jid+'" value="'+(s.focEnd||'')+'" placeholder="e.g. 812"></div>'+
+              '<div class="field" style="margin:0"><label>'+(s.foc2On?'Reel 1 END (last marking) *':'END meters *')+'</label><input type="number" inputmode="decimal" min="0" data-wf="focend" data-j="'+jid+'" value="'+(s.focEnd||'')+'" placeholder="e.g. 1650"></div>'+
             '</div>'+
-            (lock?'<div style="font-size:10px;color:#8a9a94;margin-top:3px">🔒 START is carried from your previous JO — hindi ito pwedeng i-edit. Ibang reel # = auto 0.</div>':'')+
+            (lock?'<div style="font-size:10px;color:#8a9a94;margin-top:3px">🔒 START is carried from your previous JO — hindi ito pwedeng i-edit. Ibang reel # = auto '+SPOOL+' (bumibilang PABABA sa 0).</div>':'')+
             reel2+
             '<button type="button" data-wf="foc2toggle" data-j="'+jid+'" style="margin-top:7px;font:700 10.5px system-ui;border:1px dashed #d8c58e;background:#fff;color:#8a6a24;border-radius:8px;padding:6px 10px">'+(s.foc2On?'✕ Remove reel 2':'➕ Reel emptied — used a 2nd reel')+'</button>'+
             '<div data-focused-for="'+jid+'" style="font-size:11px;font-weight:700;color:#0e6f52;margin-top:5px">'+(focUsed(s)!=null?('Used: '+focUsed(s)+' m'):'&nbsp;')+'</div>'+
@@ -188,11 +272,16 @@
 
   // Called from confirmComplete AFTER the job is saved. Optional; reads wState.
   document.addEventListener('click', function(e){
+    var pk=e.target.closest&&e.target.closest('[data-modempick]');
+    if(pk){ var pj=pk.getAttribute('data-j'); st(pj).modem=pk.getAttribute('data-modempick'); remountSlot(pj); return; }
+    var sc=e.target.closest&&e.target.closest('[data-wf="modemscan"]');
+    if(sc){ startScan(sc.getAttribute('data-j')); return; }
+    var cl=e.target.closest&&e.target.closest('[data-wf="modemclear"]');
+    if(cl){ var cj=cl.getAttribute('data-j'); st(cj).modem=''; remountSlot(cj); return; }
     var b=e.target.closest&&e.target.closest('[data-wf="foc2toggle"]'); if(!b) return;
     var jid=b.getAttribute('data-j'), s=st(jid);
     s.foc2On=!s.foc2On; if(!s.foc2On){ s.foc2Reel=''; s.foc2End=''; }
-    var slot=document.querySelector('.wims-slot[data-wjob="'+jid+'"]');
-    if(slot){ slot.removeAttribute('data-mounted'); slot.innerHTML=''; window.wimsMountAll(); }
+    remountSlot(jid);
   });
 
   window.wimsSubmit = async function(jobId, job){
@@ -206,7 +295,8 @@
       if(kitExcess(s) && !(s.kitRemarks||'').trim()){ say('⚠ WIMS: kit usage exceeds the standard kit — remarks are REQUIRED'); return; }
       if(s.foc2On){
         if(!(s.foc2Reel||'').trim()){ say('⚠ WIMS: Reel 2 # is required'); return; }
-        if(!(parseFloat(s.foc2End)>0)){ say('⚠ WIMS: Reel 2 END meters must be greater than 0'); return; }
+        var e2=parseFloat(s.foc2End);
+        if(isNaN(e2)||e2<0||e2>=SPOOL){ say('⚠ WIMS: Reel 2 END must be between 0 and '+SPOOL+' (pababa mula '+SPOOL+')'); return; }
         if(!hasStart||!hasEnd){ say('⚠ WIMS: complete reel 1 footage first (START and END)'); return; }
       }
       var used=focUsed(s);
@@ -230,7 +320,7 @@
         p_foc_start: hasStart?parseFloat(s.focStart):null,
         p_foc_end: hasEnd?parseFloat(s.focEnd):null,
         p_foc2_reel: (s.foc2On&&s.foc2Reel)?s.foc2Reel:null,
-        p_foc2_end: (s.foc2On&&parseFloat(s.foc2End)>0)?parseFloat(s.foc2End):null,
+        p_foc2_end: (s.foc2On&&!isNaN(parseFloat(s.foc2End)))?parseFloat(s.foc2End):null,
         p_kit_remarks: (s.kitRemarks||'').trim()||null
       };
       var r=await W().schema('wims').rpc('complete_install',args);
@@ -252,7 +342,7 @@
       // chain continuity for the NEXT JO in this session
       if(hasStart&&hasEnd){
         focPrev={ reel_no:(s.foc2On&&s.foc2Reel)?s.foc2Reel:(s.focReel||null),
-                  end_m:(s.foc2On&&parseFloat(s.foc2End)>0)?parseFloat(s.foc2End):parseFloat(s.focEnd) };
+                  end_m:(s.foc2On&&!isNaN(parseFloat(s.foc2End)))?parseFloat(s.foc2End):parseFloat(s.focEnd) };
       }
       cpeCache=null;   // installed CPE leaves the issued pool
       say('📦 WIMS material report filed');
