@@ -20,14 +20,18 @@
   async function loadMats(){
     if(matsLoaded) return; matsLoaded=true;
     try{
-      var r=await W().schema('wims').from('materials').select('key,name,consume_unit,unit_qty').order('sort');
+      var r=await W().schema('wims').from('materials').select('key,name,consume_unit,unit_qty,task_types').order('sort');
+      if(r&&r.error) r=await W().schema('wims').from('materials').select('key,name,consume_unit,unit_qty').order('sort');
       if(r&&r.data&&r.data.length){
-        MATS=r.data.map(function(m){ return [m.key, m.name+' ('+m.consume_unit+')']; });
+        MATS=r.data.map(function(m){ return [m.key, m.name+' ('+m.consume_unit+')', m.task_types||null]; });
         var f=r.data.filter(function(m){return m.key==='foc';})[0];
         if(f&&+f.unit_qty>0) SPOOL=+f.unit_qty;
       }
     }catch(e){}
   }
+  // JO dwelling_type → canonical task tag; unknown/empty = '' (no filtering)
+  function dwellKey(d){ d=String(d||'').trim().toUpperCase();
+    return d==='SDU'?'sdu':(d==='MDU'?'mdu':(d==='MDU DOCSIS'?'mdu_docsis':'')); }
   // standard kit BOM — key, label, default qty (1 full kit). Editable per install.
   // 2026-08-05 restructure: F-17/F-19/F-20 ay INDIVIDUAL materials na (nasa
   // drop-materials grid, galing wims.materials); kapalit sa kit ang SAR + SAF.
@@ -174,6 +178,8 @@
       if(slot.getAttribute('data-mounted')==='1' && slot.innerHTML) return; // keep user input across re-renders
       var jid=slot.getAttribute('data-wjob'); var s=st(jid);
       var iptvn = parseInt(slot.getAttribute('data-iptvn'),10)||0;  // # of IPTV from the JO (2-PLAY add-ons); 0 = 1-PLAY
+      var dwellRaw = slot.getAttribute('data-dwell')||'';
+      var dw = dwellKey(dwellRaw);
       var is2 = iptvn>0;
       if(!Array.isArray(s.iptv)) s.iptv=[];
       if(!is2) s.iptv=[];
@@ -235,8 +241,9 @@
             '<div style="font-weight:700;font-size:10.5px;color:#8a2013;margin-bottom:4px">⚠ MORE than the standard kit — remarks REQUIRED</div>'+
             '<input data-wf="kitrem" data-j="'+jid+'" value="'+(s.kitRemarks||'')+'" placeholder="Why the extra usage? (e.g. connector damaged during splice)" style="width:100%;box-sizing:border-box;padding:7px;font-size:12px">'+
           '</div>'+
-          '<div style="font-size:11px;font-weight:700;color:#4a5c56;margin:0 0 4px">Drop materials used</div>'+
-          '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">'+MATS.filter(function(m){return ['foc','conn','patch','tbox','sar','saf'].indexOf(m[0])<0;}).map(function(m){return '<div class="field" style="margin:0"><label style="font-size:10px">'+m[1]+'</label><input type="number" inputmode="numeric" min="0" value="'+(s.mats[m[0]]||0)+'" data-wf="mat" data-mk="'+m[0]+'" data-j="'+jid+'" style="padding:6px"></div>';}).join('')+'</div>'+
+          '<div style="font-size:11px;font-weight:700;color:#4a5c56;margin:0 0 4px">Drop materials used'+(dw?' · '+dwellRaw:'')+'</div>'+
+          '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">'+MATS.filter(function(m){ if(['foc','conn','patch','tbox','sar','saf'].indexOf(m[0])>=0) return false;
+            if(dw && m[2] && m[2].length && m[2].indexOf(dw)<0) return false; return true; }).map(function(m){return '<div class="field" style="margin:0"><label style="font-size:10px">'+m[1]+'</label><input type="number" inputmode="numeric" min="0" value="'+(s.mats[m[0]]||0)+'" data-wf="mat" data-mk="'+m[0]+'" data-j="'+jid+'" style="padding:6px"></div>';}).join('')+'</div>'+
           '<div style="font-size:10px;color:#9aa6a2;margin-top:6px">Only CPE issued to your team'+(acc.team_code?(' ('+acc.team_code+')'):'')+' appears here. Optional — you can complete the job without it.</div>'+
         '</div>';
       if(is2) mountIptv(jid);
