@@ -386,10 +386,14 @@
       </div>
 
       <div class="sa-pane hidden" id="saMine">
-        <div style="padding:12px 16px 2px">
+        <div style="display:flex;gap:8px;padding:12px 16px 0">
+          <button class="jt active" id="saMineTabMon" style="flex:1">📋 Monitoring</button>
+          <button class="jt" id="saMineTabAct" style="flex:1">⚠ Needs action <span id="saActCount" style="color:#ff765f;font-weight:800"></span></button>
+        </div>
+        <div style="padding:12px 16px 2px" id="saMineSearchWrap">
           <input type="search" id="saMineSearch" placeholder="🔍 Search subscriber name…" autocomplete="off" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #dfe5df;border-radius:9px;font-size:13px;color:#2a3a36;background:#fff">
         </div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 16px 4px">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 16px 4px" id="saMineDateWrap">
           <input type="date" id="saMineDate" style="flex:1;min-width:120px;padding:9px 11px;border:1px solid #dfe5df;border-radius:9px;font-size:12px;color:#2a3a36;background:#fff">
           <button class="act ghost" id="saMineAll" style="width:auto;padding:9px 14px">All dates</button>
         </div>
@@ -412,6 +416,7 @@
   <div class="mexp hidden" id="payModal">
     <h3>Complete load — Payment</h3>
     <p class="mexp-sub" id="payJob"></p>
+    <div class="hint hidden" id="payOptionalHint">No collection for this load? Leave the amount and AR No. blank — payment is optional for Transfer / IPTV Only loads.</div>
     <div class="field"><label>Mode of payment</label><select id="pay_mode"><option>Gcash</option><option>Cash Remittance</option></select></div>
     <div class="field"><label>Amount (₱)</label><input id="pay_amount" type="number" inputmode="numeric"></div>
     <div class="field"><label>AR No. (Acknowledgement Receipt)</label><input id="pay_ar"></div>
@@ -465,8 +470,8 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="mobile-a.js?v=2026-08-14.1"></script>
-  <script src="mobile-b.js?v=2026-08-14.1"></script>
-  <script src="mobile-wims.js?v=2026-08-14.1"></script>
+  <script src="mobile-a.js?v=2026-08-15.1"></script>
+  <script src="mobile-b.js?v=2026-08-15.1"></script>
+  <script src="mobile-wims.js?v=2026-08-15.1"></script>
 </body>
 </html>

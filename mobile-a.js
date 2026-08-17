@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-08-14.1';
+    const APP_VERSION = '2026-08-15.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -50,6 +50,12 @@
     const headerName = () => myRole==='sales_agent' ? (myTeam+' · '+(myName||'Sales')) : (myName?(myTeam+' · '+myName):myTeam);
     const PHOTO_LABELS = ['SUBS HOUSE','NAP QR CODE','NAP STENCIL','PORT LOCATION & TAGGING','S-CLAMP AT THE J-HOOK ABOVE THE NAP','MIDSPAN BEFORE THE HOUSE','HOUSE BRACKET','LAYOUT OF THE DROP CABLE ON SUBS PREMISES BEFORE CPE','NIU LOCATION WITH CORRECT TAGGING','INSIDE THE NIU BOX WITH PROPER LOOPING','ACTUAL LOCATION OF THE MODEM NIU','SAR'];
     const PHOTOS_REQUIRED = PHOTO_LABELS.length;
+    // Bawas-restriction para sa bagong console-encoded load types — hindi angkop sa kanila
+    // ang 12 SLI-install photo slots. 3 photos lang bawat isa; optional din ang payment.
+    const PHOTO_LABELS_BY_TYPE = {
+      'Transfer': ['NEW ADDRESS / PREMISE','CPE INSTALLED AT NEW LOCATION','SAR'],
+      'IPTV':     ['IPTV SETUP / LOCATION','IPTV WORKING (SCREEN ON)','SAR']
+    };
     const pubUrl = path => `${SUPA_URL}/storage/v1/object/public/job-photos/${path}`;
 
     const emailFor = u => u.trim().toLowerCase() + '@' + EMAIL_DOMAIN;
@@ -639,6 +645,7 @@
       saDocs={id:[],billing:[],premise:[]}; saRenderDocs();
     }
     let saMineAllDates=false, saMineSearchT=null;
+    let saMineView='mon';   // 'mon' = status monitoring · 'action' = rejected na kailangang i-comply
     async function saRenderMine(){
       const el=$('#saMineList'); el.innerHTML=`<div class="empty">Loading…</div>`;
       const dEl=$('#saMineDate'), qEl=$('#saMineSearch');
@@ -649,6 +656,11 @@
         dEl.onchange=()=>{ saMineAllDates=false; saRenderMine(); };
         const allB=$('#saMineAll'); if(allB) allB.onclick=()=>{ saMineAllDates=true; dEl.value=''; saRenderMine(); };
         if(qEl) qEl.oninput=()=>{ clearTimeout(saMineSearchT); saMineSearchT=setTimeout(saRenderMine,120); };
+        // Sub-tabs: Monitoring vs Needs action (separate viewing ng rejected na dapat i-comply)
+        const tabM=$('#saMineTabMon'), tabA=$('#saMineTabAct');
+        const setTab=v=>{ saMineView=v; if(tabM)tabM.classList.toggle('active',v==='mon'); if(tabA)tabA.classList.toggle('active',v==='action'); const dw=$('#saMineDateWrap'); if(dw)dw.style.display=(v==='action')?'none':''; saRenderMine(); };
+        if(tabM) tabM.onclick=()=>setTab('mon');
+        if(tabA) tabA.onclick=()=>setTab('action');
         // Daily refresh: when the app returns to the foreground, re-render so the "today" view rolls over at midnight.
         document.addEventListener('visibilitychange',()=>{ if(!document.hidden && $('#saMine') && !$('#saMine').classList.contains('hidden')) saRenderMine(); });
       }
@@ -680,8 +692,15 @@
         };
         const q=(qEl&&qEl.value.trim().toLowerCase())||'';
         const pick=(dEl&&dEl.value)||'';
-        let priority=[], list=[], note='', isDaily=false;
-        if(q){                            // SEARCH — find a subscriber across ALL submissions (name / JO# / ref)
+        // SEPARATE TAB: lahat ng REJECTED (anumang petsa) — ito ang kailangang i-comply agad.
+        const rejAll=all.filter(j=> j.status==='rejected' )
+                        .sort((a,b)=> (b.updated_at||b.created_at||'').localeCompare(a.updated_at||a.created_at||''));
+        const ac=$('#saActCount'); if(ac) ac.textContent=rejAll.length?`(${rejAll.length})`:'';
+        let priority=[], list=[], note='', isDaily=false, isAction=(saMineView==='action');
+        if(isAction){                     // NEEDS ACTION tab — rejected lahat, anuman ang petsa
+          list=q?rejAll.filter(j=> (j.subscriber||'').toLowerCase().includes(q) || (j.id||'').toLowerCase().includes(q) || (j.ref_no||'').toLowerCase().includes(q) ):rejAll;
+          note=`${list.length} rejected — i-edit at i-resubmit${q?` · “${qEl.value.trim()}”`:''}`;
+        } else if(q){                     // SEARCH — find a subscriber across ALL submissions (name / JO# / ref)
           list=all.filter(j=> (j.subscriber||'').toLowerCase().includes(q) || (j.id||'').toLowerCase().includes(q) || (j.ref_no||'').toLowerCase().includes(q) );
           note=`${list.length} result${list.length===1?'':'s'} for “${qEl.value.trim()}”`;
         } else if(saMineAllDates){        // full history
@@ -692,11 +711,12 @@
         } else {                          // DEFAULT daily view — today's loads, then carried-over Incomplete BELOW
           isDaily=true;
           if(dEl && pick!==today) dEl.value=today;   // keep the picker on the current day (midnight roll-over)
-          list=all.filter(j=> mday(j.created_at)===today );
+          // Ang rejected ay nasa sariling "Needs action" tab na — status monitoring lang dito.
+          list=all.filter(j=> mday(j.created_at)===today && j.status!=='rejected' );
           // Follow-up block: Incomplete (negative) ONLY, from previous days. Cancelled are excluded.
           priority=all.filter(j=> j.status==='negative' && mday(j.created_at)!==today )
                       .sort((a,b)=> (b.updated_at||b.created_at||'').localeCompare(a.updated_at||a.created_at||''));
-          note=`${list.length} today${priority.length?(' · '+priority.length+' for follow-up'):''}`;
+          note=`${list.length} today${rejAll.length?(' · '+rejAll.length+' need action → ⚠ tab'):''}${priority.length?(' · '+priority.length+' for follow-up'):''}`;
         }
         // Monitoring summary — count per status over what's shown (doubles as a quick legend).
         const shown=[...priority,...list];
@@ -705,7 +725,8 @@
         const cEl=$('#saMineCount'); if(cEl) cEl.textContent=note;
         if(!shown.length){
           if(sumEl) sumEl.innerHTML='';
-          const msg = q?('No match for “'+esc(qEl.value.trim())+'”.')
+          const msg = isAction?(q?('No rejected match for “'+esc(qEl.value.trim())+'”.'):'✅ Walang rejected na kailangang ayusin.')
+            : q?('No match for “'+esc(qEl.value.trim())+'”.')
             : saMineAllDates?'No submissions yet.<br>Encode a new job order to get started.'
             : (pick&&pick!==today)?('No loads encoded on '+pick+'.')
             : 'No loads yet today.<br>Encode a new job order to get started.';
@@ -721,8 +742,12 @@
           }
         }catch(e){}
         let html='';
-        if(isDaily){
-          if(list.length) html+=`<div style="padding:8px 16px 2px;font-size:12px;font-weight:800;color:#2a3a36">Today · ${today}</div>`;
+        if(isAction){
+          html+=`<div style="padding:8px 16px 2px;font-size:12px;font-weight:800;color:#c2503a">⚠ Needs action — rejected, edit &amp; resubmit (${list.length})</div>`;
+          html+=`<div style="padding:0 16px 6px;font-size:10.5px;color:#8a9894">Ayusin muna ang mga ito — ibinalik ng Validator. Makikita mo sa bawat card ang dahilan ng reject.</div>`;
+          html+=list.map(cardHTML).join('');
+        } else if(isDaily){
+          if(list.length) html+=`<div style="padding:8px 16px 2px;font-size:12px;font-weight:800;color:#2a3a36">Today · ${today} — status monitoring</div>`;
           html+=list.map(cardHTML).join('');
           if(priority.length){
             html+=`<div style="padding:14px 16px 2px;font-size:12px;font-weight:800;color:#c2503a">⚠ Incomplete — previous days (${priority.length})</div>`;

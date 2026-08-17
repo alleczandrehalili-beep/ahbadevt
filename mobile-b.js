@@ -12,18 +12,25 @@
     }
     const jobPhotos = id => (photoData[id]||[]);
     const labelsDone = id => new Set(jobPhotos(id).map(p=>p.label).filter(Boolean));
-    const photoCount = id => labelsDone(id).size;            // distinct required labels filled (max 12)
+    // Per-load-type photo checklist: Transfer/IPTV = 3 lang; lahat ng iba = buong 12.
+    const jobById = id => jobs.find(j=>j.id===id);
+    const photoLabelsFor = job => (job&&PHOTO_LABELS_BY_TYPE[job.load_type])||PHOTO_LABELS;
+    const photosReqFor = job => photoLabelsFor(job).length;
+    const relaxedPay = job => !!(job&&PHOTO_LABELS_BY_TYPE[job.load_type]);   // Transfer/IPTV: optional ang payment
+    // Bilangin lang ang mga label na kasama sa checklist ng MISMONG load type na ito.
+    const photoCount = id => { const L=photoLabelsFor(jobById(id)); const d=labelsDone(id); return L.filter(l=>d.has(l)).length; };
     function photoSlots(id){
+      const LABELS=photoLabelsFor(jobById(id)), REQ=LABELS.length;
       const byLabel={}; jobPhotos(id).forEach(p=>{ if(p.label)(byLabel[p.label]=byLabel[p.label]||[]).push(p.path); });
-      const done=PHOTO_LABELS.filter(l=>byLabel[l]&&byLabel[l].length).length;
-      const rows=PHOTO_LABELS.map((l,i)=>{
+      const done=LABELS.filter(l=>byLabel[l]&&byLabel[l].length).length;
+      const rows=LABELS.map((l,i)=>{
         const arr=byLabel[l]||[]; const has=arr.length>0; const lab=l.replace(/"/g,'&quot;');
         const thumb=has?`<div class="thumbs">${arr.map(p=>`<span style="position:relative;display:inline-block"><img src="${pubUrl(p)}" alt=""><button type="button" data-delp="${p}" data-deljob="${id}" title="Delete" style="position:absolute;top:-6px;right:-6px;background:#c2503a;color:#fff;border:0;border-radius:50%;width:19px;height:19px;font-size:11px;line-height:1;padding:0">✕</button></span>`).join('')}</div>`:'';
         return `<div class="pslot ${has?'done':''}"><div class="pslot-head"><span>${i+1}. ${l}</span><span class="pchk ${has?'ok':'need'}">${has?'✓':'•'}</span></div>${thumb}<div style="display:flex;gap:6px;margin-top:6px"><label class="addphoto pmini">${svg('camera')} Camera<input type="file" accept="image/*" capture="environment" hidden data-up="${id}" data-label="${lab}"></label><label class="addphoto pmini">${svg('note')} Album<input type="file" accept="image/*" hidden data-up="${id}" data-label="${lab}"></label></div></div>`;
       }).join('');
-      return `<div class="photos"><div class="photos-head"><span>Proof photos (${PHOTOS_REQUIRED} required)</span><span class="count ${done>=PHOTOS_REQUIRED?'ok':'need'}">${done}/${PHOTOS_REQUIRED}</span></div>
+      return `<div class="photos"><div class="photos-head"><span>Proof photos (${REQ} required)</span><span class="count ${done>=REQ?'ok':'need'}">${done}/${REQ}</span></div>
         <label class="addphoto" style="margin:4px 0 8px;background:#e9f6f0;border-color:#a8e6c9;color:#0e7a55;font-weight:800">📁 Quick upload — select many from the album<input type="file" accept="image/*" multiple hidden data-bulk="${id}"></label>
-        <div style="font-size:10px;color:#8a9894;margin:-4px 0 6px">The selected photos will go into the remaining slots in order (1→12).</div>
+        <div style="font-size:10px;color:#8a9894;margin:-4px 0 6px">The selected photos will go into the remaining slots in order (1→${REQ}).</div>
         <div class="pslots">${rows}</div></div>`;
     }
     let knownJobIds=null;   // for detecting newly-arrived loads (sound)
@@ -59,7 +66,8 @@
       if(serialBlocked(id)) return;
       const job=jobs.find(j=>j.id===id); if(!job) return;
       if(next==='completed'){
-        if(photoCount(id)<PHOTOS_REQUIRED){ toast(`Attach ${PHOTOS_REQUIRED} photos first (${photoCount(id)}/${PHOTOS_REQUIRED})`); return; }
+        const REQ=photosReqFor(job);   // Transfer/IPTV = 3 lang; iba = 12
+        if(photoCount(id)<REQ){ toast(`Attach ${REQ} photos first (${photoCount(id)}/${REQ})`); return; }
         openComplete(id); return;   // capture payment before completing
       }
       const prev=job.status; job.status=next; render(); setSync('syncing','Saving…');
@@ -195,16 +203,17 @@
     // Bulk: pick many photos at once → auto-assign to the remaining empty slots in order, upload in parallel
     async function uploadBulk(jobId, fileList){
       const files=[...fileList]; if(!files.length)return;
+      const L=photoLabelsFor(jobById(jobId));
       const done=labelsDone(jobId);
-      const empty=PHOTO_LABELS.filter(l=>!done.has(l));
-      if(!empty.length){ toast('All 12 are complete — no empty slot'); return; }
+      const empty=L.filter(l=>!done.has(l));
+      if(!empty.length){ toast(`All ${L.length} are complete — no empty slot`); return; }
       const pairs=files.slice(0,empty.length).map((f,i)=>({f,label:empty[i]}));
       const extra=files.length-pairs.length;
       toast(`Uploading ${pairs.length} photo(s)…`);
       let ok=0;
       await Promise.all(pairs.map(async ({f,label})=>{ try{ await uploadOne(jobId,f,label); ok++; }catch(e){ console.warn('bulk',e.message); } }));
       render();
-      toast(`${photoCount(jobId)}/${PHOTOS_REQUIRED} complete${extra>0?` · ${extra} extra (full)`:''}${ok<pairs.length?` · ${pairs.length-ok} queued (will upload when online)`:''}`);
+      toast(`${photoCount(jobId)}/${L.length} complete${extra>0?` · ${extra} extra (full)`:''}${ok<pairs.length?` · ${pairs.length-ok} queued (will upload when online)`:''}`);
     }
     async function uploadPhotos(jobId, fileList, label){
       const files=[...fileList]; if(!files.length)return;
@@ -318,6 +327,8 @@
     function togglePayProof(){ const g=$('#pay_mode').value==='Gcash'; $('#payProofWrap').classList.toggle('hidden',!g); }
     function openComplete(jobId){
       $('#payModal').dataset.job=jobId; $('#payJob').textContent='For '+jobId;
+      // Transfer/IPTV: ipakita ang paalala na optional ang payment dito.
+      const oh=$('#payOptionalHint'); if(oh) oh.classList.toggle('hidden', !relaxedPay(jobs.find(x=>x.id===jobId)));
       $('#pay_amount').value=''; $('#pay_ar').value=''; clearErr('#payErr');
       payProofFile=null; if($('#pay_proof_cam'))$('#pay_proof_cam').value=''; if($('#pay_proof_alb'))$('#pay_proof_alb').value=''; if($('#payProofName'))$('#payProofName').textContent='';
       togglePayProof();
@@ -325,15 +336,20 @@
     }
     function closeComplete(){ $('#payBack').classList.add('hidden'); $('#payModal').classList.add('hidden'); }
     async function confirmComplete(){
-      const id=$('#payModal').dataset.job, mode=$('#pay_mode').value, amt=Number($('#pay_amount').value), ar=$('#pay_ar').value.trim();
-      if(isNaN(amt)||amt<0){ showErr('#payErr','Enter a valid amount.'); return; }
-      if(!ar){ showErr('#payErr','Enter the AR No.'); return; }
-      if(mode==='Gcash' && !payProofFile){ showErr('#payErr','Proof of Remittance photo is required for Gcash.'); return; }
+      const id=$('#payModal').dataset.job, mode=$('#pay_mode').value, amtRaw=$('#pay_amount').value.trim(), ar=$('#pay_ar').value.trim();
       const job=jobs.find(j=>j.id===id); if(!job)return;
+      // Transfer/IPTV: kadalasang walang koleksyon — optional ang amount/AR (parehong blanko = no collection).
+      const noPay=relaxedPay(job) && amtRaw==='' && !ar;
+      const amt=noPay?0:Number(amtRaw);
+      if(!noPay){
+        if(isNaN(amt)||amt<0){ showErr('#payErr','Enter a valid amount.'); return; }
+        if(!ar){ showErr('#payErr','Enter the AR No.'); return; }
+        if(mode==='Gcash' && !payProofFile){ showErr('#payErr','Proof of Remittance photo is required for Gcash.'); return; }
+      }
       const btn=$('#paySave'); btn.disabled=true; btn.textContent='Saving…';
       const now=new Date().toISOString();
-      const hist=appendHist(await freshHist(id, job.history), `→ Completed (by ${myTeam} / ${shiftAccount}) · ${mode} ₱${amt} · AR ${ar}`);
-      const patch={status:'completed', payment_mode:mode, payment_amount:amt, ar_no:ar, history:hist, updated_at:now, completed_at:now};
+      const hist=appendHist(await freshHist(id, job.history), `→ Completed (by ${myTeam} / ${shiftAccount}) · ${noPay?'no collection':(mode+' ₱'+amt+' · AR '+ar)}`);
+      const patch={status:'completed', payment_mode:(noPay?null:mode), payment_amount:(noPay?null:amt), ar_no:(noPay?null:ar), history:hist, updated_at:now, completed_at:now};
       if(shiftAccount){ patch.work_account=shiftAccount; patch.crew_driver=shiftDriver; patch.crew_tech1=shiftTech1; patch.crew_tech2=shiftTech2; }
       // Never lose the completion/payment: queued + retried automatically if the write fails.
       const ok=await saveJobPatch(id, patch);
@@ -446,9 +462,10 @@
         const mapLink=`<a class="act ghost" href="https://maps.google.com/?q=${encodeURIComponent(addr)}" target="_blank" rel="noopener" aria-label="Map">${svg('pin')}</a>`;
 
         if(j.status==='in-progress'){
-          const canDone=n>=PHOTOS_REQUIRED;
+          const REQ=photosReqFor(j);
+          const canDone=n>=REQ;
           extra=photoSlots(j.id)+'<div class="wims-slot" data-wjob="'+j.id+'" data-dwell="'+(j.dwelling_type||'')+'" data-iptvn="'+(j.play_type==='2-PLAY'?Math.max(1,parseInt(j.addon_count,10)||1):0)+'"></div>';
-          actions=`<div class="job-actions">${mapLink}<button class="act done" data-next="completed" data-id="${j.id}" ${canDone?'':'disabled'}>${svg('check')}Mark complete${canDone?'':` (${n}/${PHOTOS_REQUIRED})`}</button></div>`;
+          actions=`<div class="job-actions">${mapLink}<button class="act done" data-next="completed" data-id="${j.id}" ${canDone?'':'disabled'}>${svg('check')}Mark complete${canDone?'':` (${n}/${REQ})`}</button></div>`;
         } else if(j.status==='completed'){
           extra=allPhotos.length?`<div class="photos"><div class="photos-head"><span>Proof photos</span><span class="count ok">${allPhotos.length}</span></div><div class="thumbs">${thumbs}</div></div>`:'';
           actions=`<div class="job-actions">${mapLink}<span class="act ghost" style="flex:1;justify-content:center">Completed ${j.updated_at?manilaTime(j.updated_at):''}</span></div>`;
