@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-08-28.1';
+    const APP_VERSION = '2026-08-28.2';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -377,7 +377,9 @@
 
     // ---------- announcements ----------
     let annChan=null, annList=[], annSeen=0, annUnread=0;
-    function audienceOk(a){ const aud=(a.audience||'all'); return aud==='all' || (myRole==='sales_agent'?aud==='sales':aud==='technician'); }
+    function audienceOk(a){ const aud=(a.audience||'all');
+      if(aud==='ahba') return /^AHBA_/i.test(myTeam||'');   // AHBA only — hindi makikita ng subcon
+      return aud==='all' || (myRole==='sales_agent'?aud==='sales':aud==='technician'); }
     function renderAnn(){
       const el=$('#annList'); if(!el)return; const list=annList.filter(audienceOk);
       el.innerHTML=list.length?list.map(a=>`<div style="border:1px solid #e3e8e2;border-radius:11px;padding:11px">${a.photo_path?`<img src="${pubUrl(a.photo_path)}" alt="" style="width:100%;max-height:200px;object-fit:cover;border-radius:9px;margin-bottom:8px">`:''}<div style="font-weight:800;font-size:13px;color:#0e2b27">${a.photo_path?'🏆 ':''}${(a.title||'Announcement').replace(/</g,'&lt;')}</div><div style="font-size:12px;color:#3a4a45;margin-top:3px;white-space:pre-wrap">${(a.body||'').replace(/</g,'&lt;')}</div><div style="font-size:9px;color:#9aa6a2;margin-top:5px">${a.audience||'all'} · ${fmtChatTime(a.created_at)}</div></div>`).join(''):'<div style="text-align:center;color:#9aa6a2;font-size:12px;padding:20px">No announcements.</div>';
