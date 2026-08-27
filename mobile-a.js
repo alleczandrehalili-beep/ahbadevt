@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-08-22.1';
+    const APP_VERSION = '2026-08-28.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -240,6 +240,44 @@
         try{ const {data:s}=await sb.auth.getSession(); if(s&&s.session&&s.session.access_token) tok=s.session.access_token; }catch(e){}
         await fetch(SUPA_URL+'/functions/v1/send-push',{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPA_KEY,Authorization:'Bearer '+tok},body:JSON.stringify(payload)});
       }catch(e){} })();
+    }
+    // ---- 🩺 One-click system check (lahat ng mobile user) ----
+    // Measures the app + server + internet, gives a plain-English verdict, and refreshes
+    // the job list. Read-only + refresh lang — nothing is ever deleted.
+    async function mobileSystemCheck(){
+      let ov=document.getElementById('mSysOverlay'); if(ov) ov.remove();
+      ov=document.createElement('div'); ov.id='mSysOverlay';
+      ov.style.cssText='position:fixed;inset:0;z-index:10000;background:rgba(8,44,40,.5);display:flex;align-items:center;justify-content:center;padding:18px';
+      ov.innerHTML='<div id="mSysCard" style="background:#fff;border-radius:16px;max-width:420px;width:100%;padding:20px;font:500 13px \'DM Sans\',system-ui;color:#2a3a36;box-shadow:0 24px 60px rgba(0,0,0,.35)"></div>';
+      ov.onclick=e=>{ if(e.target===ov) ov.remove(); };
+      document.body.appendChild(ov);
+      const card=ov.querySelector('#mSysCard');
+      card.innerHTML='<b style="font:800 15px Manrope">🩺 Check system</b><div style="margin-top:10px;color:#6b7772">Measuring the app, server, and internet… (~10 seconds)</div>';
+      const t=async fn=>{ const s=performance.now(); try{ await fn(); return {ms:Math.round(performance.now()-s),ok:true}; }catch(e){ return {ms:Math.round(performance.now()-s),ok:false}; } };
+      let sessOk=false; try{ const {data:s}=await sb.auth.getSession(); sessOk=!!(s&&s.session); }catch(e){}
+      const api=[]; for(let i=0;i<3;i++) api.push(await t(async()=>{ const {error}=await sb.from('jobs').select('id').limit(1); if(error) throw error; }));
+      const st=[]; for(let i=0;i<2;i++) st.push(await t(()=>fetch('version.json?cb='+Date.now(),{cache:'no-store'}).then(r=>r.text())));
+      const avg=a=>Math.round(a.reduce((x,y)=>x+y.ms,0)/a.length);
+      const apiAvg=avg(api), stAvg=avg(st), apiFail=api.some(x=>!x.ok);
+      let refreshed='—';
+      try{
+        if(typeof myRole!=='undefined' && myRole==='sales_agent'){ if(typeof saRenderMine==='function') await saRenderMine(); refreshed='orders refreshed ✅'; }
+        else if(typeof refresh==='function'){ await refresh(); refreshed='jobs refreshed ✅'; }
+      }catch(e){ refreshed='refresh failed'; }
+      let verdict,tone;
+      if(!sessOk||apiFail){ verdict='⚠ Your session has a problem — press RELOAD APP below to sign in fresh. Nothing is lost.'; tone='#c2503a'; }
+      else if(apiAvg>600 && stAvg>450){ verdict=`🌐 The system is HEALTHY — your INTERNET / DATA CONNECTION is slow right now (${apiAvg}ms per call). Nothing to fix in the app; it will recover when the signal improves.`; tone='#b8860b'; }
+      else if(apiAvg>600){ verdict=`⚠ The route to the server is slow right now (${apiAvg}ms) but other sites are fast — a temporary network issue. The system itself is healthy; try again later.`; tone='#b8860b'; }
+      else { verdict='✅ ALL HEALTHY — the app, server, and connection are fast.'; tone='#0e7a55'; }
+      const row=(l,v)=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid #f0f3f1"><span style="color:#6b7772">${l}</span><b style="text-align:right">${v}</b></div>`;
+      card.innerHTML='<b style="font:800 15px Manrope">🩺 Check system</b>'
+        +`<div style="margin:12px 0;padding:11px 13px;border-radius:10px;background:${tone==='#0e7a55'?'#e9f6f0':'#fff6e0'};color:${tone};font-weight:700">${verdict}</div>`
+        +row('Session', sessOk?'✅ OK':'⚠ sign in again')
+        +row('Server speed (3 calls)', apiAvg+'ms '+(apiAvg<=450?'✅':'🐌'))
+        +row('Site / internet speed', stAvg+'ms '+(stAvg<=450?'✅':'🐌'))
+        +row('My data', refreshed)
+        +'<div style="font-size:10.5px;color:#9aa6a2;margin-top:8px">Reload app = a fresh start. No data is ever deleted — only unsaved typing in an open form is lost.</div>'
+        +'<div style="display:flex;gap:8px;margin-top:12px"><button onclick="location.reload()" style="flex:1;border:0;background:#082c28;color:#fff;border-radius:10px;padding:12px;font:700 13px system-ui">🔄 Reload app</button><button onclick="document.getElementById(&quot;mSysOverlay&quot;).remove()" style="flex:1;border:1px solid #dfe5df;background:#fff;border-radius:10px;padding:12px;font:700 13px system-ui">Close</button></div>';
     }
     // iOS only allows the notification-permission prompt from a USER TAP (never from the
     // automatic registerPush at boot), kaya isang one-time button ang hinihingi nito:

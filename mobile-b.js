@@ -683,6 +683,7 @@
     $('#chatClose').onclick=closeChat; $('#chatBack').onclick=closeChat;
     $('#annClose').onclick=closeAnn; $('#annBack').onclick=closeAnn;
     $('#mChangePw').onclick=()=>{$('#menuPop').classList.add('hidden');openPw(false)};
+    const msc=$('#mSysCheck'); if(msc) msc.onclick=()=>{$('#menuPop').classList.add('hidden');mobileSystemCheck();};
     $('#mName').onclick=async()=>{
       $('#menuPop').classList.add('hidden');
       const n=prompt('Your full name (as it should appear on records):', myName||'');
