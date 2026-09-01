@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-08-28.2';
+    const APP_VERSION = '2026-08-28.3';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -722,8 +722,9 @@
         const jobDay = j => (j.load_date?String(j.load_date).slice(0,10):'') || mday(j.created_at);
         let crewMap={};   // "TEAM|YYYY-MM-DD" → the crew DECLARED for that team that day (from attendance)
         const cardHTML = j => {
+          const _sld=j.load_date?String(j.load_date).slice(0,10):'';
           const assigned = j.team
-            ? `<div class="row" style="color:#0e7a59;font-weight:700">${svg('truck')}<span>Assigned to: ${esc(j.team)}</span></div>`
+            ? `<div class="row" style="color:#0e7a59;font-weight:700">${svg('truck')}<span>Assigned to: ${esc(j.team)}${(_sld&&_sld>today)?' · 📅 for '+_sld:''}</span></div>`
             : `<div class="row" style="color:#9aa6a2">${svg('truck')}<span>Awaiting team assignment</span></div>`;
           const cw = j.team ? crewMap[j.team+'|'+jobDay(j)] : null;
           const crew = (cw && (cw.d||cw.t1)) ? `<div class="row" style="color:#0e7a59"><span>👷 Driver: ${esc(cw.d||'—')} · Tech: ${esc([cw.t1,cw.t2].filter(Boolean).join(', ')||'—')}</span></div>` : '';

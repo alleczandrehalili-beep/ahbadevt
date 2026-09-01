@@ -65,6 +65,9 @@
     async function advance(id,next){
       if(serialBlocked(id)) return;
       const job=jobs.find(j=>j.id===id); if(!job) return;
+      // Advance dispatch: naka-lock hanggang sa mismong load date
+      const _ald=job.load_date?String(job.load_date).slice(0,10):'';
+      if(_ald && _ald>manilaDate()){ toast('📅 Scheduled for '+_ald+' — locked until that day.'); return; }
       if(next==='completed'){
         const REQ=photosReqFor(job);   // Transfer/IPTV = 3 lang; iba = 12
         if(photoCount(id)<REQ){ toast(`Attach ${REQ} photos first (${photoCount(id)}/${REQ})`); return; }
@@ -439,7 +442,9 @@
 
       let list = viewMode==='todo'?todo : viewMode==='inprogress'?inprog : viewMode==='negative'?negs : doneToday;
       list=list.slice();
-      if(viewMode==='todo'||viewMode==='inprogress') list.sort((a,b)=>(order[a.status]??9)-(order[b.status]??9));
+      // Ang mga future-dated (advance dispatch) na load ay sa DULO ng listahan — today muna.
+      const _futOf=x=>((x.load_date&&String(x.load_date).slice(0,10)>manilaDate())?1:0);
+      if(viewMode==='todo'||viewMode==='inprogress') list.sort((a,b)=>(_futOf(a)-_futOf(b))||((order[a.status]??9)-(order[b.status]??9)));
       else list.sort((a,b)=>new Date(b.updated_at)-new Date(a.updated_at));
 
       const el=$('#jobsList');
@@ -472,8 +477,15 @@
         } else if(j.status==='negative'){
           actions=`<div class="job-actions">${mapLink}<span class="act ghost" style="flex:1;justify-content:center;color:#c2503a">Incomplete</span></div>`;
         } else {
-          const act=f.next?`<button class="act ${f.cls}" data-next="${f.next}" data-id="${j.id}">${svg(f.icon)}${f.action}</button>`:'<button class="act ghost" disabled style="flex:1;opacity:.5">No action</button>';
-          actions=`<div class="job-actions">${mapLink}${act}</div>`;
+          const _fld=j.load_date?String(j.load_date).slice(0,10):'';
+          if(_fld && _fld>manilaDate()){
+            // Advance dispatch: kita agad ang bukas na trabaho pero naka-lock hanggang sa araw
+            extra=`<div style="background:#fff6e0;border:1px solid #eedca8;color:#8a6400;border-radius:10px;padding:9px 11px;font-weight:700;font-size:11.5px;margin:4px 0">📅 FOR ${_fld} — locked until this day</div>`;
+            actions=`<div class="job-actions">${mapLink}<span class="act ghost" style="flex:1;justify-content:center">🔒 Starts on ${_fld}</span></div>`;
+          } else {
+            const act=f.next?`<button class="act ${f.cls}" data-next="${f.next}" data-id="${j.id}">${svg(f.icon)}${f.action}</button>`:'<button class="act ghost" disabled style="flex:1;opacity:.5">No action</button>';
+            actions=`<div class="job-actions">${mapLink}${act}</div>`;
+          }
         }
         const contact=j.primary_no?`<div class="row">${svg('phone')}<a href="tel:${j.primary_no}" style="color:inherit;text-decoration:none">${j.primary_no}${j.other_contact_no?' / '+j.other_contact_no:''}</a></div>`:'';
         const acct=(j.job_order_no||j.ibass_acct_no)?`<div class="row">${svg('note')}<span>JO ${j.job_order_no||'—'} · Acct ${j.ibass_acct_no||'—'}</span></div>`:'';
