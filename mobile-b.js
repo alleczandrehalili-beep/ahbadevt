@@ -4,10 +4,26 @@
       if(error) throw error; return data||[];
     }
     async function loadPhotos(){
-      const ids=jobs.map(j=>j.id); if(!ids.length){photoData={};return;}
+      // FIX 2026-09-01: dating kinukuha ang photos ng LAHAT ng jobs kailanman — kapag ang
+      // team ay lumampas na sa 1,000 photos all-time, pinuputol ng PostgREST ang sagot sa
+      // 1,000 rows at ang mga BAGONG photos ang nawawala → hindi makita/mabilang ng tech
+      // ang sarili niyang uploads → hindi maka-close ng JO (nakita ito sa 4 na team na
+      // 1,437–2,545 photos na). Photos ay kailangan lang ng AKTIBO/kamakailang cards.
+      const cut=Date.now()-3*24*3600*1000;
+      const ids=jobs.filter(j=>!['completed','cancelled','negative'].includes(j.status)
+        || (j.updated_at&&new Date(j.updated_at).getTime()>=cut)
+        || (j.negative_at&&new Date(j.negative_at).getTime()>=cut)).map(j=>j.id);
+      if(!ids.length){photoData={};return;}
       try{
-        const {data}=await sb.from('job_photos').select('job_id,path,label').in('job_id',ids);
-        const m={}; (data||[]).forEach(r=>{(m[r.job_id]=m[r.job_id]||[]).push({path:r.path,label:r.label||''})}); photoData=m;
+        // Pagination guard pa rin sakaling lumaki ang working set (1,000/page hanggang maubos).
+        const rows=[];
+        for(let off=0; off<10000; off+=1000){
+          const {data,error}=await sb.from('job_photos').select('job_id,path,label').in('job_id',ids).order('created_at',{ascending:true}).range(off,off+999);
+          if(error) break;
+          rows.push(...(data||[]));
+          if(!data||data.length<1000) break;
+        }
+        const m={}; rows.forEach(r=>{(m[r.job_id]=m[r.job_id]||[]).push({path:r.path,label:r.label||''})}); photoData=m;
       }catch(e){ /* keep previous counts */ }
     }
     const jobPhotos = id => (photoData[id]||[]);
