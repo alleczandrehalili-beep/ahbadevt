@@ -692,6 +692,12 @@
 
     $('#pwCancel').onclick=()=>{ pwForced=false; startApp(); };
     $('#menuBtn').onclick=e=>{e.stopPropagation();$('#menuPop').classList.toggle('hidden')};
+    // 🔄 One-tap HARD REFRESH: buong reload ng app na may cache-bust sa HTML — sariwang
+    // session, sariwang data, at agad makukuha ang pinakabagong deployed na bersyon
+    // (hindi na maghihintay ng version nudge). Walang data na nabubura; ang hindi pa
+    // nai-save na tina-type sa bukas na form lang ang mawawala.
+    const _hrb=$('#btnHardRefresh');
+    if(_hrb) _hrb.onclick=()=>{ try{toast('Refreshing the whole app…');}catch(e){} setTimeout(()=>{ location.href='mobile.html?r='+Date.now(); },150); };
     document.addEventListener('click',()=>$('#menuPop').classList.add('hidden'));
     $('#menuPop').onclick=e=>e.stopPropagation();
     $('#secSave')?.addEventListener('click',submitGate);
