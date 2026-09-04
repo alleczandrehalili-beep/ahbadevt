@@ -207,8 +207,8 @@
           iptvBlock+
           (function(){
             var ls=lockedStart(s);
-            if(ls!=null && !s._focInit){ s._focInit=1; if(!s.focReel) s.focReel=(focPrev.reel_no||''); s.focStart=ls; }
-            var lock=(ls!=null);
+            if(ls!=null && !s._focInit){ s._focInit=1; if(!s.focReel) s.focReel=(focPrev.reel_no||''); if(!s.focStart) s.focStart=ls; }
+            var lock=false;   // FOC continuity lock REMOVED (owner 2026-09-02) — prefill lang ang prev end, EDITABLE lahat; ibabalik kapag stable na ang teams
             var startInp = lock
               ? '<input type="number" data-wf="focstart" data-j="'+jid+'" value="'+(s.focStart||'')+'" readonly style="background:#eef2f0;color:#556;pointer-events:none">'
               : '<input type="number" inputmode="decimal" min="0" data-wf="focstart" data-j="'+jid+'" value="'+(s.focStart||'')+'" placeholder="e.g. '+SPOOL+'">';
@@ -262,7 +262,7 @@
     else if(f==='mat') s.mats[el.getAttribute('data-mk')]=parseFloat(el.value)||0;
     else if(f==='focreel'){ s.focReel=el.value.trim().toUpperCase();
       var ls=lockedStart(s);
-      if(ls!=null){ s.focStart=ls;
+      if(ls!=null && (s.focStart===''||s.focStart==null)){ s.focStart=ls;
         var si=document.querySelector('input[data-wf="focstart"][data-j="'+jid+'"]'); if(si) si.value=ls;
         var d0=document.querySelector('[data-focused-for="'+jid+'"]'); var u0=focUsed(s);
         if(d0) d0.innerHTML=(u0!=null)?('Used: '+u0+' m'):'&nbsp;'; } }
