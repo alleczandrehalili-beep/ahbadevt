@@ -193,7 +193,7 @@
       var kitRows = KIT.map(function(k){ var q=(s.kit&&s.kit[k[0]]!=null)?s.kit[k[0]]:k[2]; return '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #eef4f1"><span style="flex:1;font-size:11px;color:#4a5c56">'+k[1]+'</span><input type="number" inputmode="numeric" min="0" value="'+q+'" data-wf="kitq" data-kk="'+k[0]+'" data-j="'+jid+'" style="width:54px;padding:5px;text-align:center"></div>'; }).join('');
       slot.innerHTML=
         '<div style="border:1.5px solid #bfe6d5;background:#f6fcf9;border-radius:14px;padding:12px;margin-top:10px">'+
-          '<div style="font-weight:800;font-size:12px;color:#0e6f52;margin-bottom:8px">📦 WIMS material report <span style="font-weight:600;color:#8a9a94">· optional · '+(is2?'2-PLAY':'1-PLAY')+'</span></div>'+
+          '<div style="font-weight:800;font-size:12px;color:#0e6f52;margin-bottom:8px">📦 WIMS material report <span style="font-weight:600;color:#c2503a">· REQUIRED · '+(is2?'2-PLAY':'1-PLAY')+'</span></div>'+
           '<div class="field"><label>Installed MODEM *</label>'+
           (s.modem
             ? '<div style="display:flex;gap:8px;align-items:center;border:1.5px solid #bfe6d5;background:#f3fbf7;border-radius:10px;padding:9px 11px">'+
@@ -244,7 +244,7 @@
           '<div style="font-size:11px;font-weight:700;color:#4a5c56;margin:0 0 4px">Drop materials used'+(dw?' · '+dwellRaw:'')+'</div>'+
           '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">'+MATS.filter(function(m){ if(['foc','conn','patch','tbox','sar','saf'].indexOf(m[0])>=0) return false;
             if(dw && m[2] && m[2].length && m[2].indexOf(dw)<0) return false; return true; }).map(function(m){return '<div class="field" style="margin:0"><label style="font-size:10px">'+m[1]+'</label><input type="number" inputmode="numeric" min="0" value="'+(s.mats[m[0]]||0)+'" data-wf="mat" data-mk="'+m[0]+'" data-j="'+jid+'" style="padding:6px"></div>';}).join('')+'</div>'+
-          '<div style="font-size:10px;color:#9aa6a2;margin-top:6px">Only CPE issued to your team'+(acc.team_code?(' ('+acc.team_code+')'):'')+' appears here. Optional — you can complete the job without it.</div>'+
+          '<div style="font-size:10px;color:#9aa6a2;margin-top:6px">Only CPE issued to your team'+(acc.team_code?(' ('+acc.team_code+')'):'')+' appears here. REQUIRED — the job cannot be completed without this report.</div>'+
         '</div>';
       if(is2) mountIptv(jid);
     });
@@ -290,6 +290,26 @@
     s.foc2On=!s.foc2On; if(!s.foc2On){ s.foc2Reel=''; s.foc2End=''; }
     remountSlot(jid);
   });
+
+  // MANDATORY GATE (2026-09-02, owner): ang ENROLLED technician ay HINDI
+  // makakapag-complete ng JO nang walang kumpletong WIMS report. Ang hindi
+  // enrolled ay walang gate. Returns null = ok mag-proceed, o message = block.
+  window.wimsGate = async function(jobId){
+    try{
+      var acc=await ensureAccess(); if(!acc) return null;   // hindi enrolled
+      var s=wState[jobId];
+      if(!s || !s.modem) return 'WIMS report is REQUIRED — select the installed MODEM sa WIMS section bago i-complete ang JO';
+      var hasStart=(s.focStart!==''&&s.focStart!=null), hasEnd=(s.focEnd!==''&&s.focEnd!=null);
+      if(hasStart!==hasEnd) return 'WIMS: START and END FOC meter readings are both required';
+      if(kitExcess(s) && !(s.kitRemarks||'').trim()) return 'WIMS: kit usage exceeds the standard kit — remarks are REQUIRED';
+      if(s.foc2On){
+        if(!(s.foc2Reel||'').trim()) return 'WIMS: Reel 2 # is required';
+        var e2=parseFloat(s.foc2End);
+        if(isNaN(e2)||e2<0||e2>=SPOOL) return 'WIMS: Reel 2 END must be between 0 and '+SPOOL;
+      }
+      return null;
+    }catch(e){ return null; }   // gate error → huwag ipitin ang tech
+  };
 
   window.wimsSubmit = async function(jobId, job){
     try{

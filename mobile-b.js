@@ -365,6 +365,8 @@
         if(!ar){ showErr('#payErr','Enter the AR No.'); return; }
         if(mode==='Gcash' && !payProofFile){ showErr('#payErr','Proof of Remittance photo is required for Gcash.'); return; }
       }
+      // WIMS MANDATORY (enrolled techs): kumpletong report bago makapag-complete
+      if(window.wimsGate){ const wmsg=await window.wimsGate(id); if(wmsg){ showErr('#payErr', wmsg); return; } }
       const btn=$('#paySave'); btn.disabled=true; btn.textContent='Saving…';
       const now=new Date().toISOString();
       const hist=appendHist(await freshHist(id, job.history), `→ Completed (by ${myTeam} / ${shiftAccount}) · ${noPay?'no collection':(mode+' ₱'+amt+' · AR '+ar)}`);
