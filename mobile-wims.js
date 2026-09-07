@@ -181,6 +181,10 @@
       var dwellRaw = slot.getAttribute('data-dwell')||'';
       var dw = dwellKey(dwellRaw);
       var is2 = iptvn>0;
+      // 🎫 SLR ticket: CPE optional, walang IPTV block, kit defaults ZERO (ideklara
+      // lang ang aktwal na ginamit), pero MANDATORY na may kahit isang declaration.
+      var isTkt = slot.getAttribute('data-ticket')==='1';
+      if(isTkt && !s._tkInit){ s._tkInit=1; s.kit={conn:0,patch:0,tbox:0,sar:0,saf:0}; }
       if(!Array.isArray(s.iptv)) s.iptv=[];
       if(!is2) s.iptv=[];
       slot.setAttribute('data-mounted','1');
@@ -190,11 +194,12 @@
       } else {
         iptvBlock = '<div style="font-size:11px;color:#8a9a94;margin:2px 0 8px">📶 1-PLAY · internet only — no IPTV for this JO</div>';
       }
+      if(isTkt) iptvBlock='';
       var kitRows = KIT.map(function(k){ var q=(s.kit&&s.kit[k[0]]!=null)?s.kit[k[0]]:k[2]; return '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #eef4f1"><span style="flex:1;font-size:11px;color:#4a5c56">'+k[1]+'</span><input type="number" inputmode="numeric" min="0" value="'+q+'" data-wf="kitq" data-kk="'+k[0]+'" data-j="'+jid+'" style="width:54px;padding:5px;text-align:center"></div>'; }).join('');
       slot.innerHTML=
         '<div style="border:1.5px solid #bfe6d5;background:#f6fcf9;border-radius:14px;padding:12px;margin-top:10px">'+
-          '<div style="font-weight:800;font-size:12px;color:#0e6f52;margin-bottom:8px">📦 WIMS material report <span style="font-weight:600;color:#c2503a">· REQUIRED · '+(is2?'2-PLAY':'1-PLAY')+'</span></div>'+
-          '<div class="field"><label>Installed MODEM *</label>'+
+          '<div style="font-weight:800;font-size:12px;color:#0e6f52;margin-bottom:8px">📦 WIMS material report <span style="font-weight:600;color:#c2503a">'+(isTkt?'· 🎫 SLR ticket · declare the materials USED':'· REQUIRED · '+(is2?'2-PLAY':'1-PLAY'))+'</span></div>'+
+          '<div class="field"><label>'+(isTkt?'Replaced CPE (optional — only if you swapped the modem)':'Installed MODEM *')+'</label>'+
           (s.modem
             ? '<div style="display:flex;gap:8px;align-items:center;border:1.5px solid #bfe6d5;background:#f3fbf7;border-radius:10px;padding:9px 11px">'+
                 '<b class="tnum" style="flex:1;font-size:13.5px">📶 '+s.modem+'</b>'+
@@ -244,7 +249,9 @@
           '<div style="font-size:11px;font-weight:700;color:#4a5c56;margin:0 0 4px">Drop materials used'+(dw?' · '+dwellRaw:'')+'</div>'+
           '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">'+MATS.filter(function(m){ if(['foc','conn','patch','tbox','sar','saf'].indexOf(m[0])>=0) return false;
             if(dw && m[2] && m[2].length && m[2].indexOf(dw)<0) return false; return true; }).map(function(m){return '<div class="field" style="margin:0"><label style="font-size:10px">'+m[1]+'</label><input type="number" inputmode="numeric" min="0" value="'+(s.mats[m[0]]||0)+'" data-wf="mat" data-mk="'+m[0]+'" data-j="'+jid+'" style="padding:6px"></div>';}).join('')+'</div>'+
-          '<div style="font-size:10px;color:#9aa6a2;margin-top:6px">Only CPE issued to your team'+(acc.team_code?(' ('+acc.team_code+')'):'')+' appears here. REQUIRED — the job cannot be completed without this report.</div>'+
+          '<div style="font-size:10px;color:#9aa6a2;margin-top:6px">'+(isTkt
+            ?'Declare at least ONE material — the ticket cannot be closed without it. CPE serial and FOC reel # are optional for tickets.'
+            :'Only CPE issued to your team'+(acc.team_code?(' ('+acc.team_code+')'):'')+' appears here. REQUIRED — the job cannot be completed without this report.')+'</div>'+
         '</div>';
       if(is2) mountIptv(jid);
     });
@@ -294,10 +301,32 @@
   // MANDATORY GATE (2026-09-02, owner): ang ENROLLED technician ay HINDI
   // makakapag-complete ng JO nang walang kumpletong WIMS report. Ang hindi
   // enrolled ay walang gate. Returns null = ok mag-proceed, o message = block.
+  // helper: may kahit isang positibong dami ba sa isang {key:qty} object?
+  function anyPos(o){ if(!o||typeof o!=='object') return false;
+    for(var k in o){ if(+o[k]>0) return true; } return false; }
+  function jobOf(id){ try{ return (jobs||[]).find(function(x){return x.id===id;})||null; }catch(e){ return null; } }
   window.wimsGate = async function(jobId){
     try{
       var acc=await ensureAccess(); if(!acc) return null;   // hindi enrolled
       var s=wState[jobId];
+      var _j=jobOf(jobId);
+      if(_j && _j.load_type==='SLR-TICKET'){
+        // 🎫 SLR ticket: HINDI required ang CPE/FOC reel — pero MANDATORY na may
+        // kahit ISANG declaration (CPE, kit item, drop material, o FOC footage).
+        if(!s) return 'WIMS declaration is REQUIRED — declare the materials used in the WIMS section';
+        var hasS=(s.focStart!==''&&s.focStart!=null), hasE=(s.focEnd!==''&&s.focEnd!=null);
+        if(hasS!==hasE) return 'WIMS: START and END FOC meter readings are both required';
+        if(kitExcess(s) && !(s.kitRemarks||'').trim()) return 'WIMS: kit usage exceeds the standard kit — remarks are REQUIRED';
+        if(s.foc2On){
+          if(!(s.foc2Reel||'').trim()) return 'WIMS: Reel 2 # is required';
+          var te2=parseFloat(s.foc2End);
+          if(isNaN(te2)||te2<0||te2>=SPOOL) return 'WIMS: Reel 2 END must be between 0 and '+SPOOL;
+        }
+        var declared = !!s.modem || (Array.isArray(s.iptv)&&s.iptv.some(function(x){return !!x;}))
+          || anyPos(s.kit) || anyPos(s.mats) || (hasS&&hasE);
+        if(!declared) return 'Declare at least one material used for this ticket (WIMS section)';
+        return null;
+      }
       if(!s || !s.modem) return 'WIMS report is REQUIRED — select the installed MODEM sa WIMS section bago i-complete ang JO';
       var hasStart=(s.focStart!==''&&s.focStart!=null), hasEnd=(s.focEnd!==''&&s.focEnd!=null);
       if(hasStart!==hasEnd) return 'WIMS: START and END FOC meter readings are both required';
@@ -314,7 +343,39 @@
   window.wimsSubmit = async function(jobId, job){
     try{
       var acc=await ensureAccess(); if(!acc) return;
-      var s=wState[jobId]; if(!s || !s.modem) return;   // nothing reported → skip
+      var s=wState[jobId];
+      // 🎫 SLR ticket → sariling RPC (ticket_usage): CPE optional, mandatory declare.
+      if(job && job.load_type==='SLR-TICKET'){
+        if(!s) return;
+        var tmats={}; Object.keys(s.mats||{}).forEach(function(k){ if(k!=='foc'&&s.mats[k]>0) tmats[k]=s.mats[k]; });
+        var thS=(s.focStart!==''&&s.focStart!=null), thE=(s.focEnd!==''&&s.focEnd!=null);
+        if(thS!==thE){ say('⚠ WIMS: incomplete FOC footage — START and END meters are required'); return; }
+        var tphotos=0; try{ if(typeof photoCount==='function') tphotos=photoCount(jobId); }catch(e){}
+        var twa=''; try{ twa=(typeof shiftAccount!=='undefined'?shiftAccount:'')||''; }catch(e){ twa=''; }
+        var targs={
+          p_jo: jobId,
+          p_subscriber: (job&&job.subscriber)||'',
+          p_account: (job&&job.ibass_acct_no)||'',
+          p_work_account: twa,
+          p_modem_serial: s.modem||null,
+          p_iptv_serials: (function(){ var a=Array.isArray(s.iptv)?s.iptv:[]; var seen={},out=[]; a.forEach(function(x){ if(x&&!seen[x]){seen[x]=1;out.push(x);} }); return out; })(),
+          p_kit: (s.kit&&typeof s.kit==='object'?s.kit:{}),
+          p_materials: tmats,
+          p_photos: tphotos,
+          p_foc_reel: s.focReel||null,
+          p_foc_start: thS?parseFloat(s.focStart):null,
+          p_foc_end: thE?parseFloat(s.focEnd):null,
+          p_foc2_reel: (s.foc2On&&s.foc2Reel)?s.foc2Reel:null,
+          p_foc2_end: (s.foc2On&&!isNaN(parseFloat(s.foc2End)))?parseFloat(s.foc2End):null,
+          p_kit_remarks: (s.kitRemarks||'').trim()||null
+        };
+        var tr=await W().schema('wims').rpc('ticket_usage',targs);
+        if(tr&&tr.error) throw tr.error;
+        cpeCache=null;
+        say('📦 WIMS ticket usage filed — deducted from your inventory');
+        return;
+      }
+      if(!s || !s.modem) return;   // nothing reported → skip
       var mats={}; Object.keys(s.mats||{}).forEach(function(k){ if(k!=='foc'&&s.mats[k]>0) mats[k]=s.mats[k]; });
       // FOC FOOTAGE RULE: kapag may start O end, kailangan pareho; used = |end − start|
       var hasStart=(s.focStart!==''&&s.focStart!=null), hasEnd=(s.focEnd!==''&&s.focEnd!=null);

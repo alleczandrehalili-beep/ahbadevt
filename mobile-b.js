@@ -73,8 +73,9 @@
     // until the current in-progress one is Completed / Cancelled / Incomplete.
     function serialBlocked(id){
       const x=jobs.find(j=>j.id===id);
+      if(x && x.load_type==='SLR-TICKET') return false;   // 🎫 tickets: exempt sa serial lock
       if(x && ['en-route','on-site','in-progress'].includes(x.status)) return false;   // acting on the active load — OK
-      const busy=jobs.find(j=>['en-route','on-site','in-progress'].includes(j.status));
+      const busy=jobs.find(j=>j.load_type!=='SLR-TICKET'&&['en-route','on-site','in-progress'].includes(j.status));
       if(busy){ toast('⚠ Tapusin muna ang kasalukuyang load: '+busy.id+(busy.subscriber?' ('+busy.subscriber+')':'')+' — Complete, Cancel, o Incomplete bago mag-update ng iba.'); return true; }
       return false;
     }
@@ -346,8 +347,16 @@
     function togglePayProof(){ const g=$('#pay_mode').value==='Gcash'; $('#payProofWrap').classList.toggle('hidden',!g); }
     function openComplete(jobId){
       $('#payModal').dataset.job=jobId; $('#payJob').textContent='For '+jobId;
-      // Transfer/IPTV: ipakita ang paalala na optional ang payment dito.
-      const oh=$('#payOptionalHint'); if(oh) oh.classList.toggle('hidden', !relaxedPay(jobs.find(x=>x.id===jobId)));
+      const _cj=jobs.find(x=>x.id===jobId);
+      const _isTkC=!!(_cj&&_cj.load_type==='SLR-TICKET');
+      // Transfer/IPTV/tickets: ipakita ang paalala na optional ang payment dito.
+      const oh=$('#payOptionalHint');
+      if(oh){ oh.classList.toggle('hidden', !relaxedPay(_cj));
+        oh.textContent=_isTkC?'Repair ticket — payment is optional; leave the amount and AR No. blank if no collection. Describe the service done below.'
+                             :'No collection for this load? Leave the amount and AR No. blank — payment is optional for Transfer / IPTV Only loads.'; }
+      // SLR ticket: REQUIRED ang service remarks (anong serbisyo ang ginawa).
+      const sw=$('#payServiceWrap'); if(sw) sw.classList.toggle('hidden', !_isTkC);
+      if($('#pay_service_remarks')) $('#pay_service_remarks').value='';
       $('#pay_amount').value=''; $('#pay_ar').value=''; clearErr('#payErr');
       payProofFile=null; if($('#pay_proof_cam'))$('#pay_proof_cam').value=''; if($('#pay_proof_alb'))$('#pay_proof_alb').value=''; if($('#payProofName'))$('#payProofName').textContent='';
       togglePayProof();
@@ -357,6 +366,10 @@
     async function confirmComplete(){
       const id=$('#payModal').dataset.job, mode=$('#pay_mode').value, amtRaw=$('#pay_amount').value.trim(), ar=$('#pay_ar').value.trim();
       const job=jobs.find(j=>j.id===id); if(!job)return;
+      const isTkJob=job.load_type==='SLR-TICKET';
+      // SLR ticket: REQUIRED ang remarks kung anong serbisyo ang ginawa.
+      const svcRem=isTkJob?(($('#pay_service_remarks')&&$('#pay_service_remarks').value.trim())||''):'';
+      if(isTkJob && !svcRem){ showErr('#payErr','Describe the service done — remarks are required for SLR tickets.'); return; }
       // Transfer/IPTV: kadalasang walang koleksyon — optional ang amount/AR (parehong blanko = no collection).
       const noPay=relaxedPay(job) && amtRaw==='' && !ar;
       const amt=noPay?0:Number(amtRaw);
@@ -369,8 +382,9 @@
       if(window.wimsGate){ const wmsg=await window.wimsGate(id); if(wmsg){ showErr('#payErr', wmsg); return; } }
       const btn=$('#paySave'); btn.disabled=true; btn.textContent='Saving…';
       const now=new Date().toISOString();
-      const hist=appendHist(await freshHist(id, job.history), `→ Completed (by ${myTeam} / ${shiftAccount}) · ${noPay?'no collection':(mode+' ₱'+amt+' · AR '+ar)}`);
+      const hist=appendHist(await freshHist(id, job.history), `→ Completed (by ${myTeam} / ${shiftAccount}) · ${noPay?'no collection':(mode+' ₱'+amt+' · AR '+ar)}`+(svcRem?` · Service: ${svcRem}`:''));
       const patch={status:'completed', payment_mode:(noPay?null:mode), payment_amount:(noPay?null:amt), ar_no:(noPay?null:ar), history:hist, updated_at:now, completed_at:now};
+      if(svcRem) patch.service_remarks=svcRem;
       if(shiftAccount){ patch.work_account=shiftAccount; patch.crew_driver=shiftDriver; patch.crew_tech1=shiftTech1; patch.crew_tech2=shiftTech2; }
       // Never lose the completion/payment: queued + retried automatically if the write fails.
       const ok=await saveJobPatch(id, patch);
@@ -384,6 +398,42 @@
       closeComplete(); render(); logTrack('status:completed', job.area||job.city);
       if(ok){ toast('Job completed'); setSync('live','Synced'); }
       else { toast('Completed — will sync when back online'); setSync('syncing', syncQCount()+' pending sync'); }
+    }
+    // ---------- 🎫 Tech-created SLR ticket (AHBA teams) ----------
+    // Simpleng 5-field na ticket: agad naka-assign sa sariling team, walang approval.
+    // Ang dispatcher ay nano-notify via console badge/toast + push (audience: dispatcher).
+    function openTicket(){
+      clearErr('#tkErr');
+      ['tk_ticket_no','tk_name','tk_ibas','tk_contact','tk_address'].forEach(k=>{const el=$('#'+k); if(el) el.value='';});
+      $('#tkBack').classList.remove('hidden'); $('#tkModal').classList.remove('hidden');
+    }
+    function closeTicket(){ $('#tkBack').classList.add('hidden'); $('#tkModal').classList.add('hidden'); }
+    async function saveTicket(){
+      clearErr('#tkErr');
+      const v=id=>($('#'+id)?$('#'+id).value.trim().toUpperCase():'');
+      const tn=v('tk_ticket_no'), nm=v('tk_name'), ib=v('tk_ibas'), ad=v('tk_address');
+      const ct=($('#tk_contact')?$('#tk_contact').value.trim():'');
+      if(!tn||!nm||!ib||!ct||!ad){ showErr('#tkErr','Fill in ALL fields — ticket no., name, IBAS, contact, and address.'); return; }
+      if(!/^\d{11}$/.test(ct)){ showErr('#tkErr','Contact no. must be exactly 11 digits (numbers only).'); return; }
+      const btn=$('#tkSave'); btn.disabled=true; btn.textContent='Creating…';
+      try{
+        // Duplicate ticket-no check sa LAHAT ng umiiral (server-side, RLS-independent).
+        try{ const {data:taken}=await sb.rpc('ticket_no_taken',{p_ticket:tn});
+          if(taken){ showErr('#tkErr','Ticket No. is already used by another ticket or job order.'); btn.disabled=false; btn.textContent='Create ticket'; return; } }catch(e){}
+        const now=new Date().toISOString();
+        const id='SLRT-'+new Date().getFullYear()+'-'+Date.now().toString().slice(-6)+Math.random().toString(36).slice(2,4);
+        const row={id, service_type:'SLR Ticket', load_type:'SLR-TICKET', status:'assigned', team:myTeam, created_by:myTeam,
+          subscriber:nm, ibass_acct_no:ib, ticket_no:tn, primary_no:ct, address:ad, area:'',
+          priority:'Normal', wait_time:'Just now', schedule:manilaDate()+', 9:00 AM', load_date:manilaDate(),
+          history:appendHist('','SLR ticket created by '+myTeam+(shiftAccount?' / '+shiftAccount:'')), updated_at:now};
+        const {error}=await sb.from('jobs').insert(row); if(error) throw error;
+        jobs.unshift(row);
+        try{ if(typeof pushNotify==='function') pushNotify({audience:'dispatcher', title:'🎫 New SLR ticket', body:tn+' · '+nm+' (by '+myTeam+')'}); }catch(e){}
+        closeTicket(); viewMode='tickets'; render();
+        toast('SLR ticket created — assigned to your team');
+        try{ logTrack('ticket:created',''); }catch(e){}
+      }catch(e){ showErr('#tkErr','Create failed: '+(e.message||e)); }
+      btn.disabled=false; btn.textContent='Create ticket';
     }
     const sameManilaDay = ts => ts && new Date(ts).toLocaleDateString('en-CA',{timeZone:TZ})===manilaDate();
     // Clickable JO → full info (sales + installer)
@@ -449,16 +499,20 @@
 
     function render(){
       const order={'en-route':0,'on-site':1,'in-progress':2,assigned:0,pending:1};
-      const todo=jobs.filter(j=>['assigned','pending'].includes(j.status));
-      const inprog=jobs.filter(j=>['en-route','on-site','in-progress'].includes(j.status));
-      const negs=jobs.filter(j=>j.status==='negative'&&sameManilaDay(j.negative_at||j.updated_at));
-      const doneToday=jobs.filter(j=>j.status==='completed'&&sameManilaDay(j.updated_at));
+      // SLR tickets (gawa ng tech mismo) ay HIWALAY sa loads — sariling 🎫 Tickets tab.
+      const isTk=j=>j.load_type==='SLR-TICKET';
+      const todo=jobs.filter(j=>!isTk(j)&&['assigned','pending'].includes(j.status));
+      const inprog=jobs.filter(j=>!isTk(j)&&['en-route','on-site','in-progress'].includes(j.status));
+      const negs=jobs.filter(j=>!isTk(j)&&j.status==='negative'&&sameManilaDay(j.negative_at||j.updated_at));
+      const doneToday=jobs.filter(j=>!isTk(j)&&j.status==='completed'&&sameManilaDay(j.updated_at));
+      const cut7=Date.now()-7*24*3600*1000;
+      const tickets=jobs.filter(j=>isTk(j)&&(!['completed','cancelled','negative'].includes(j.status)||(j.updated_at&&new Date(j.updated_at).getTime()>=cut7)));
       $('#cToDo').textContent=todo.length;
       $('#cActive').textContent=inprog.length;
       $('#cDone').textContent=doneToday.length;
       document.querySelectorAll('.jobtabs .jt').forEach(b=>b.classList.toggle('active',b.dataset.view===viewMode));
 
-      let list = viewMode==='todo'?todo : viewMode==='inprogress'?inprog : viewMode==='negative'?negs : doneToday;
+      let list = viewMode==='todo'?todo : viewMode==='inprogress'?inprog : viewMode==='negative'?negs : viewMode==='tickets'?tickets : doneToday;
       list=list.slice();
       // Ang mga future-dated (advance dispatch) na load ay sa DULO ng listahan — today muna.
       const _futOf=x=>((x.load_date&&String(x.load_date).slice(0,10)>manilaDate())?1:0);
@@ -468,12 +522,17 @@
       const el=$('#jobsList');
       const _thb=$('#techHistBar'); if(_thb) _thb.style.display=(viewMode==='history')?'':'none';
       if(viewMode==='history'){ renderTechHistory(el); return; }
+      // 🎫 Tickets tab: laging may Create button sa itaas (AHBA technician teams).
+      const tkBtnHtml=(viewMode==='tickets')?`<button class="addphoto" id="tkOpen" style="color:#0e6f52;border-color:#bfe6d5;background:#f3fbf7;font-weight:800">➕ Create SLR ticket</button>`:'';
       if(!list.length){
-        const msg={todo:'No jobs to do right now.',inprogress:'No jobs in progress.',negative:'No negative job orders today.',done:'No completed jobs yet today.'}[viewMode];
-        el.innerHTML=`<div class="empty">${svg('inbox')}${msg}<br>New assignments appear here automatically.</div>`;return;
+        const msg={todo:'No jobs to do right now.',inprogress:'No jobs in progress.',negative:'No negative job orders today.',done:'No completed jobs yet today.',tickets:'No SLR tickets yet. Create one for a repair job.'}[viewMode];
+        el.innerHTML=tkBtnHtml+`<div class="empty">${svg('inbox')}${msg}<br>${viewMode==='tickets'?'Tickets you create appear here.':'New assignments appear here automatically.'}</div>`;
+        const _tb0=$('#tkOpen'); if(_tb0) _tb0.onclick=openTicket;
+        return;
       }
-      const busyId=(jobs.find(x=>['en-route','on-site','in-progress'].includes(x.status))||{}).id;   // serial lock: the one active load
-      el.innerHTML=list.map(j=>{
+      // serial lock: the one active LOAD (tickets are exempt — hindi sila nagla-lock at hindi nala-lock)
+      const busyId=(jobs.find(x=>!isTk(x)&&['en-route','on-site','in-progress'].includes(x.status))||{}).id;
+      el.innerHTML=tkBtnHtml+list.map(j=>{
         const f=FLOW[j.status]||{};
         const prio=j.priority?`<span class="prio" style="${j.priority!=='1st Load'?'color:#687974;background:#f1f3f1':''}">${j.priority}</span>`:'';
         const addr=(j.address||j.area||'').replace(/"/g,'');
@@ -487,7 +546,7 @@
         if(j.status==='in-progress'){
           const REQ=photosReqFor(j);
           const canDone=n>=REQ;
-          extra=photoSlots(j.id)+'<div class="wims-slot" data-wjob="'+j.id+'" data-dwell="'+(j.dwelling_type||'')+'" data-iptvn="'+(j.play_type==='2-PLAY'?Math.max(1,parseInt(j.addon_count,10)||1):0)+'"></div>';
+          extra=photoSlots(j.id)+'<div class="wims-slot" data-wjob="'+j.id+'" data-ticket="'+(isTk(j)?'1':'')+'" data-dwell="'+(j.dwelling_type||'')+'" data-iptvn="'+(j.play_type==='2-PLAY'?Math.max(1,parseInt(j.addon_count,10)||1):0)+'"></div>';
           actions=`<div class="job-actions">${mapLink}<button class="act done" data-next="completed" data-id="${j.id}" ${canDone?'':'disabled'}>${svg('check')}Mark complete${canDone?'':` (${n}/${REQ})`}</button></div>`;
         } else if(j.status==='completed'){
           extra=allPhotos.length?`<div class="photos"><div class="photos-head"><span>Proof photos</span><span class="count ok">${allPhotos.length}</span></div><div class="thumbs">${thumbs}</div></div>`:'';
@@ -506,7 +565,9 @@
           }
         }
         const contact=j.primary_no?`<div class="row">${svg('phone')}<a href="tel:${j.primary_no}" style="color:inherit;text-decoration:none">${j.primary_no}${j.other_contact_no?' / '+j.other_contact_no:''}</a></div>`:'';
-        const acct=(j.job_order_no||j.ibass_acct_no)?`<div class="row">${svg('note')}<span>JO ${j.job_order_no||'—'} · Acct ${j.ibass_acct_no||'—'}</span></div>`:'';
+        const acct=isTk(j)
+          ?`<div class="row">${svg('note')}<span>🎫 Ticket ${j.ticket_no||'—'} · IBAS ${j.ibass_acct_no||'—'}</span></div>`
+          :((j.job_order_no||j.ibass_acct_no)?`<div class="row">${svg('note')}<span>JO ${j.job_order_no||'—'} · Acct ${j.ibass_acct_no||'—'}</span></div>`:'');
         const svc=(j.plan||j.play_type)?`<div class="row">${svg('note')}<span>${[j.plan,j.play_type].filter(Boolean).join(' · ')}</span></div>`:'';
         const src=(j.source_of_sales||j.referral_name)?`<div class="row">${svg('note')}<span>${[j.source_of_sales,j.referral_name&&('Ref: '+j.referral_name)].filter(Boolean).join(' · ')}</span></div>`:'';
         const drem=j.dispatched_remarks?`<div class="row" style="color:#107b5e;font-weight:700">${svg('note')}<span>Dispatcher: ${j.dispatched_remarks}</span></div>`:'';
@@ -520,7 +581,7 @@
         // details are hidden until the current one is updated (Completed / Incomplete / Cancelled).
         // A dispatcher can exempt one specific job order via lock_bypass
         // (console → job detail → "🔓 Unlock for technician").
-        const locked = busyId && j.id!==busyId && !['completed','negative','cancelled'].includes(j.status) && !j.lock_bypass;
+        const locked = busyId && j.id!==busyId && !isTk(j) && !['completed','negative','cancelled'].includes(j.status) && !j.lock_bypass;
         if(locked){
           return `<div class="job"><div class="job-head"><div><span class="job-id">${j.id}</span><h3>🔒 Locked</h3></div><span class="badge b-${j.status}">${statusLabel(j.status)}</span></div>
         <div class="job-meta"><div class="row" style="color:#a4690f;font-weight:700">${svg('note')}<span>Update your current job order first. Finish it — Completed, Incomplete, or Cancelled — before you can view and start your next job order.</span></div></div></div>`;
@@ -529,6 +590,7 @@
         <div class="job-meta"><div class="row">${svg('pin')}<span>${addr||'—'}</span></div><div class="row">${svg('clock')}<span>${(j.schedule||'Today').replace('Today, ','Today · ')}</span></div>${contact}${acct}${svc}${src}${drem}${note}${negRemark}</div>
         ${extra}${actions}${expBtn}${negBtn}${cancelBtn}</div>`;
       }).join('');
+      const _tkb=$('#tkOpen'); if(_tkb) _tkb.onclick=openTicket;
       el.querySelectorAll('[data-next]').forEach(b=>b.onclick=()=>advance(b.dataset.id,b.dataset.next));
       el.querySelectorAll('[data-up]').forEach(inp=>inp.onchange=()=>{const id=inp.dataset.up,files=inp.files;uploadPhotos(id,files,inp.dataset.label);inp.value='';});
       el.querySelectorAll('[data-bulk]').forEach(inp=>inp.onchange=()=>{const id=inp.dataset.bulk,files=inp.files;uploadBulk(id,files);inp.value='';});
@@ -752,6 +814,9 @@
     $('#mexpBack')?.addEventListener('click',closeMobileExpense);
     $('#payCancel')?.addEventListener('click',closeComplete);
     $('#paySave')?.addEventListener('click',confirmComplete);
+    $('#tkCancel')?.addEventListener('click',closeTicket);
+    $('#tkBack')?.addEventListener('click',closeTicket);
+    $('#tkSave')?.addEventListener('click',saveTicket);
     $('#pay_mode')?.addEventListener('change',togglePayProof);
     ['pay_proof_cam','pay_proof_alb'].forEach(id=>{ const el=$('#'+id); if(el) el.onchange=()=>{ payProofFile=el.files&&el.files[0]||null; const n=$('#payProofName'); if(n) n.textContent=payProofFile?('📎 '+payProofFile.name):''; }; });
     $('#payBack')?.addEventListener('click',closeComplete);

@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-09-07.1';
+    const APP_VERSION = '2026-09-07.2';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -53,8 +53,10 @@
     // Bawas-restriction para sa bagong console-encoded load types — hindi angkop sa kanila
     // ang 12 SLI-install photo slots. 3 photos lang bawat isa; optional din ang payment.
     const PHOTO_LABELS_BY_TYPE = {
-      'Transfer': ['NEW ADDRESS / PREMISE','CPE INSTALLED AT NEW LOCATION','SAR'],
-      'IPTV':     ['IPTV SETUP / LOCATION','IPTV WORKING (SCREEN ON)','SAR']
+      'Transfer':   ['NEW ADDRESS / PREMISE','CPE INSTALLED AT NEW LOCATION','SAR'],
+      'IPTV':       ['IPTV SETUP / LOCATION','IPTV WORKING (SCREEN ON)','SAR'],
+      // Tech-created SLR repair tickets: 1 mandatory photo lang; payment optional.
+      'SLR-TICKET': ['REPAIR PROOF']
     };
     const pubUrl = path => `${SUPA_URL}/storage/v1/object/public/job-photos/${path}`;
 
@@ -465,7 +467,7 @@
     const statusLabel = s => (FLOW[s]?.label) || ({negative:'Incomplete',cancelled:'Cancelled',rejected:'Rejected',for_validation:'For validation'}[s]) || s;
 
     // ---------- views ----------
-    function show(view){['loginView','pwView','shiftView','appView','saView','secView'].forEach(v=>$('#'+v).classList.toggle('hidden', v!==view));const inApp=(view==='appView'||view==='saView'||view==='secView');$('#menuBtn').classList.toggle('hidden', !inApp);const hrb=$('#btnHardRefresh');if(hrb)hrb.classList.toggle('hidden', !inApp);$('#chatFab')&&$('#chatFab').classList.toggle('hidden', !(view==='appView'||view==='saView'));$('#menuPop').classList.add('hidden');try{renderAnnBanner();}catch(e){}}
+    function show(view){['loginView','pwView','shiftView','appView','saView','secView'].forEach(v=>$('#'+v).classList.toggle('hidden', v!==view));const inApp=(view==='appView'||view==='saView'||view==='secView');$('#menuBtn').classList.toggle('hidden', !inApp);const hrb=$('#btnHardRefresh');if(hrb)hrb.classList.toggle('hidden', !inApp);const jtk=$('#jtTickets');if(jtk)jtk.classList.toggle('hidden', !(view==='appView'&&/^AHBA/i.test(myTeam||'')));$('#chatFab')&&$('#chatFab').classList.toggle('hidden', !(view==='appView'||view==='saView'));$('#menuPop').classList.add('hidden');try{renderAnnBanner();}catch(e){}}
 
     // ---------- shift setup (account + crew) ----------
     // Work accounts now come from the org-scoped `work_accounts` table (see openShift) — no hardcoded list,
