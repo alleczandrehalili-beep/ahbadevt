@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-09-02.2';
+    const APP_VERSION = '2026-09-07.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -684,7 +684,8 @@
     }
     function saReset(){
       const svb=$('#saValBanner'); if(svb){svb.style.display='none';svb.innerHTML='';}
-      ['first_name','middle_name','last_name','primary_no','other_contact_no','house_no','street_name','village','ref_no','amount','source_of_sales','referral_name','special_note'].forEach(k=>{const el=$('#sa_'+k);if(el)el.value='';});
+      ['first_name','middle_name','last_name','birth_date','primary_no','other_contact_no','house_no','street_name','village','ref_no','amount','source_of_sales','referral_name','special_note'].forEach(k=>{const el=$('#sa_'+k);if(el)el.value='';});
+      if(typeof saDupClear==='function') saDupClear();
       if($('#sa_district')) $('#sa_district').value=''; populateSaBrgys('');
       if($('#sa_city')) $('#sa_city').value='QUEZON CITY';
       if($('#sa_dwelling')) $('#sa_dwelling').value='SDU'; if($('#sa_install_fee')) $('#sa_install_fee').value='One Time Payment';
@@ -872,6 +873,33 @@
     }
     // Edit a REJECTED order and resubmit it for validation (loads info back into the form)
     let saEditingId=null;
+    // ---- Strict duplicate check on NEW encodes (2026-09-07) ----
+    // Same server-side RPC as the console — scans ALL JOs all-time (any status,
+    // soft-deleted excluded). Fails OPEN kung wala pa ang RPC / network error.
+    let saDupAck=null;   // set by "Proceed anyway" on a WARN-level match
+    function saDupClear(){ saDupAck=null; const p=$('#saDupPanel'); if(p){p.style.display='none';p.innerHTML='';} }
+    function saDupRender(dup){
+      const p=$('#saDupPanel'); if(!p) return;
+      const esc=v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      const chip=(ok,label)=>`<span style="margin-right:9px;white-space:nowrap">${ok===null?'– ':(ok?'✓ ':'✗ ')}${label}</span>`;
+      const row=m=>`<div style="margin-top:7px;padding-top:7px;border-top:1px solid rgba(0,0,0,.08)">
+          <b>${m.pct}% match</b> — ${esc(m.id)} · ${esc(String(m.status||'').toUpperCase())} · encoded ${esc(m.encoded_on)}<br>
+          ${esc(m.name)} — ${esc(m.address)}<br>
+          <span style="font-size:11px">${chip(m.same_name,'name '+m.name_pct+'%')}${chip(m.bday,'birthday')}${chip(m.contact,'contact')}${chip(m.email,'email')}${chip(m.same_address,'address '+m.addr_pct+'%')}</span>
+        </div>`;
+      const blocked=!!dup.blocked;
+      const head=blocked
+        ? '🚫 <b>Duplicate found — encoding not allowed.</b> This subscriber already exists in the system.'
+        : '⚠️ <b>Possible duplicate found.</b> Review the match below before proceeding.';
+      p.innerHTML=`<div style="border:1px solid ${blocked?'#c2503a':'#b8860b'};background:${blocked?'#fdf0ee':'#fdf6e3'};border-radius:10px;padding:10px 12px;font-size:12px;margin-bottom:10px">
+          ${head}${(dup.matches||[]).slice(0,3).map(row).join('')}
+          ${blocked?'':'<div style="margin-top:9px"><button type="button" class="btn-ghost" id="saDupProceed">Proceed anyway</button></div>'}
+        </div>`;
+      p.style.display='';
+      const go=$('#saDupProceed');
+      if(go) go.onclick=()=>{ saDupAck=(dup.matches&&dup.matches[0])||{pct:0,id:'?'}; saSubmit(); };
+      try{ p.scrollIntoView({block:'center'}); }catch(e){}
+    }
     // History lines "[Aug 5, 2:14 PM] Rejected by X: reason" / "Approved at intake by X (...)" →
     // ipakita kung SINO ang UNANG nag-check for validation at ANO ang remarks (+ latest kung iba).
     function saValBanner(j){
@@ -904,6 +932,7 @@
         if(svb){ const h=saValBanner(j); svb.innerHTML=h; svb.style.display=h?'':'none'; }
         const set=(id,val)=>{const el=$('#sa_'+id); if(el) el.value=(val==null?'':val);};
         set('first_name',j.first_name); set('middle_name',j.middle_name); set('last_name',j.last_name);
+        set('birth_date',j.birth_date); saDupClear();
         set('primary_no',j.primary_no); set('other_contact_no',j.other_contact_no); set('email',j.email);
         set('house_no',j.house_no); set('street_name',j.street_name); set('village',j.village);
         if($('#sa_district')) $('#sa_district').value=j.district||''; populateSaBrgys(j.district||'');
@@ -959,9 +988,34 @@
       if(!/^\d{11}$/.test(pno)){ showErr('#saErr','Primary no. must be exactly 11 digits (numbers only).'); return; }
       if(ono && !/^\d{11}$/.test(ono)){ showErr('#saErr','Other contact no. must be 11 digits (numbers only).'); return; }
       const editing=!!saEditingId;
+      // Date of birth: required on NEW encodes; optional on edit/resubmit (old JOs predate the field).
+      const bday=($('#sa_birth_date')?$('#sa_birth_date').value.trim():'');
+      if(!editing && !bday){ showErr('#saErr','Date of birth is required.'); return; }
+      if(bday && bday>manilaDate()){ showErr('#saErr','Date of birth cannot be in the future.'); return; }
       if(v('sa_play_type')==='2-PLAY' && !v('sa_addon_count')){ showErr('#saErr','For 2-PLAY, select how many add-ons are included.'); return; }
       if(!editing && !saDocs.id.length){ showErr('#saErr','A Valid ID photo is required.'); return; }
       const btn=$('#saSubmit'); btn.disabled=true; btn.textContent=editing?'Resubmitting…':'Submitting…';
+      // Duplicate check — NEW encodes only, skipped once after "Proceed anyway" on a warning.
+      if(!editing && !saDupAck){
+        btn.textContent='Checking for duplicates…';
+        let dup=null;
+        try{
+          const {data,error}=await sb.rpc('check_duplicate_jo',{
+            p_first:fn,p_middle:v('sa_middle_name'),p_last:ln,p_birth:bday||null,
+            p_primary:pno,p_ocn:ono,p_email:email,
+            p_house:v('sa_house_no'),p_street:v('sa_street_name'),p_village:v('sa_village'),
+            p_brgy:brgy,p_district:dist,p_order_type:'SLI',p_exclude_id:null});
+          if(!error) dup=data; else console.warn('duplicate check unavailable:',error.message);
+        }catch(e){ console.warn('duplicate check unavailable:',e); }
+        if(dup && dup.matches && dup.matches.length){
+          saDupRender(dup);
+          showErr('#saErr', dup.blocked
+            ? 'Encoding blocked — this subscriber already exists (see the details above).'
+            : 'Possible duplicate — review the match above, then press "Proceed anyway" or correct the details.');
+          btn.disabled=false; btn.textContent='Submit for validation'; return;
+        }
+        saDupClear();
+      }
       const full=[fn,v('sa_middle_name'),ln].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
       const addr=[v('sa_house_no'),v('sa_street_name'),v('sa_village'),brgy,'District '+dist,city].filter(Boolean).join(', ');
       const fields={subscriber:full,plan:v('sa_plan'),ref_no:v('sa_ref_no'),area:city,address:addr,status:'for_validation',
@@ -970,6 +1024,7 @@
         play_type:v('sa_play_type'),source_of_sales:v('sa_source_of_sales'),referral_name:v('sa_referral_name'),
         dwelling_type:v('sa_dwelling'),install_fee_type:v('sa_install_fee'),amount_to_collect:(v('sa_amount')!==''?Number(v('sa_amount')):null),add_on:v('sa_addon'),addon_count:(v('sa_play_type')==='2-PLAY'&&v('sa_addon_count')!==''?Number(v('sa_addon_count')):null),
         special_note:v('sa_special_note'),updated_at:new Date().toISOString()};
+      if(bday) fields.birth_date=bday;   // blank on edit = keep whatever the record already has
       try{
         let jobId;
         if(editing){
@@ -977,7 +1032,10 @@
           const {error}=await sb.from('jobs').update(fields).eq('id',jobId); if(error) throw error;
         } else {
           jobId='WO-'+new Date().getFullYear()+'-'+Date.now().toString().slice(-6)+Math.random().toString(36).slice(2,5);
-          const {error}=await sb.from('jobs').insert(Object.assign({id:jobId,service_type:'Installation',wait_time:'Just now',priority:'Normal',schedule:manilaDate()+', 9:00 AM',team:null,created_by:myTeam},fields)); if(error) throw error;
+          const ins=Object.assign({id:jobId,service_type:'Installation',wait_time:'Just now',priority:'Normal',schedule:manilaDate()+', 9:00 AM',team:null,created_by:myTeam},fields);
+          // Leave a trace for the Validator when a warned duplicate was pushed through.
+          if(saDupAck) ins.history=appendHist('', 'Encoded with duplicate warning: '+saDupAck.pct+'% match with '+saDupAck.id+' (by '+myTeam+')');
+          const {error}=await sb.from('jobs').insert(ins); if(error) throw error;
         }
         for(const cat of ['id','billing','premise']){
           for(let i=0;i<saDocs[cat].length;i++){
@@ -987,7 +1045,7 @@
             await sb.from('job_docs').insert({job_id:jobId, category:cat, path});
           }
         }
-        toast(editing?'Order resubmitted for validation':'Job order submitted for validation'); saEditingId=null; $('#saSubmit').textContent='Submit for validation'; saReset(); saSwitch('mine');
+        toast(editing?'Order resubmitted for validation':'Job order submitted for validation'); saEditingId=null; saDupClear(); $('#saSubmit').textContent='Submit for validation'; saReset(); saSwitch('mine');
       }catch(e){ showErr('#saErr','Submit failed: '+e.message); }
       btn.disabled=false; btn.textContent= saEditingId?'Resubmit for validation':'Submit for validation';
     }

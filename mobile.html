@@ -340,6 +340,7 @@
           <div class="field"><label>First name *</label><input id="sa_first_name" autocapitalize="characters"></div>
           <div class="field"><label>Middle name</label><input id="sa_middle_name" autocapitalize="characters"></div>
           <div class="field"><label>Last name *</label><input id="sa_last_name" autocapitalize="characters"></div>
+          <div class="field"><label>Date of birth *</label><input id="sa_birth_date" type="date"></div>
           <div class="field"><label>Primary no. * (11 digits)</label><input id="sa_primary_no" inputmode="numeric" maxlength="11"></div>
           <div class="field"><label>Other contact no. (11 digits, optional)</label><input id="sa_other_contact_no" inputmode="numeric" maxlength="11"></div>
           <div class="field"><label>Email address *</label><input id="sa_email" type="email" inputmode="email" autocapitalize="off" autocomplete="off" placeholder="name@email.com"></div>
@@ -382,6 +383,7 @@
             <div style="display:flex;gap:8px"><label class="addphoto" style="flex:1">📷 Camera<input type="file" accept="image/*" capture="environment" multiple hidden data-doc="premise"></label><label class="addphoto" style="flex:1">🖼️ Album<input type="file" accept="image/*" multiple hidden data-doc="premise"></label></div>
           </div>
 
+          <div id="saDupPanel" style="display:none"></div>
           <div class="err" id="saErr"></div>
           <button class="btn-primary" id="saSubmit">Submit for validation</button>
         </div>
@@ -472,8 +474,8 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="mobile-a.js?v=2026-09-02.2"></script>
-  <script src="mobile-b.js?v=2026-09-02.2"></script>
-  <script src="mobile-wims.js?v=2026-09-02.2"></script>
+  <script src="mobile-a.js?v=2026-09-07.1"></script>
+  <script src="mobile-b.js?v=2026-09-07.1"></script>
+  <script src="mobile-wims.js?v=2026-09-07.1"></script>
 </body>
 </html>

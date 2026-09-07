@@ -745,6 +745,8 @@
     $('#sa_dwelling')?.addEventListener('change',populatePlans);
     $('#sa_play_type')?.addEventListener('change',toggleAddonCount);
     $('#saSubmit')?.addEventListener('click',saSubmit);
+    // Any edit to the encode form invalidates a pending "Proceed anyway" duplicate acknowledgement.
+    $('#saNew')?.addEventListener('input',()=>{ if(typeof saDupClear==='function') saDupClear(); });
     $('#mexpCancel')?.addEventListener('click',closeMobileExpense);
     $('#mexpSave')?.addEventListener('click',saveMobileExpense);
     $('#mexpBack')?.addEventListener('click',closeMobileExpense);
