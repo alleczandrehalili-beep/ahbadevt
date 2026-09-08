@@ -36,8 +36,10 @@ Deno.serve(async (req) => {
     const rows: Record<string, unknown>[] = body.rows;
     if (rows.length > 2000) return json({ error: "max 2000 rows per call" }, 413);
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { db: { schema: "qa" } });
-    const rejected: string[] = []; const norm = [];
-    for (const r of rows) { const n = normalize(r); if (n) norm.push(n); else rejected.push(String(r.JONO ?? "") + "/" + String(r.ACCTNO ?? "")); }
+    const rejected: string[] = []; const byJo = new Map<string, ReturnType<typeof normalize>>();
+    // The sheet can carry the same JONO on two rows; Postgres rejects a second ON CONFLICT hit in one statement, so keep the LAST row per JONO.
+    for (const r of rows) { const n = normalize(r); if (n) byJo.set(n.jo_no, n); else rejected.push(String(r.JONO ?? "") + "/" + String(r.ACCTNO ?? "")); }
+    const norm = [...byJo.values()];
     for (let i = 0; i < norm.length; i += 500) {
       const { error } = await admin.from("sheet_rows").upsert(norm.slice(i, i + 500), { onConflict: "jo_no" });
       if (error) throw error;
