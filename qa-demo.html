@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AHBA QA Audit — DRY RUN demo</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  body{margin:0;font:13px system-ui,sans-serif;background:#e9eee9;color:#0e2b27}
+  .top{background:#0d3b34;color:#fff;padding:10px 16px;display:flex;justify-content:space-between;align-items:center}
+  .top b{font-size:15px}.top .tag{background:#ffb000;color:#000;font-weight:800;padding:2px 8px;border-radius:8px;font-size:11px;margin-left:8px}
+  .top select,.top button{padding:6px 9px;border-radius:8px;border:0;font-weight:700}
+  .wrap{display:grid;grid-template-columns:400px 1fr;gap:14px;padding:14px;min-height:calc(100vh - 48px)}
+  .phone{background:#111;border-radius:34px;padding:14px 10px;box-shadow:0 12px 40px rgba(0,0,0,.35);height:800px;position:sticky;top:14px}
+  .screen{background:#f4f7f5;border-radius:24px;height:100%;overflow:auto;position:relative}
+  .screen .qa-sheet,.screen .qa-footer{position:absolute}
+  .console{background:#f7f9f7;border:1px solid #dfe7e2;border-radius:16px;padding:16px;overflow:auto}
+  .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#0e2b27;color:#fff;padding:10px 16px;border-radius:12px;opacity:0;transition:.2s;pointer-events:none;z-index:99999}.toast.show{opacity:1}
+</style></head><body>
+<div class="top"><div><b>AHBA FieldOps · QA Audit</b><span class="tag">DRY RUN · fake backend · synthetic data</span></div>
+  <div>Inspector: <select id="who"><option>AHBA_QA01</option><option>AHBA_QA02</option><option>AHBA_QA03</option></select>
+  <button id="simJob">Simulate JO completed in FieldOps</button> <button id="simSheet">Simulate sheet sync (+5 rows)</button> <button id="reset">Reset demo</button></div></div>
+<div class="wrap"><div class="phone"><div class="screen" id="phone"></div></div><div class="console" id="console"></div></div>
+<div class="toast" id="toast"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="qa-core.js"></script><script src="qa-sim.js"></script><script src="mobile-qa.js"></script><script src="console-qa.js"></script>
+<script>
+(function(){
+  function toast(m){ var t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(function(){ t.classList.remove('show'); },2600); }
+  // Simple stand-ins for the FieldOps helpers (production passes the real compressImage/buildStamp/getPos).
+  function compressImage(file){ return new Promise(function(res){ var img=new Image(), url=URL.createObjectURL(file); img.onload=function(){ var s=Math.min(1,800/Math.max(img.width,img.height)); var cv=document.createElement('canvas'); cv.width=Math.round(img.width*s); cv.height=Math.round(img.height*s); var cx=cv.getContext('2d'); cx.drawImage(img,0,0,cv.width,cv.height); cx.fillStyle='rgba(0,0,0,.55)'; cx.fillRect(0,cv.height-26,cv.width,26); cx.fillStyle='#fff'; cx.font='600 13px system-ui'; cx.fillText('DEMO · '+new Date().toLocaleString('en-PH')+' · 14.68, 121.06',8,cv.height-9); cv.toBlob(function(b){ URL.revokeObjectURL(url); res(b||file); },'image/jpeg',.6); }; img.onerror=function(){ res(file); }; img.src=url; }); }
+  var getPos=function(){ return Promise.resolve({lat:14.68+Math.random()*0.02, lng:121.06+Math.random()*0.02}); };
+  var api, phone, cons, who=document.getElementById('who');
+  function boot(){
+    if(phone) phone.destroy(); if(cons) cons.destroy();
+    api=QaSim.create({seed:QaSim.demoSeed()});
+    window.qaApi=api;   // for poking in devtools
+    phone=MobileQA.mount(document.getElementById('phone'),{api:api,user:{username:who.value,display_name:'Demo Inspector'},deps:{toast:toast,compressImage:compressImage,buildStamp:function(){return Promise.resolve(null);},getPos:getPos}});
+    cons=ConsoleQA.mount(document.getElementById('console'),{api:api,user:{username:'QA_HEAD',display_name:'QA Head'},deps:{toast:toast,canEdit:true,L:window.L},onBadge:function(n){ document.title='('+n+') QA demo'; }});
+  }
+  who.onchange=function(){ phone.destroy(); phone=MobileQA.mount(document.getElementById('phone'),{api:api,user:{username:who.value,display_name:'Demo Inspector'},deps:{toast:toast,compressImage:compressImage,buildStamp:function(){return Promise.resolve(null);},getPos:getPos}}); };
+  document.getElementById('simJob').onclick=function(){ var n=Date.now()%100000; var a=api._completeJob({id:'DEMO-JO-NEW-'+n, job_order_no:'R8'+n, ibass_acct_no:'19'+n, status:'completed', assigned_org_code:'RIA', subscriber:'DEMO NEW SUBSCRIBER '+n, address:n+' DEMO AVE', brgy:'PAYATAS', crew_driver:'DEMO DRIVER', crew_tech1:'DEMO TECH'}); toast(a?('FieldOps JO completed → '+a.id+' queued'):'Already had an audit'); cons.refresh(); };
+  document.getElementById('simSheet').onclick=function(){ var rows=[]; for(var i=0;i<5;i++){ var n=Date.now()%100000+i; rows.push({COMP:['J2','AVELINE','AHBA'][i%3], JODATECLOSED:new Date().toISOString().slice(0,10)+' 00:00:00', ACCTNO:'18'+n, JONO:'R7'+n, SUBSCRIBERNAME:'DEMO SHEET SUB '+n, MOBILENO:'9'+n, BARANGAYNAME:'COMMONWEALTH', COMPLETEADDRESS:n+' DEMO RD', TRANTYPECODE:'MAINLINE APPLICATION', NAPCODE:'QCY0 LP1 NP1', PORTNO:'P1-O', SERIALNO:'SN'+n, DRIVER:'D', TECH:'T'}); } api.importRows(rows).then(function(r){ toast('Sheet sync: '+r.upserted+' rows, '+r.audits_created+' new audits'); cons.refresh(); }); };
+  document.getElementById('reset').onclick=function(){ Object.keys(localStorage).filter(function(k){return k.indexOf('qa_')===0;}).forEach(function(k){localStorage.removeItem(k);}); boot(); };
+  boot();
+})();
+</script></body></html>
