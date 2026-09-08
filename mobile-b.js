@@ -1,6 +1,21 @@
 // ---------- data ----------
+    // ── Egress fix (2026-09-09) ── Dating select('*') → kasama ang buong `history` jsonb
+    // (~kalahati ng payload) + LAHAT ng jobs ng team kahit napaka-luma. Ang list poll na ito
+    // ay tumatakbo kada 30s per technician → siya ang pangunahing PostgREST egress source.
+    //   #1  Piliin LANG ang mga column na kailangan ng listahan (WALANG `history`; ito ay
+    //       kinukuha on-demand ng freshHist()/getHistory()). Katulad ng console liveSelect().
+    //   #2  Live-window: aktibong jobs (kahit anong petsa) + anumang nagalaw/na-load/naka-
+    //       schedule sa nakaraang JOB_LIVE_WINDOW_DAYS. Nasa DB pa rin ang luma (Load History).
+    const JOB_LIST_COLS = 'id,subscriber,service_type,plan,area,address,status,wait_time,priority,schedule,team,updated_at,validated,validated_at,load_date,dispatch_status,driver,tech1,mapping_team,mapping_remarks,dispatched_remarks,ibass_acct_no,job_order_no,vas_no,play_type,special_note,ref_no,new_ref,primary_no,other_contact_no,first_name,middle_name,last_name,house_no,street_name,village,brgy,city,in_charge,source_of_sales,referral_name,negative_remark,negative_at,dispatch_count,created_at,payment_mode,payment_amount,ar_no,work_account,crew_driver,crew_tech1,crew_tech2,remittance_received,remittance_received_by,remittance_received_at,dwelling_type,install_fee_type,amount_to_collect,completed_at,add_on,addon_count,scheduled_at,est_minutes,district,deleted_at,deleted_by,load_type,current_plan,ticket_no,created_by,new_address,cpe_option,birth_date,org_id,assigned_org_id,validated_by,lock_bypass,cancel_remark,email,qa_audit_id,qa_status,qa_assessment,qa_inspected_at';
+    const JOB_LIVE_WINDOW_DAYS = 14;
     async function loadJobs(){
-      const {data,error} = await sb.from('jobs').select('*').eq('team',myTeam).is('deleted_at',null).order('updated_at',{ascending:false});
+      const cutoff = new Date(Date.now() - JOB_LIVE_WINDOW_DAYS*24*3600*1000).toISOString();
+      const cutoffDate = cutoff.slice(0,10);
+      const {data,error} = await sb.from('jobs')
+        .select(JOB_LIST_COLS)
+        .eq('team',myTeam).is('deleted_at',null)
+        .or(`status.not.in.(completed,cancelled,negative),updated_at.gte.${cutoff},load_date.gte.${cutoffDate},scheduled_at.gte.${cutoff}`)
+        .order('updated_at',{ascending:false});
       if(error) throw error; return data||[];
     }
     async function loadPhotos(){
@@ -626,7 +641,11 @@
       var refreshC=startApp._coal;
       if(realtimeChan) sb.removeChannel(realtimeChan);
       realtimeChan = sb.channel('ahba-tech-'+myTeam).on('postgres_changes',{event:'*',schema:'public',table:'jobs',filter:'team=eq.'+myTeam},refreshC).subscribe();
-      clearInterval(startApp._t); startApp._t=setInterval(refreshC,30000);   // was 15000 — realtime already covers live changes
+      // #3 egress fix (2026-09-09): huwag mag-poll kapag naka-background/naka-lock ang app.
+      // Ang phone ng technician ay naka-background halos buong araw → dating patuloy pa ring
+      // nag-fe-fetch kada 30s. Realtime (habang aktibo) + isang catch-up refresh pagbalik sa
+      // foreground (tingnan ang visibilitychange sa baba) na ang bahala.
+      clearInterval(startApp._t); startApp._t=setInterval(function(){ if(!document.hidden) refreshC(); },30000);   // was 15000 — realtime already covers live changes
       if(!startApp._onhook){ startApp._onhook=1; window.addEventListener('online', ()=>{ flushQueue(); flushPhotoQueue(); }); }
       clearInterval(startApp._loc); startApp._loc=setInterval(()=>captureLocation(false),600000); // refresh GPS every 10 min
       clearInterval(startApp._track); startApp._track=setInterval(()=>logTrack('auto'),1200000); // travel trail every 20 min
@@ -842,7 +861,7 @@
 
     // Keep the "last opened" timestamp fresh while the app is in use (auto-logout counts 48h of NOT opening).
     function _touchActive(){ try{ localStorage.setItem('ahba_last_active', String(Date.now())); }catch(_){} }
-    document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) _touchActive(); });
+    document.addEventListener('visibilitychange', ()=>{ if(!document.hidden){ _touchActive(); try{ if(startApp._coal) startApp._coal(); }catch(_){} } });   // #3: isang catch-up refresh pagbalik sa foreground (habulin ang mga pagbabagong nangyari habang naka-background)
     setInterval(_touchActive, 5*60*1000);
 
     _stampVersion(); checkAppVersion(); setInterval(checkAppVersion, 5*60*1000);   // version stamp + auto refresh-nudge
