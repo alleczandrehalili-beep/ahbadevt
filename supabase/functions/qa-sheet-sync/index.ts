@@ -45,14 +45,20 @@ Deno.serve(async (req) => {
       if (error) throw error;
     }
     const isFinal = body.final !== false;
-    let created = 0;
+    let created = 0, more = false;
     if (isFinal) {
-      const { data, error: e2 } = await admin.rpc("ingest_sheet_rows");
-      if (e2) throw e2;
-      created = data ?? 0;
+      // ingest_sheet_rows() handles at most 300 rows per call (statement timeout); loop within our own time budget, the next sync continues if needed
+      const t0 = Date.now();
+      for (let k = 0; k < 40; k++) {
+        const { data, error: e2 } = await admin.rpc("ingest_sheet_rows");
+        if (e2) throw e2;
+        const n = (data as number) ?? 0; created += n;
+        if (n < 300) break;
+        if (Date.now() - t0 > 90000) { more = true; break; }
+      }
     }
     const { error: e3 } = await admin.from("settings").upsert([{ key: "last_sync_at", value: new Date().toISOString() }, { key: "last_sync_rows", value: String(norm.length) }], { onConflict: "key" });
     if (e3) throw e3;
-    return json({ ok: true, upserted: norm.length, audits_created: created, rejected });
+    return json({ ok: true, upserted: norm.length, audits_created: created, more, rejected });
   } catch (e) { return json({ error: String((e as Error)?.message || e) }, 500); }
 });

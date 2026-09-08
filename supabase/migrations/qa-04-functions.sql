@@ -79,9 +79,11 @@ begin
     raise exception 'QA Head or service role only';
   end if;
   -- a sheet row is still pending while no audit carries its JONO *with* a sheet link (audits made by FieldOps first must still be linked + blank-filled)
+  -- bounded per call (statement timeout): the Edge Function / next sync keeps calling until a call returns fewer than 300
   for r in select s.* from qa.sheet_rows s
             where not exists (select 1 from qa.audits ex where ex.jo_no = s.jo_no and ex.deleted_at is null and ex.sheet_row_jo is not null)
-            order by s.jo_date_closed nulls last, s.jo_no loop
+            order by s.jo_date_closed nulls last, s.jo_no
+            limit 300 loop
     select * into c from qa.contractors where sheet_name = r.comp;
     -- an existing audit with the same JONO but no sheet link, else a FieldOps-sourced audit matched by acct_no → link + fill blanks only
     select * into a from qa.audits where deleted_at is null and jo_no = r.jo_no and sheet_row_jo is null limit 1;

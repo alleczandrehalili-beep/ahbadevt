@@ -151,6 +151,10 @@ alter table public.jobs add column if not exists qa_status text;
 alter table public.jobs add column if not exists qa_assessment text;
 alter table public.jobs add column if not exists qa_inspected_at timestamptz;
 create index if not exists jobs_qa_status_idx on public.jobs(qa_status) where qa_status is not null;
+-- lookups used by qa.find_job / qa.on_job_completed (upper() so the index is usable)
+create index if not exists jobs_upper_jono_idx on public.jobs (upper(job_order_no)) where deleted_at is null;
+create index if not exists jobs_ibass_acct_idx on public.jobs (ibass_acct_no) where deleted_at is null;
+
 
 -- updated_at maintenance
 create or replace function qa.touch_updated_at() returns trigger language plpgsql as $$
