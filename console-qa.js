@@ -61,6 +61,8 @@
     }
     function selIds() { return Object.keys(S.sel).filter(function (k) { return S.sel[k]; }); }
     function act(p, verb) { p.then(function (n) { toast(n + ' audit(s) ' + verb); S.sel = {}; loadQueue(); loadQueueStats(); }).catch(function (e) { toast('Failed: ' + e.message); }); }
+    // Assignment hook — host (console) uses it to fire the push notification. Never let a failing hook break the UI.
+    function fireAssigned(inspector, date, count) { try { if (o.onAssigned && inspector && date) o.onAssigned({ inspector: inspector, date: date, count: count }); } catch (e) { } }
     function loadQueueStats() {
       var m = today().slice(0, 7) + '-01';
       Promise.all([api.listAudits({ kind: 'subcon', from: m, pageSize: 1 }), api.listAudits({ kind: 'subcon', status: ['done'], from: m, pageSize: 1 }), api.listAudits({ status: ['queued'], pageSize: 1000 }), api.listAudits({ status: ['assigned', 'in_progress'], pageSize: 1 })]).then(function (r) {
@@ -90,7 +92,7 @@
       var ids = selIds(); if (!ids.length) return;
       modal('<h3 style="margin:0 0 10px">Assign ' + ids.length + ' audit(s)</h3><div class="cq-bar"><label>Inspector <select id="as_insp">' + inspectorOpts() + '</select></label><label>Date <input type="date" id="as_date" value="' + today() + '"></label><label>Start sequence # <input type="number" id="as_seq" value="1" min="1" style="width:70px"></label></div><div class="cq-age" style="margin-bottom:10px">Sequence = order of visits for that day. The inspector sees them in this order (push notification is wired at deploy).</div><div class="cq-bar" style="justify-content:flex-end"><button class="cq-btn ghost" id="as_cancel">Cancel</button><button class="cq-btn" id="as_ok">Assign</button></div>');
       $('#as_cancel').onclick = closeModal;
-      $('#as_ok').onclick = function () { var insp = $('#as_insp').value, date = $('#as_date').value, seq = Number($('#as_seq').value || 1); if (!insp || !date) { toast('Pick an inspector and a date'); return; } closeModal(); act(api.assignAudits(ids, { inspector: insp, date: date, startSeq: seq, by: user.username }), 'assigned to ' + insp); };
+      $('#as_ok').onclick = function () { var insp = $('#as_insp').value, date = $('#as_date').value, seq = Number($('#as_seq').value || 1); if (!insp || !date) { toast('Pick an inspector and a date'); return; } closeModal(); act(api.assignAudits(ids, { inspector: insp, date: date, startSeq: seq, by: user.username }).then(function (n) { fireAssigned(insp, date, ids.length); return n; }), 'assigned to ' + insp); };
     }
     function sampleDialog() {
       var pct = (S.cfg.settings || {}).inhouse_sample_pct || '10';
@@ -120,9 +122,9 @@
             list.map(function (a) { return '<div class="cq-row"><b>#' + (a.sequence || '-') + ' ' + esc(a.subscriber || '') + '</b> ' + pill(a.status) + '<div class="cq-age">' + esc(a.address || '') + ' · ' + esc(a.contractor_name || '') + (a.started_at ? ' · started ' + fmtWhen(a.started_at) : '') + (a.inspected_at ? ' · done ' + fmtWhen(a.inspected_at) : '') + '</div>' +
               (canEdit && a.status === 'assigned' ? '<div style="margin-top:4px"><select data-re="' + esc(a.id) + '"><option value="">Reassign to…</option>' + inspectorOpts() + '</select> <input type="number" min="1" value="' + (a.sequence || 1) + '" data-seq="' + esc(a.id) + '" style="width:56px" title="Visit order"> <button class="cq-btn ghost" data-un="' + esc(a.id) + '" style="padding:3px 8px">Unassign</button></div>' : '') + (a.status === 'done' ? '<div style="margin-top:4px"><button class="cq-btn ghost" data-view="' + esc(a.id) + '" style="padding:3px 8px">View result</button></div>' : '') + '</div>'; }).join('') + '</div>';
         }).join('') : '<div class="cq-empty">Nothing assigned for ' + esc(S.boardDate) + '.</div>';
-        rootEl.querySelectorAll('[data-re]').forEach(function (s) { s.onchange = function () { if (!s.value) return; var a = rows.filter(function (x) { return x.id === s.dataset.re; })[0]; api.assignAudits([a.id], { inspector: s.value, date: S.boardDate, startSeq: a.sequence || 1, by: user.username }).then(function () { toast('Reassigned'); loadBoard(); }); }; });
+        rootEl.querySelectorAll('[data-re]').forEach(function (s) { s.onchange = function () { if (!s.value) return; var a = rows.filter(function (x) { return x.id === s.dataset.re; })[0]; api.assignAudits([a.id], { inspector: s.value, date: S.boardDate, startSeq: a.sequence || 1, by: user.username }).then(function () { fireAssigned(s.value, S.boardDate, 1); toast('Reassigned'); loadBoard(); }); }; });
         rootEl.querySelectorAll('[data-un]').forEach(function (b) { b.onclick = function () { api.unassignAudits([b.dataset.un], { by: user.username }).then(function () { toast('Unassigned'); loadBoard(); }); }; });
-        rootEl.querySelectorAll('[data-seq]').forEach(function (input) { input.onchange = function () { var a = rows.filter(function (x) { return x.id === input.dataset.seq; })[0]; if (!a) return; api.assignAudits([a.id], { inspector: a.assigned_to, date: S.boardDate, startSeq: Number(input.value) || 1, by: user.username }).then(function () { toast('Order updated'); loadBoard(); }); }; });
+        rootEl.querySelectorAll('[data-seq]').forEach(function (input) { input.onchange = function () { var a = rows.filter(function (x) { return x.id === input.dataset.seq; })[0]; if (!a) return; api.assignAudits([a.id], { inspector: a.assigned_to, date: S.boardDate, startSeq: Number(input.value) || 1, by: user.username }).then(function () { fireAssigned(a.assigned_to, S.boardDate, 1); toast('Order updated'); loadBoard(); }); }; });
         rootEl.querySelectorAll('[data-view]').forEach(function (b) { b.onclick = function () { openDetail(b.dataset.view); }; });
         drawMap(rows, names);
       });
