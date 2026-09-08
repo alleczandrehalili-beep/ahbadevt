@@ -266,8 +266,8 @@
     if (api.subscribe) S.unsub = api.subscribe(function (e) { var r = e.row || {}; if (r.status === 'done' && r.inspected_at && r.inspected_at.slice(0, 10) === today()) { S.submittedToday++; toast('✅ ' + r.id + ' submitted by ' + (r.inspector || r.assigned_to) + (r.assessment ? ' · ' + r.assessment : '')); if (o.onBadge) o.onBadge(S.submittedToday); } if (S.tab === 'board') loadBoard(); if (S.tab === 'queue') loadQueueStats(); });
     // single fallback timer — realtime is primary
     S.timer = setInterval(function () { if (S.tab === 'board') loadBoard(); else if (S.tab === 'queue') loadQueueStats(); }, 120000);
-    load().then(render);
-    return { refresh: function () { return load().then(render); }, destroy: function () { if (S.unsub) S.unsub(); clearInterval(S.timer); rootEl.innerHTML = ''; }, badge: function () { return S.submittedToday; }, _S: S, _openDetail: function (id) { openDetail(id); } };
+    load().then(render).catch(function (e) { rootEl.querySelector('#cqBody').innerHTML = '<div class="cq-empty">Hindi ma-load ang QA data: ' + esc((e && e.message) || e) + '<br><span class="cq-age">Kung "permission denied", mag-sign in ulit (expired ang session) o walang QA Audit access ang account.</span></div>'; });
+    return { refresh: function () { return load().then(render).catch(function (e) { toast('QA: ' + ((e && e.message) || e)); }); }, destroy: function () { if (S.unsub) S.unsub(); clearInterval(S.timer); rootEl.innerHTML = ''; }, badge: function () { return S.submittedToday; }, _S: S, _openDetail: function (id) { openDetail(id); } };
   }
   root.ConsoleQA = { mount: mount };
 })(typeof self !== 'undefined' ? self : this);
