@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-09-07.2';
+    const APP_VERSION = '2026-09-09.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -467,7 +467,7 @@
     const statusLabel = s => (FLOW[s]?.label) || ({negative:'Incomplete',cancelled:'Cancelled',rejected:'Rejected',for_validation:'For validation'}[s]) || s;
 
     // ---------- views ----------
-    function show(view){['loginView','pwView','shiftView','appView','saView','secView'].forEach(v=>$('#'+v).classList.toggle('hidden', v!==view));const inApp=(view==='appView'||view==='saView'||view==='secView');$('#menuBtn').classList.toggle('hidden', !inApp);const hrb=$('#btnHardRefresh');if(hrb)hrb.classList.toggle('hidden', !inApp);const jtk=$('#jtTickets');if(jtk)jtk.classList.toggle('hidden', !(view==='appView'&&/^AHBA/i.test(myTeam||'')));$('#chatFab')&&$('#chatFab').classList.toggle('hidden', !(view==='appView'||view==='saView'));$('#menuPop').classList.add('hidden');try{renderAnnBanner();}catch(e){}}
+    function show(view){['loginView','pwView','shiftView','appView','saView','secView','qaView'].forEach(v=>$('#'+v).classList.toggle('hidden', v!==view));const inApp=(view==='appView'||view==='saView'||view==='secView'||view==='qaView');$('#menuBtn').classList.toggle('hidden', !inApp);const hrb=$('#btnHardRefresh');if(hrb)hrb.classList.toggle('hidden', !inApp);const jtk=$('#jtTickets');if(jtk)jtk.classList.toggle('hidden', !(view==='appView'&&/^AHBA/i.test(myTeam||'')));$('#chatFab')&&$('#chatFab').classList.toggle('hidden', !(view==='appView'||view==='saView'||view==='qaView'));$('#menuPop').classList.add('hidden');try{renderAnnBanner();}catch(e){}}
 
     // ---------- shift setup (account + crew) ----------
     // Work accounts now come from the org-scoped `work_accounts` table (see openShift) — no hardcoded list,
@@ -522,6 +522,18 @@
     // ---------- SECURITY (gate-out validation) ----------
     let secTab='out';
     function startSecurity(){ $('#teamName').textContent=headerName(); show('secView'); secSwitch(secTab); initSecMap(); setTimeout(()=>{ if(secMap) secMap.invalidateSize(); },200); renderSecMapPins(); loadSecTeams(); clearInterval(startSecurity._t); startSecurity._t=setInterval(()=>{ loadSecTeams(); renderSecMapPins(); },20000); }
+
+    // ---------- QA INSPECTOR (module in mobile-qa.js; mounted lazily) ----------
+    let _qaMount=null;
+    function startQA(){
+      $('#teamName').textContent=headerName(); show('qaView'); try{ startComms(); }catch(e){}
+      if(_qaMount){ _qaMount.refresh(); return; }
+      if(!window.QaApi||!window.MobileQA||!window.QaCore){ $('#qaView').innerHTML='<div style="padding:24px;text-align:center;color:#9aa6a2">QA module not loaded — i-refresh ang app.</div>'; return; }
+      const api=QaApi.create(sb,{username:myTeam,supaUrl:SUPA_URL});
+      _qaMount=MobileQA.mount($('#qaView'),{api,user:{username:myTeam,display_name:myName},deps:{toast,compressImage,buildStamp,
+        getPos:()=>_getPos().then(p=>(p&&p.coords)?{lat:p.coords.latitude,lng:p.coords.longitude}:null).catch(()=>null)}});
+    }
+
     function secSwitch(tab){
       secTab=tab;
       $$('.sec-tab').forEach(b=>b.classList.toggle('active', b.dataset.sectab===tab));

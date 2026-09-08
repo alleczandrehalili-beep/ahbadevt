@@ -658,6 +658,7 @@
       captureLocation(false);   // grab GPS on entry (prompts for permission first time)
       if(myRole==='sales_agent'){ startSA(); return; }
       if(myRole==='security'){ startSecurity(); return; }
+      if(myRole==='qa_inspector'){ startQA(); return; }
       // On a FRESH login, always make the user pick the account manually (no auto-select).
       // On a refresh/resume of the SAME open session, restore the locked account.
       // resumeShift() already adopted the cloud's crew/account, so there's nothing to write
@@ -826,6 +827,7 @@
       if(realtimeChan)sb.removeChannel(realtimeChan);
       if(chatChan)sb.removeChannel(chatChan); if(annChan)sb.removeChannel(annChan);
       clearInterval(startApp._t); clearInterval(startApp._loc); clearInterval(startApp._track); clearInterval(startApp._idle);
+      if(typeof _qaMount!=='undefined'&&_qaMount){ try{_qaMount.destroy();}catch(e){} _qaMount=null; }   // QA inspector: drop realtime + online listeners
       try{ localStorage.removeItem(shiftKey()); }catch(e){}   // clear saved shift → next login picks account manually
       shiftAccount=''; shiftDriver=''; shiftTech1=''; shiftTech2='';
       try{ await sb.auth.signOut(); }catch(e){}
