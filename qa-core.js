@@ -92,6 +92,18 @@
   function up(v) { var s = v == null ? '' : String(v).trim(); return s ? s.toUpperCase() : null; }
   function txt(v) { var s = v == null ? '' : String(v).trim(); return s ? s : null; }
 
+  // Quezon City barangays grouped by legislative district (1-6), uppercased at definition time (the sheet and FieldOps store barangays in caps).
+  var QC_DISTRICTS = (function (src) { var out = {}; Object.keys(src).forEach(function (d) { out[d] = src[d].map(function (b) { return b.toUpperCase(); }); }); return out; })({
+    '1': ['Alicia','Bagong Pag-asa','Bahay Toro','Balingasa','Bungad','Damar','Damayan','Del Monte','Katipunan','Lourdes','Maharlika','Manresa','Mariblo','Masambong','N.S. Amoranto','Nayong Kanluran','Paang Bundok','Pag-ibig sa Nayon','Paltok','Paraiso','Phil-Am','Project 6','Ramon Magsaysay','Saint Peter','Salvacion','San Antonio','San Isidro Labrador','San Jose','Santa Cruz','Santa Teresita','Sto. Cristo','Santo Domingo','Siena','Talayan','Vasra','Veterans Village','West Triangle'],
+    '2': ['Bagong Silangan','Batasan Hills','Commonwealth','Holy Spirit','Payatas'],
+    '3': ['Amihan','Bagumbayan','Bagumbuhay','Bayanihan','Blue Ridge A','Blue Ridge B','Camp Aguinaldo','Claro (Quirino 3-B)','Dioquino Zobel','Duyan-duyan','E. Rodriguez','East Kamias','Escopa I','Escopa II','Escopa III','Escopa IV','Libis','Loyola Heights','Mangga','Marilag','Masagana','Matandang Balara','Milagrosa','Pansol','Quirino 2-A','Quirino 2-B','Quirino 2-C','Quirino 3-A','St. Ignatius','San Roque','Silangan','Socorro','Tagumpay','Ugong Norte','Villa Maria Clara','West Kamias','White Plains'],
+    '4': ['Bagong Lipunan ng Crame','Botocan','Central','Damayang Lagi','Don Manuel','Doña Aurora','Doña Imelda','Doña Josefa','Horseshoe','Immaculate Concepcion','Kalusugan','Kamuning','Kaunlaran','Kristong Hari','Krus na Ligas','Laging Handa','Malaya','Mariana','Obrero','Old Capitol Site','Paligsahan','Pinagkaisahan','Pinyahan','Roxas','Sacred Heart','San Isidro Galas','San Martin de Porres','San Vicente','Santol','Sikatuna Village','South Triangle','Santo Niño','Tatalon',"Teacher's Village East","Teacher's Village West",'U.P. Campus','U.P. Village','Valencia'],
+    '5': ['Bagbag','Capri','Fairview','Gulod','Greater Lagro','Kaligayahan','Nagkaisang Nayon','North Fairview','Novaliches Proper','Pasong Putik Proper','San Agustin','San Bartolome','Sta. Lucia','Sta. Monica'],
+    '6': ['Apolonio Samson','Baesa','Balon Bato','Culiat','New Era','Pasong Tamo','Sangandaan','Sauyo','Talipapa','Tandang Sora','Unang Sigaw']
+  });
+  function barangaysOf(district) { return (QC_DISTRICTS[String(district)] || []).slice(); }
+  function districtOf(brgy) { var b = up(brgy); if (!b) return null; var hit = Object.keys(QC_DISTRICTS).filter(function (d) { return QC_DISTRICTS[d].indexOf(b) >= 0; })[0]; return hit || null; }
+
   function normalizeSheetRow(raw) {
     raw = raw || {};
     var jo = up(raw.JONO || raw.jo_no);
@@ -160,9 +172,70 @@
     };
   }
 
+  var RECT_STATUS = ['FOR RECTIFICATION', 'FOR RE-INSPECTION', 'RECTIFIED', 'CLOSED'];
+  var RECT_OPEN = ['FOR RECTIFICATION', 'FOR RE-INSPECTION'];
+
+  // 1 + number of DISTINCT prior done audits (same contractor + code, last 12 months). Legacy sheet rows and deleted audits never count.
+  function offenseNo(priorViolations, contractor, code, excludeAuditId, nowIso) {
+    var now = new Date(nowIso);
+    var floor = new Date(nowIso);
+    var m = floor.getUTCMonth();
+    floor.setUTCFullYear(floor.getUTCFullYear() - 1);
+    if (floor.getUTCMonth() !== m) floor.setUTCDate(0);   // clamp to last day of intended month, matching Postgres interval math
+    var seen = {};
+    (priorViolations || []).forEach(function (v) {
+      if (v.code !== code || v.contractor_name !== contractor) return;
+      if (v.status !== 'done' || v.deleted_at || v.source === 'sheet_legacy' || !v.inspected_at) return;
+      if (excludeAuditId && v.audit_id === excludeAuditId) return;
+      var inspectedAt = new Date(v.inspected_at);
+      if (inspectedAt >= now) return;
+      if (inspectedAt < floor) return;
+      seen[v.audit_id] = 1;
+    });
+    return 1 + Object.keys(seen).length;
+  }
+
+  function effectivePenalty(v) {
+    if (!v) return 0;
+    var p = v.penalty_override != null ? v.penalty_override : v.penalty_amount;
+    return p == null ? 0 : Number(p) || 0;
+  }
+
+  // Rectification state machine. Returns null when nothing changes. `rect` null = no loop yet.
+  // `ev.sameAudit` (submit only) = this very audit is the loop's last_audit_id, i.e. it already advanced the loop
+  // once and the head has since reopened it — the resubmit CORRECTS that outcome instead of making a new one.
+  function rectNext(rect, ev) {
+    ev = ev || {};
+    var st = rect ? rect.status : null, cyc = rect ? rect.cycle || 1 : 0;
+    // The one non-terminal reading of RECTIFIED: the re-inspection that rectified the loop was reopened by the head
+    // and now comes back WITH fails — the loop goes back to FOR RECTIFICATION in place (same cycle, same deadline).
+    // CLOSED stays terminal: only the head reopens a closed loop, never a resubmit.
+    if (rect && st === 'RECTIFIED' && ev.type === 'submit' && ev.reinspection && ev.sameAudit && ev.visit_status === 'VISITED' && ev.fails > 0)
+      return { status: 'FOR RECTIFICATION', cycle: cyc, rectified: false, reopened: true };
+    if (rect && RECT_OPEN.indexOf(st) < 0) return null;                      // RECTIFIED / CLOSED are terminal
+    if (ev.type === 'submit') {
+      if (ev.visit_status !== 'VISITED') return null;                       // NPA / unlocated never open or close a loop
+      if (!rect) return ev.fails > 0 ? { status: 'FOR RECTIFICATION', cycle: 1, rectified: false } : null;
+      if (!ev.reinspection) return null;                                    // only a re-inspection visit can advance an open loop (a reopened original is ignored)
+      return ev.fails > 0 ? { status: 'FOR RECTIFICATION', cycle: cyc + 1, rectified: false } : { status: 'RECTIFIED', cycle: cyc, rectified: true };
+    }
+    if (!rect) return null;
+    if (ev.type === 'assign') return { status: 'FOR RE-INSPECTION', cycle: cyc, rectified: false };
+    if (ev.type === 'unassign') return st === 'FOR RE-INSPECTION' ? { status: 'FOR RECTIFICATION', cycle: cyc, rectified: false } : null;
+    if (ev.type === 'close') return { status: 'CLOSED', cycle: cyc, rectified: false };
+    return null;
+  }
+
+  function isOverdue(rect, todayYmd) { return !!rect && RECT_OPEN.indexOf(rect.status) >= 0 && !!rect.deadline && rect.deadline < todayYmd; }
+  function passRate(pass, fail) { var d = (pass || 0) + (fail || 0); return d ? Math.round((pass || 0) * 100 / d) : null; }
+  function trend(cur, prev) { if (cur == null || prev == null) return { delta: null, dir: null }; var d = cur - prev; return { delta: d, dir: d > 0 ? 'up' : d < 0 ? 'down' : 'flat' }; }
+
   return { VISIT: VISIT, ASSESS: ASSESS, WIRE: WIRE, QAGC: QAGC, defaultAssessment: defaultAssessment, parsePenalty: parsePenalty,
            penaltyFor: penaltyFor, totals: totals, validateSubmission: validateSubmission, normalizeSheetRow: normalizeSheetRow,
            hasLegacyQa: hasLegacyQa, initialStatus: initialStatus, pickSample: pickSample, agingBucket: agingBucket,
-           weeklySummary: weeklySummary, toDate: toDate };
+           weeklySummary: weeklySummary, toDate: toDate,
+           RECT_STATUS: RECT_STATUS, RECT_OPEN: RECT_OPEN, offenseNo: offenseNo, effectivePenalty: effectivePenalty,
+           rectNext: rectNext, isOverdue: isOverdue, passRate: passRate, trend: trend,
+           QC_DISTRICTS: QC_DISTRICTS, districtOf: districtOf, barangaysOf: barangaysOf };
 });
 

@@ -11,7 +11,8 @@
     '.qa-item{border:1px solid #dfe7e2;border-radius:11px;padding:9px;margin-bottom:8px;background:#fff}.qa-item .lbl{font-weight:700;font-size:13px;margin-bottom:6px}.qa-pfn{display:flex;gap:6px}.qa-pfn button{flex:1;padding:10px 0;border-radius:9px;border:1px solid #cfd8d3;background:#fff;font-weight:800;font-size:13px}.qa-pfn button.pass.on{background:#11825f;color:#fff;border-color:#11825f}.qa-pfn button.fail.on{background:#c2503a;color:#fff;border-color:#c2503a}.qa-pfn button.na.on{background:#5c6b67;color:#fff;border-color:#5c6b67}' +
     '.qa-fail{margin-top:8px;border-top:1px dashed #e3b1a6;padding-top:8px}.qa-thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.qa-thumbs img{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid #cfd8d3}.qa-chips{display:flex;gap:5px;flex-wrap:wrap;margin:5px 0}.qa-chips span{font-size:10px;border:1px solid #cfd8d3;border-radius:9px;padding:3px 7px;background:#fff}' +
     '.qa-seg{display:flex;gap:5px;flex-wrap:wrap}.qa-seg button{padding:8px 10px;border-radius:9px;border:1px solid #cfd8d3;background:#fff;font-weight:700;font-size:12px}.qa-seg button.on{background:#0d3b34;color:#fff;border-color:#0d3b34}' +
-    '.qa-sig{border:1px solid #cfd8d3;border-radius:10px;background:#fff;width:100%;height:150px;touch-action:none}.qa-cert{font-size:11px;color:#3a4a45;background:#fff;border:1px solid #e3e8e2;border-radius:9px;padding:8px;margin:6px 0}.qa-footer{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #dfe7e2;padding:10px 12px;display:flex;gap:8px;z-index:9001}.qa-footer .qa-btn{flex:1;text-align:center}.qa-err{color:#c2503a;font-size:12px;margin:6px 0;white-space:pre-wrap}.qa-pend{font-size:11px;color:#9a6200;margin:4px 0}';
+    '.qa-sig{border:1px solid #cfd8d3;border-radius:10px;background:#fff;width:100%;height:150px;touch-action:none}.qa-cert{font-size:11px;color:#3a4a45;background:#fff;border:1px solid #e3e8e2;border-radius:9px;padding:8px;margin:6px 0}.qa-footer{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #dfe7e2;padding:10px 12px;display:flex;gap:8px;z-index:9001}.qa-footer .qa-btn{flex:1;text-align:center}.qa-err{color:#c2503a;font-size:12px;margin:6px 0;white-space:pre-wrap}.qa-pend{font-size:11px;color:#9a6200;margin:4px 0}' +
+    '.qa-re{background:#fff3d6;border:1px solid #f0d28a;border-radius:11px;padding:9px 11px;margin-bottom:9px}.qa-re .t{font-weight:900;color:#9a6200}.qa-hint{font-size:11px;color:#9a6200;margin-top:4px}';
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function h(html) { var d = document.createElement('div'); d.innerHTML = html; return d.firstElementChild; }
@@ -66,7 +67,7 @@
     var getPos = deps.getPos || function () { return Promise.resolve(null); };
     var compress = deps.compressImage || function (f) { return Promise.resolve(f); };
     var buildStamp = deps.buildStamp || function () { return Promise.resolve(null); };
-    var state = { tab: 'today', audits: [], cfg: null, open: null, draft: null, pads: {}, unsub: null, destroyed: false };
+    var state = { tab: 'today', audits: [], cfg: null, open: null, draft: null, pads: {}, unsub: null, destroyed: false, ctx: null, offense: {}, offenseSeq: 0, offenseSig: null, reGen: 0, roGen: 0 };
     if (!document.getElementById('qaCss')) { var st = document.createElement('style'); st.id = 'qaCss'; st.textContent = CSS; document.head.appendChild(st); }
     rootEl.innerHTML = '<div class="qa-wrap"><div style="display:flex;justify-content:space-between;align-items:center"><div><b>QA Inspections</b><div style="font-size:11px;color:#3a4a45">' + esc(user.username) + (user.display_name ? ' · ' + esc(user.display_name) : '') + '</div></div><div class="qa-pend" id="qaPend"></div></div>' +
       '<div class="qa-tabs"><button data-tab="today" class="on">Today</button><button data-tab="upcoming">Upcoming</button><button data-tab="done">Done</button></div><div id="qaList"></div></div><div id="qaSheet"></div>';
@@ -74,10 +75,35 @@
     rootEl.querySelectorAll('.qa-tabs button').forEach(function (b) { b.onclick = function () { state.tab = b.dataset.tab; rootEl.querySelectorAll('.qa-tabs button').forEach(function (x) { x.classList.toggle('on', x === b); }); renderList(); }; });
 
     function today() { return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }); }
+    // Removes tickets that vanished from this inspector's list (redispatched elsewhere) from freshList's predecessor:
+    // drops any queued offline submission for them (with a toast noting the discard) and closes the sheet if one was open on it.
+    function applyGone(prevList, freshList) {
+      var gone = prevList.filter(function (p) { return !freshList.some(function (a) { return a.id === p.id; }) && p.status !== 'done'; });
+      if (!gone.length) return;
+      var q = lsGet(QUEUE, []);
+      var wasQueued = {}; gone.forEach(function (p) { wasQueued[p.id] = q.some(function (item) { return item.audit_id === p.id; }); });
+      var q2 = q.filter(function (item) { return !gone.some(function (p) { return p.id === item.audit_id; }); });
+      lsSet(QUEUE, q2); renderPend();
+      gone.forEach(function (p) {
+        lsDel(draftKey(p.id));
+        toast('Ticket ' + p.id + ' was reassigned or unassigned by the QA Head' + (wasQueued[p.id] ? ' — your unsent inspection was discarded' : ''));
+        if (state.open && state.open.id === p.id) closeSheet();
+      });
+    }
+    function checkStillMine() {
+      return api.listMyAudits(user.username).then(function (fresh) {
+        if (state.destroyed) return;
+        applyGone(state.audits, fresh);
+        state.audits = fresh; lsSet('qa_cache_' + user.username, state.audits);
+      }).catch(function () {});
+    }
     function refresh() {
+      var prev = state.audits;
       return Promise.all([api.listMyAudits(user.username), state.cfg ? Promise.resolve(state.cfg) : api.getConfig()]).then(function (r) {
         if (state.destroyed) return;
-        state.audits = r[0]; state.cfg = r[1]; lsSet('qa_cache_' + user.username, state.audits); renderList(); return flushQueue();
+        state.audits = r[0]; state.cfg = r[1]; lsSet('qa_cache_' + user.username, state.audits); renderList();
+        applyGone(prev, r[0]);
+        return flushQueue();
       }).catch(function (e) {
         if (state.destroyed) return;
         state.audits = lsGet('qa_cache_' + user.username, []); renderList(); toast('Offline — showing cached inspections');
@@ -95,7 +121,8 @@
       if (!list.length) { el.innerHTML = '<div style="text-align:center;color:#9aa6a2;padding:30px 0">' + (state.tab === 'today' ? 'No inspections assigned for today.' : 'Nothing here.') + '</div>'; return; }
       el.innerHTML = list.map(function (a) {
         var badge = a.status === 'done' ? '<span class="qa-badge done">' + esc(a.visit_status || 'DONE') + (a.assessment ? ' · ' + esc(a.assessment) : '') + '</span>' : a.status === 'in_progress' ? '<span class="qa-badge prog">IN PROGRESS</span>' : '<span class="qa-badge">#' + (a.sequence || '-') + '</span>';
-        return '<div class="qa-card" data-id="' + esc(a.id) + '"><div class="t">' + esc(a.subscriber || '—') + badge + '</div><div class="s">' + esc(a.address || '') + (a.barangay ? ' · ' + esc(a.barangay) : '') + '</div>' +
+        var re = a.source === 'reinspection' ? '<span class="qa-badge prog">RE-INSPECTION</span>' : '';
+        return '<div class="qa-card" data-id="' + esc(a.id) + '"><div class="t">' + esc(a.subscriber || '—') + badge + re + '</div><div class="s">' + esc(a.address || '') + (a.barangay ? ' · ' + esc(a.barangay) : '') + '</div>' +
           '<div class="s">' + esc(a.id) + ' · ' + esc(a.contractor_name || '') + ' · JO ' + esc(a.jo_no || '—') + ' · closed ' + esc(a.jo_date_closed || '—') + '</div>' + (a.installers_text ? '<div class="s">Installers: ' + esc(a.installers_text) + '</div>' : '') +
           '<div style="display:flex;gap:6px;margin-top:8px"><a class="qa-btn ghost" href="' + mapsUrl(a) + '" target="_blank" rel="noopener">🧭 Navigate</a><button class="qa-btn" data-open="' + esc(a.id) + '">' + (a.status === 'done' ? 'View' : a.status === 'in_progress' ? 'Continue' : 'Start inspection') + '</button></div></div>';
       }).join('');
@@ -107,7 +134,7 @@
     function newDraft(a) { return { audit_id: a.id, submit_key: a.id + '-' + Date.now(), visit_status: 'VISITED', contractor_rep: '', installers_text: a.installers_text || '', wire: '', qa_gc: '', assessment: '', found_business: '', old_plan: '', new_plan: '', remarks: '', items: {}, violations: {}, photos: [], pending: [], subscriber_signed_name: a.subscriber || '', sig_sub: null, sig_ins: null, lat: a.lat, lng: a.lng }; }
     function prefillFromServer(id, a) {
       return api.getAudit(id).then(function (r) {
-        if (state.destroyed) return null;
+        if (state.destroyed || state.open !== a) return null;
         var d = newDraft(a), ra = r.audit;
         d.visit_status = ra.visit_status || 'VISITED';
         d.contractor_rep = ra.contractor_rep || '';
@@ -128,20 +155,32 @@
         state.draft = d; saveDraft();
         var pid = d.audit_id; Promise.all(d.photos.map(function (p) { return api.photoUrl(p.path).then(function (u) { p.thumb = u; }).catch(function () {}); })).then(function () { if (state.destroyed || !state.open || state.open.id !== pid) return; saveDraft(); renderSheet(); });
         return d;
-      }).catch(function (e) { if (state.destroyed) return null; toast('Could not load previous submission — starting blank'); return null; });
+      }).catch(function (e) { if (state.destroyed || state.open !== a) return null; toast('Could not load previous submission — starting blank'); return null; });
     }
     function openAudit(id) {
       var a = state.audits.filter(function (x) { return x.id === id; })[0]; if (!a) return;
       state.open = a;
+      state.ctx = null;
+      if (a.source === 'reinspection') {
+        api.getAudit(id).then(function (r) {
+          if (state.destroyed || state.open !== a) return;
+          state.ctx = { rectification: r.rectification, previous: r.previous, loaded: true };
+          renderReBox();
+        }).catch(function () {
+          if (state.destroyed || state.open !== a) return;
+          state.ctx = { loaded: false };
+          renderReBox();
+        });
+      }
       var start = a.status === 'assigned' ? getPos().then(function (p) { return api.startAudit(id, p || {}); }).then(function (r) { Object.assign(a, r); }).catch(function (e) { toast('Could not mark start (offline?) — you can continue'); }) : Promise.resolve();
       start.then(function () {
-        if (state.destroyed) return;
+        if (state.destroyed || state.open !== a) return;
         if (a.status === 'done') { state.draft = null; renderSheet(); return; }
         var localDraft = lsGet(draftKey(id), null);
         var reopened = a.reopened_count > 0 || a.inspected_at;
         var ready = (!localDraft && reopened) ? prefillFromServer(id, a).then(function (d) { return d || newDraft(a); }) : Promise.resolve(localDraft || newDraft(a));
         ready.then(function (d) {
-          if (state.destroyed) return;
+          if (state.destroyed || state.open !== a) return;
           state.draft = d;
           if (!state.draft.lat) getPos().then(function (p) { if (p) { state.draft.lat = p.lat; state.draft.lng = p.lng; saveDraft(); } });
           saveDraft(); renderSheet();
@@ -149,28 +188,82 @@
       });
     }
     function saveDraft() { if (state.draft) lsSet(draftKey(state.draft.audit_id), state.draft); }
-    function closeSheet() { if (state.pads.sub) state.pads.sub.destroy(); if (state.pads.ins) state.pads.ins.destroy(); $('#qaSheet').innerHTML = ''; state.open = null; state.draft = null; state.pads = {}; refresh(); }
+    function closeSheet() { if (state.pads.sub) state.pads.sub.destroy(); if (state.pads.ins) state.pads.ins.destroy(); $('#qaSheet').innerHTML = ''; state.open = null; state.draft = null; state.pads = {}; state.ctx = null; state.offense = {}; state.offenseSig = null; refresh(); }
     function checklist() { return (state.cfg.checklist || []).filter(function (c) { return c.active; }); }
     function codeOptions(sel) { return state.cfg.codes.filter(function (c) { return c.active !== false; }).map(function (c) { return '<option value="' + esc(c.code) + '"' + (c.code === sel ? ' selected' : '') + '>' + esc(c.code + ' — ' + c.category) + '</option>'; }).join(''); }
+    function renderOffenseHints() {
+      var a = state.open, d = state.draft; if (!a || !d) return;
+      rootEl.querySelectorAll('[data-offhint]').forEach(function (el) { var v = d.violations[el.dataset.offhint]; var o = v && state.offense[v.code]; el.textContent = o ? ('Offense #' + o.offense_no + ' for ' + (a.contractor_name || 'contractor') + (o.penalty_amount != null ? ' · ₱' + Number(o.penalty_amount).toLocaleString() : ' · ' + (o.penalty_text || '')) + ' (auto — QA Head may override)') : ''; });
+    }
+    function loadOffenseHints() {
+      var a = state.open, d = state.draft; if (!a || !d || !api.offensePreview) return;
+      var codes = Object.keys(d.violations).map(function (k) { return d.violations[k].code; }).filter(Boolean);
+      if (!codes.length) return;
+      var sig = codes.slice().sort().join(',');
+      if (sig === state.offenseSig) { renderOffenseHints(); return; }
+      state.offenseSig = sig;
+      var seq = ++state.offenseSeq;
+      api.offensePreview(a.contractor_name, codes).then(function (m) {
+        if (seq !== state.offenseSeq || state.destroyed || state.open !== a) return;
+        state.offense = m || {};
+        renderOffenseHints();
+      }).catch(function () { if (seq === state.offenseSeq) state.offenseSig = null; });
+    }
 
     function renderSheet() {
       var a = state.open, d = state.draft, ro = !d;
       var hdr = '<div class="qa-card"><div class="t">' + esc(a.id) + ' <span class="qa-badge">' + esc(a.contractor_name || '') + '</span></div><div class="s"><b>' + esc(a.subscriber || '') + '</b> · Acct ' + esc(a.acct_no || '—') + ' · JO ' + esc(a.jo_no || '—') + '</div><div class="s">' + esc(a.address || '') + ' · ' + esc(a.barangay || '') + '</div><div class="s">NAP ' + esc(a.nap_code || '—') + ' · Port ' + esc(a.port_no || '—') + ' · S/N ' + esc(a.serial_no || '—') + '</div><div class="s">Inspector: ' + esc(user.username) + ' · ' + esc(today()) + '</div></div>';
+      if (a.source === 'reinspection') hdr += '<div id="qaReBox"></div>';
       var sheet = $('#qaSheet'); sheet.innerHTML = '<div class="qa-sheet">' + hdr + '<div id="qaBody"></div><div class="qa-err" id="qaErr"></div></div><div class="qa-footer"><button class="qa-btn ghost" id="qaBack">' + (ro ? 'Close' : 'Save & back') + '</button>' + (ro ? '' : '<button class="qa-btn" id="qaSubmit">Submit inspection</button>') + '</div>';
+      if (a.source === 'reinspection') renderReBox();
       $('#qaBack').onclick = function () { saveDraft(); closeSheet(); };
       if (ro) { renderReadOnly(a); return; }
       $('#qaSubmit').onclick = submit;
       renderForm();
     }
+    // Fills #qaReBox from state.ctx without touching the rest of the sheet — the ctx fetch (previous
+    // findings) resolves independently of the sheet opening, and re-rendering the whole sheet on
+    // arrival would wipe any in-progress pad strokes / form input the inspector has already made.
+    function renderReBox() {
+      var box = $('#qaReBox'); if (!box) return;
+      var a = state.open;
+      var gen = ++state.reGen;
+      if (!state.ctx) { box.innerHTML = '<div class="qa-re"><div class="s">Loading previous findings…</div></div>'; return; }
+      if (state.ctx.loaded === false) { box.innerHTML = '<div class="qa-re"><div class="s">Previous findings unavailable offline.</div></div>'; return; }
+      var rc = state.ctx.rectification || {}, pv = state.ctx.previous;
+      var labels = {}; checklist().forEach(function (x) { labels[x.id] = x.label; });
+      box.innerHTML = '<div class="qa-re"><div class="t">🔁 RE-INSPECTION · cycle ' + esc(rc.cycle || '?') + ' · deadline ' + esc(rc.deadline || '—') + '</div>' +
+        (pv ? '<div class="s">Previous visit ' + esc(pv.audit.id) + ' · ' + fmtDate(pv.audit.inspected_at) + ' · ' + esc(pv.audit.inspector || '') + '</div><div class="s"><b>Failed then:</b> ' + (pv.items.filter(function (i) { return i.result === 'fail'; }).map(function (i) { return esc(labels[i.item_id] || i.item_id) + (i.remark ? ' (' + esc(i.remark) + ')' : ''); }).join(' · ') || 'none') + '</div>' +
+          (pv.violations.length ? '<div class="s"><b>Violations:</b> ' + pv.violations.map(function (v) { return esc(v.code) + ' #' + (v.offense_no || 1); }).join(', ') + '</div>' : '') + '<div class="qa-thumbs" id="qaPrevThumbs"></div>' : '<div class="s">No previous visit on record.</div>') + '</div>';
+      if (pv) {
+        pv.photos.filter(function (p) { return pv.items.some(function (i) { return i.item_id === p.item_id && i.result === 'fail'; }); }).forEach(function (p) {
+          api.photoUrl(p.path).then(function (u) {
+            if (state.destroyed || state.open !== a || gen !== state.reGen) return;
+            var reBox = $('#qaReBox'), pt = reBox ? reBox.querySelector('#qaPrevThumbs') : null;
+            if (!pt) return;
+            var img = h('<img alt="">'); img.src = u; pt.appendChild(img);
+          }).catch(function () {});
+        });
+      }
+    }
     function renderReadOnly(a) {
       api.getAudit(a.id).then(function (r) {
-        if (state.destroyed) return;
+        if (state.destroyed || state.open !== a) return;
         var labels = {}; checklist().forEach(function (c) { labels[c.id] = c.label; });
         $('#qaBody').innerHTML = '<div class="qa-sec">Result</div><div class="qa-card"><div class="t">' + esc(r.audit.visit_status || '') + (r.audit.assessment ? ' · ' + esc(r.audit.assessment) : '') + '</div><div class="s">Wire ' + esc(r.audit.wire || '—') + ' · QA/GC ' + esc(r.audit.qa_gc || '—') + ' · Violations ' + r.audit.total_violations + ' · ₱' + Number(r.audit.total_penalty || 0).toLocaleString() + '</div><div class="s">' + esc(r.audit.remarks || '') + '</div><div class="s">Submitted ' + fmtDate(r.audit.inspected_at) + '</div></div>' +
           (r.items.length ? '<div class="qa-sec">Checklist</div>' + r.items.map(function (i) { return '<div class="qa-item"><div class="lbl">' + esc(labels[i.item_id] || i.item_id) + ' <span class="qa-badge ' + (i.result === 'fail' ? 'prog' : '') + '">' + i.result.toUpperCase() + '</span></div>' + (i.remark ? '<div class="s">' + esc(i.remark) + '</div>' : '') + '</div>'; }).join('') : '') +
           (r.violations.length ? '<div class="qa-sec">Violations</div>' + r.violations.map(function (v) { return '<div class="qa-item"><div class="lbl">' + esc(v.code) + ' — ' + esc(v.category || '') + '</div><div class="s">' + esc(v.description || '') + (v.penalty_amount != null ? ' · ₱' + Number(v.penalty_amount).toLocaleString() : '') + '</div></div>'; }).join('') : '') +
           '<div class="qa-sec">Photos</div><div class="qa-thumbs" id="qaRoThumbs"></div>';
-        r.photos.forEach(function (p) { api.photoUrl(p.path).then(function (u) { var img = h('<img alt="">'); img.src = u; $('#qaRoThumbs').appendChild(img); }); });
+        // same generation guard as renderReBox: #qaRoThumbs may exist again for a DIFFERENT ticket by the time a
+        // signed URL resolves (close → reopen another read-only sheet), so a stale thumb must not be appended.
+        var gen = ++state.roGen;
+        r.photos.forEach(function (p) {
+          api.photoUrl(p.path).then(function (u) {
+            if (state.destroyed || state.open !== a || gen !== state.roGen) return;
+            var thumbs = $('#qaRoThumbs'); if (!thumbs) return;
+            var img = h('<img alt="">'); img.src = u; thumbs.appendChild(img);
+          }).catch(function () {});
+        });
       });
     }
 
@@ -190,11 +283,11 @@
             var res = d.items[c.id] || '', v = d.violations[c.id] || {}, ph = d.photos.concat(d.pending).filter(function (p) { return p.item_id === c.id; });
             html += '<div class="qa-item" data-item="' + c.id + '"><div class="lbl">' + esc(c.label) + '</div><div class="qa-pfn"><button class="pass ' + (res === 'pass' ? 'on' : '') + '" data-r="pass">PASS</button><button class="fail ' + (res === 'fail' ? 'on' : '') + '" data-r="fail">FAIL</button><button class="na ' + (res === 'na' ? 'on' : '') + '" data-r="na">N/A</button></div>' +
               '<div class="qa-thumbs">' + ph.map(photoTag).join('') + '</div>' +
-              (res === 'fail' ? '<div class="qa-fail"><input type="file" accept="image/*" capture="environment" data-photo="' + c.id + '"><div class="qa-field" style="margin-top:6px"><label>Violation code *</label><select data-code="' + c.id + '">' + codeOptions(v.code || c.suggested_code) + '</select></div><div class="qa-chips" data-chips="' + c.id + '">' + state.cfg.quickRemarks.map(function (q) { return '<span>' + esc(q.label) + '</span>'; }).join('') + '</div><div class="qa-field"><label>Remark</label><textarea rows="2" data-remark="' + c.id + '">' + esc(v.remark || '') + '</textarea></div></div>' :
+              (res === 'fail' ? '<div class="qa-fail"><input type="file" accept="image/*" capture="environment" data-photo="' + c.id + '"><div class="qa-field" style="margin-top:6px"><label>Violation code *</label><select data-code="' + c.id + '">' + codeOptions(v.code || c.suggested_code) + '</select><div class="qa-hint" data-offhint="' + c.id + '"></div></div><div class="qa-chips" data-chips="' + c.id + '">' + state.cfg.quickRemarks.map(function (q) { return '<span>' + esc(q.label) + '</span>'; }).join('') + '</div><div class="qa-field"><label>Remark</label><textarea rows="2" data-remark="' + c.id + '">' + esc(v.remark || '') + '</textarea></div></div>' :
                '<div style="margin-top:6px"><input type="file" accept="image/*" capture="environment" data-photo="' + c.id + '" style="font-size:11px"></div>') + '</div>';
           });
         });
-        html += '<div class="qa-sec">Other violations</div><div id="qaExtra">' + Object.keys(d.violations).filter(function (k) { return k.indexOf('x') === 0; }).map(function (k) { var v = d.violations[k]; return '<div class="qa-item"><div class="qa-field"><label>Code</label><select data-code="' + k + '">' + codeOptions(v.code) + '</select></div><div class="qa-field"><label>Remark</label><textarea rows="2" data-remark="' + k + '">' + esc(v.remark || '') + '</textarea></div><button class="qa-btn ghost" data-delv="' + k + '">Remove</button></div>'; }).join('') + '</div><button class="qa-btn ghost" id="qaAddV">+ Add other violation</button>';
+        html += '<div class="qa-sec">Other violations</div><div id="qaExtra">' + Object.keys(d.violations).filter(function (k) { return k.indexOf('x') === 0; }).map(function (k) { var v = d.violations[k]; return '<div class="qa-item"><div class="qa-field"><label>Code</label><select data-code="' + k + '">' + codeOptions(v.code) + '</select><div class="qa-hint" data-offhint="' + k + '"></div></div><div class="qa-field"><label>Remark</label><textarea rows="2" data-remark="' + k + '">' + esc(v.remark || '') + '</textarea></div><button class="qa-btn ghost" data-delv="' + k + '">Remove</button></div>'; }).join('') + '</div><button class="qa-btn ghost" id="qaAddV">+ Add other violation</button>';
         var hasFail = Object.values(d.items).some(function (r) { return r === 'fail'; });
         html += '<div class="qa-sec">Assessment</div><div class="qa-field"><label>Wire *</label><div class="qa-seg" data-seg="wire">' + Core.WIRE.map(function (v) { return '<button data-v="' + v + '" class="' + (d.wire === v ? 'on' : '') + '">' + v + '</button>'; }).join('') + '</div></div>' +
           '<div class="qa-field"><label>QA / GC *</label><div class="qa-seg" data-seg="qa_gc">' + Core.QAGC.map(function (v) { return '<button data-v="' + v + '" class="' + (d.qa_gc === v ? 'on' : '') + '">' + v + '</button>'; }).join('') + '</div></div>' +
@@ -212,7 +305,7 @@
       body.querySelectorAll('#qaVisit button').forEach(function (b) { b.onclick = function () { d.visit_status = b.dataset.v; saveDraft(); renderForm(); }; });
       body.querySelectorAll('[data-seg]').forEach(function (seg) { seg.querySelectorAll('button').forEach(function (b) { b.onclick = function () { if (b.disabled) return; d[seg.dataset.seg] = b.dataset.v; seg.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); }); saveDraft(); }; }); });
       body.querySelectorAll('.qa-pfn button').forEach(function (b) { b.onclick = function () { var item = b.closest('[data-item]').dataset.item; d.items[item] = b.dataset.r; if (b.dataset.r === 'fail' && !d.violations[item]) { var c = checklist().filter(function (x) { return String(x.id) === item; })[0]; d.violations[item] = { code: c.suggested_code || '', remark: '', item_id: c.id }; } if (b.dataset.r !== 'fail') delete d.violations[item]; if (!Object.values(d.items).some(function (r) { return r === 'fail'; })) d.assessment = 'GOOD'; else if (d.assessment === 'GOOD') d.assessment = ''; saveDraft(); renderForm(); }; });
-      body.querySelectorAll('[data-code]').forEach(function (s) { s.onchange = function () { d.violations[s.dataset.code].code = s.value; saveDraft(); }; });
+      body.querySelectorAll('[data-code]').forEach(function (s) { s.onchange = function () { d.violations[s.dataset.code].code = s.value; saveDraft(); var hint = body.querySelector('[data-offhint="' + s.dataset.code + '"]'); if (hint) hint.textContent = ''; loadOffenseHints(); }; });
       body.querySelectorAll('[data-remark]').forEach(function (t) { t.oninput = function () { d.violations[t.dataset.remark].remark = t.value; saveDraft(); }; });
       body.querySelectorAll('[data-chips] span').forEach(function (sp) { sp.onclick = function () { var k = sp.parentNode.dataset.chips, t = body.querySelector('[data-remark="' + k + '"]'); t.value = (t.value ? t.value + ', ' : '') + sp.textContent; d.violations[k].remark = t.value; saveDraft(); }; });
       body.querySelectorAll('[data-delv]').forEach(function (b) { b.onclick = function () { delete d.violations[b.dataset.delv]; saveDraft(); renderForm(); }; });
@@ -229,6 +322,7 @@
         $('#sigInsClear').onclick = function () { state.pads.ins.clear(); d.sig_ins = null; d.sig_ins_path = null; saveDraft(); };
       }
       if (a.job_id) api.getInstallPhotos(a.job_id).then(function (ps) { if (state.destroyed) return; var el = $('#qaInstall'); if (!el) return; el.innerHTML = ps.length ? ps.map(function (p) { return '<a href="' + esc(p.url) + '" target="_blank" rel="noopener"><img src="' + esc(p.url) + '" alt="" title="' + esc(p.label || '') + '"></a>'; }).join('') : '<span class="qa-pend">No close-out photos uploaded by the technician.</span>'; });
+      if (visited) loadOffenseHints();
     }
 
     function addPhoto(file, itemId) {
@@ -309,7 +403,7 @@
     }
     function saveDraftFor(d) { lsSet(draftKey(d.audit_id), d); }
 
-    if (api.subscribe) state.unsub = api.subscribe(function () { if (!state.open) refresh(); });
+    if (api.subscribe) state.unsub = api.subscribe(function () { if (!state.open) refresh(); else checkStillMine(); });
     var onOnline = function () { flushQueue().then(refresh); }; window.addEventListener('online', onOnline);
     refresh();
     return { refresh: refresh, destroy: function () { state.destroyed = true; if (state.pads.sub) state.pads.sub.destroy(); if (state.pads.ins) state.pads.ins.destroy(); if (state.unsub) state.unsub(); window.removeEventListener('online', onOnline); rootEl.innerHTML = ''; } };
