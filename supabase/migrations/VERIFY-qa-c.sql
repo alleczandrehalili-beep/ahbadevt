@@ -14,6 +14,11 @@ union all select 'month_violations head-only', case when coalesce(pg_get_functio
 union all select 'month_violations executable', case when has_function_privilege('authenticated','qa.month_violations(date)','execute') then 'OK' else 'FAIL' end
 union all select 'my_org executable', case when has_function_privilege('authenticated','qa.my_org()','execute') then 'OK' else 'FAIL' end
 union all select 'submit_audit has loop hook', case when pg_get_functiondef(to_regprocedure('qa.submit_audit(text,jsonb)')) like '%after_submit_rect%' then 'OK' else 'FAIL' end
+-- qa-05e: 'VISITED / NPA' is an inspected visit (full checklist, no subscriber signature) and moves the loop
+union all select 'submit_audit NPA checklist', case when pg_get_functiondef(to_regprocedure('qa.submit_audit(text,jsonb)')) like '%VISITED / NPA%' then 'OK' else 'FAIL (run qa-05e)' end
+union all select 'after_submit_rect NPA loop', case when pg_get_functiondef(to_regprocedure('qa.after_submit_rect(qa.audits,integer)')) like '%VISITED / NPA%' then 'OK' else 'FAIL (run qa-05e)' end
+-- qa-05e part 2: Commercial is Yes/No only — found_business allows 'yes' (legacy 'willing'/'not_willing' rows still valid)
+union all select 'found_business allows yes', case when coalesce(pg_get_constraintdef((select oid from pg_constraint where conname='audits_found_business_check' and connamespace = 'qa'::regnamespace)), '') like '%yes%' then 'OK' else 'FAIL (run qa-05e)' end
 union all select 'sync_job knows loops', case when pg_get_functiondef(to_regprocedure('qa.sync_job(qa.audits)')) like '%rectification_id%' then 'OK' else 'FAIL' end
 union all select 'rls rect/notices', case when count(*) = 2 then 'OK' else 'FAIL '||count(*) end from pg_tables where schemaname='qa' and tablename in ('rectifications','notices') and rowsecurity
 union all select 'subcon policies', case when count(*) >= 4 then 'OK' else 'FAIL '||count(*) end from pg_policies where schemaname='qa' and policyname in ('qa_rect_subcon','qa_notices_subcon_read','qa_notices_subcon_seen','qa_checklist_subcon')

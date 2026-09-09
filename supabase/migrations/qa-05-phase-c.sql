@@ -38,6 +38,10 @@ alter table qa.audits add column if not exists rectification_id text references 
 alter table qa.audits add column if not exists reinspection_of text references qa.audits(id);
 alter table qa.audits drop constraint if exists audits_source_check;
 alter table qa.audits add constraint audits_source_check check (source in ('sheet','fieldops','sheet_legacy','manual','reinspection'));
+-- Commercial is Yes/No only (owner change, 2026-09-09 part 2): found_business = 'yes' means Commercial = Yes.
+-- Legacy rows keep 'willing' / 'not_willing' and still display as Yes.
+alter table qa.audits drop constraint if exists audits_found_business_check;
+alter table qa.audits add constraint audits_found_business_check check (found_business is null or found_business in ('yes','willing','not_willing'));
 create index if not exists audits_rect_idx on qa.audits(rectification_id) where rectification_id is not null;
 -- a re-inspection copies the original JO number, so the Phase A partial unique index (qa-01) must ignore those rows
 drop index if exists qa.audits_jo_no_uidx;
@@ -143,7 +147,7 @@ create or replace function qa.after_submit_rect(a qa.audits, p_fails int) return
 language plpgsql security definer set search_path = qa, public, pg_temp as $$
 declare r qa.rectifications; v_days int := coalesce(nullif(qa.setting('rect_default_days'),'')::int, 7); v_id text; v_same boolean;
 begin
-  if a.visit_status <> 'VISITED' then return; end if;            -- NPA/unlocated never open or close a loop
+  if a.visit_status not in ('VISITED','VISITED / NPA') then return; end if;   -- unlocated / not exist / h.closed never open or close a loop
   if a.rectification_id is null then
     if p_fails = 0 then return; end if;                           -- first inspection GOOD → nothing
     v_id := qa.next_rect_id();
@@ -223,7 +227,7 @@ begin
       on conflict (path) do update set audit_id = excluded.audit_id, item_id = excluded.item_id, label = excluded.label;
   end loop;
 
-  if v_visit = 'VISITED' then
+  if v_visit in ('VISITED','VISITED / NPA') then
     for it in select * from jsonb_array_elements(coalesce(p_payload->'items','[]'::jsonb)) loop
       if coalesce(it->>'result', '') not in ('pass','fail','na') then raise exception 'Invalid item result %', it->>'result'; end if;
       insert into qa.audit_items(audit_id, item_id, result, remark) values (p_id, (it->>'item_id')::bigint, it->>'result', it->>'remark');
@@ -236,8 +240,14 @@ begin
     if coalesce(p_payload->>'assessment', '') not in ('GOOD','FOR RECTIFY','FOR PENALTY','CLAWBACK') then raise exception 'assessment required'; end if;
     if coalesce(p_payload->>'wire', '') not in ('STANDARD','EXISTING','SUBSTANDARD') then raise exception 'wire required'; end if;
     if coalesce(p_payload->>'qa_gc', '') not in ('COMPLETED','INCOMPLETE','NONE') then raise exception 'qa_gc required'; end if;
-    if coalesce(p_payload->>'subscriber_signed_name', '') = '' then raise exception 'Subscriber name required'; end if;
-    if coalesce(p_payload->>'subscriber_signature_path','') = '' or coalesce(p_payload->>'inspector_signature_path','') = '' then raise exception 'Both signatures are required'; end if;
+    if coalesce(p_payload->>'found_business','') not in ('', 'yes','willing','not_willing') then raise exception 'Invalid found_business'; end if;
+    -- VISITED / NPA = the subscriber was not around: no name, nothing for them to sign. The inspector still signs.
+    if v_visit = 'VISITED' and coalesce(p_payload->>'subscriber_signed_name', '') = '' then raise exception 'Subscriber name required'; end if;
+    if v_visit = 'VISITED' then
+      if coalesce(p_payload->>'subscriber_signature_path','') = '' or coalesce(p_payload->>'inspector_signature_path','') = '' then raise exception 'Both signatures are required'; end if;
+    else
+      if coalesce(p_payload->>'inspector_signature_path','') = '' then raise exception 'Inspector signature is required'; end if;
+    end if;
     for it in select * from jsonb_array_elements(coalesce(p_payload->'violations','[]'::jsonb)) loop
       select * into c from qa.violation_codes where code = it->>'code';
       if c.code is null then raise exception 'Unknown violation code %', it->>'code'; end if;
@@ -258,12 +268,12 @@ begin
     lat = coalesce((p_payload->>'lat')::double precision, lat), lng = coalesce((p_payload->>'lng')::double precision, lng),
     inspector = coalesce(inspector, qa.actor()), visit_status = v_visit,
     contractor_rep = p_payload->>'contractor_rep', installers_text = coalesce(nullif(p_payload->>'installers_text',''), installers_text),
-    wire = case when v_visit = 'VISITED' then nullif(p_payload->>'wire','') end,
-    qa_gc = case when v_visit = 'VISITED' then nullif(p_payload->>'qa_gc','') end,
-    assessment = case when v_visit = 'VISITED' then nullif(p_payload->>'assessment','') end,
-    found_business = case when v_visit = 'VISITED' then nullif(p_payload->>'found_business','') end,
-    old_plan = case when v_visit = 'VISITED' then nullif(p_payload->>'old_plan','') end,
-    new_plan = case when v_visit = 'VISITED' then nullif(p_payload->>'new_plan','') end,
+    wire = case when v_visit in ('VISITED','VISITED / NPA') then nullif(p_payload->>'wire','') end,
+    qa_gc = case when v_visit in ('VISITED','VISITED / NPA') then nullif(p_payload->>'qa_gc','') end,
+    assessment = case when v_visit in ('VISITED','VISITED / NPA') then nullif(p_payload->>'assessment','') end,
+    found_business = case when v_visit in ('VISITED','VISITED / NPA') then nullif(p_payload->>'found_business','') end,
+    old_plan = case when v_visit in ('VISITED','VISITED / NPA') then nullif(p_payload->>'old_plan','') end,
+    new_plan = case when v_visit in ('VISITED','VISITED / NPA') then nullif(p_payload->>'new_plan','') end,
     remarks = p_payload->>'remarks', subscriber_signed_name = p_payload->>'subscriber_signed_name',
     subscriber_signature_path = p_payload->>'subscriber_signature_path', inspector_signature_path = p_payload->>'inspector_signature_path',
     total_violations = v_count, total_penalty = v_pen

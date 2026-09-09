@@ -85,7 +85,7 @@
     function rectDays() { return parseInt(db.settings.rect_default_days, 10) || 7; }
     function plusDays(ymd, n) { var d = new Date(ymd + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
     function afterSubmitRect(a, fails, by) {
-      if (a.visit_status !== 'VISITED') return;   // NPA/unlocated never open or close a loop — and never logged
+      if (Core.INSPECTED.indexOf(a.visit_status) < 0) return;   // unlocated / not exist / h.closed never open or close a loop — and never logged
       var r = a.rectification_id ? db.rectifications.filter(function (x) { return x.id === a.rectification_id; })[0] : null;
       var same = !!(r && r.last_audit_id === a.id);   // this audit already advanced the loop once (reopened + resubmitted) — mirrors SQL v_same
       if (r) {
@@ -230,14 +230,15 @@
           var errs = Core.validateSubmission(p, db.checklist.filter(function (c) { return c.active; }));
           if (errs.length) throw new Error(errs.join(' '));
           var cmPre = codeMap();
-          if (p.visit_status === 'VISITED') {
+          var inspected = Core.INSPECTED.indexOf(p.visit_status) >= 0;
+          if (inspected) {
             (p.violations || []).forEach(function (v) { if (!cmPre[v.code]) throw new Error('Unknown violation code ' + v.code); });
           }
           db.items = db.items.filter(function (i) { return i.audit_id !== id; }); db.violations = db.violations.filter(function (v) { return v.audit_id !== id; });
           db.photos = db.photos.filter(function (x) { return x.audit_id !== id; });
           (p.photos || []).forEach(function (ph) { db.photos.push({ id: db.photos.length + 1, audit_id: id, item_id: ph.item_id || null, path: ph.path, label: ph.label || null, created_at: iso() }); });
           var cm = codeMap(), count = 0, pen = 0, fails = 0;
-          if (p.visit_status === 'VISITED') {
+          if (inspected) {
             fails = (p.items || []).filter(function (i) { return i.result === 'fail'; }).length;
             (p.items || []).forEach(function (i) { db.items.push({ audit_id: id, item_id: i.item_id, result: i.result, remark: i.remark || null }); });
             var prior = joined();
@@ -249,7 +250,7 @@
               count++; pen += amt || 0;
             });
           }
-          var vis = p.visit_status === 'VISITED';   // the assessment block only exists for a VISITED inspection — never carry a stale draft value over
+          var vis = inspected;   // the assessment block only exists for an inspected visit (VISITED / VISITED / NPA) — never carry a stale draft value over
           Object.assign(a, { status: 'done', inspected_at: iso(), submit_key: p.submit_key, lat: p.lat != null ? p.lat : a.lat, lng: p.lng != null ? p.lng : a.lng, inspector: a.inspector || a.assigned_to,
             visit_status: p.visit_status, contractor_rep: p.contractor_rep || null, installers_text: p.installers_text || a.installers_text, wire: vis ? (p.wire || null) : null, qa_gc: vis ? (p.qa_gc || null) : null,
             assessment: vis ? (p.assessment || null) : null, found_business: vis ? (p.found_business || null) : null, old_plan: vis ? (p.old_plan || null) : null, new_plan: vis ? (p.new_plan || null) : null, remarks: p.remarks || null,

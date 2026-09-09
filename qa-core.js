@@ -5,6 +5,9 @@
   else root.QaCore = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
   var VISIT = ['VISITED', 'VISITED / NPA', 'UNLOCATED', 'NOT EXIST', 'H.CLOSED'];
+  // An INSPECTED visit runs the full checklist. 'VISITED / NPA' = the subscriber was not around, but the inspector
+  // still walked the installation, so everything except the subscriber's name and signature is required.
+  var INSPECTED = ['VISITED', 'VISITED / NPA'];
   var ASSESS = ['GOOD', 'FOR RECTIFY', 'FOR PENALTY', 'CLAWBACK'];
   var WIRE = ['STANDARD', 'EXISTING', 'SUBSTANDARD'];
   var QAGC = ['COMPLETED', 'INCOMPLETE', 'NONE'];
@@ -48,7 +51,7 @@
     if (!p.submit_key) errs.push('Missing submit key.');
     if (VISIT.indexOf(p.visit_status) < 0) errs.push('Visit status is required.');
     var photos = p.photos || [];
-    if (p.visit_status !== 'VISITED') {
+    if (INSPECTED.indexOf(p.visit_status) < 0) {
       if (!photos.length) errs.push('A location photo is required when the subscriber was not visited.');
       if (!(p.remarks || '').trim()) errs.push('Remarks are required when the subscriber was not visited.');
       return errs;
@@ -69,8 +72,11 @@
     if (fails.length && p.assessment === 'GOOD') errs.push('Assessment cannot be GOOD when an item failed.');
     if (WIRE.indexOf(p.wire) < 0) errs.push('Wire status is required.');
     if (QAGC.indexOf(p.qa_gc) < 0) errs.push('QA / GC status is required.');
-    if (!(p.subscriber_signed_name || '').trim()) errs.push("Subscriber's name is required.");
-    if (!p.subscriber_signature_path) errs.push("Subscriber's signature is required.");
+    if (['', 'yes', 'willing', 'not_willing'].indexOf(p.found_business || '') < 0) errs.push('Invalid found_business.');
+    if (p.visit_status === 'VISITED') {                                   // NPA = subscriber absent, nothing for them to sign
+      if (!(p.subscriber_signed_name || '').trim()) errs.push("Subscriber's name is required.");
+      if (!p.subscriber_signature_path) errs.push("Subscriber's signature is required.");
+    }
     if (!p.inspector_signature_path) errs.push("Inspector's signature is required.");
     return errs;
   }
@@ -210,11 +216,11 @@
     // The one non-terminal reading of RECTIFIED: the re-inspection that rectified the loop was reopened by the head
     // and now comes back WITH fails — the loop goes back to FOR RECTIFICATION in place (same cycle, same deadline).
     // CLOSED stays terminal: only the head reopens a closed loop, never a resubmit.
-    if (rect && st === 'RECTIFIED' && ev.type === 'submit' && ev.reinspection && ev.sameAudit && ev.visit_status === 'VISITED' && ev.fails > 0)
+    if (rect && st === 'RECTIFIED' && ev.type === 'submit' && ev.reinspection && ev.sameAudit && INSPECTED.indexOf(ev.visit_status) >= 0 && ev.fails > 0)
       return { status: 'FOR RECTIFICATION', cycle: cyc, rectified: false, reopened: true };
     if (rect && RECT_OPEN.indexOf(st) < 0) return null;                      // RECTIFIED / CLOSED are terminal
     if (ev.type === 'submit') {
-      if (ev.visit_status !== 'VISITED') return null;                       // NPA / unlocated never open or close a loop
+      if (INSPECTED.indexOf(ev.visit_status) < 0) return null;              // unlocated / not exist / h.closed never open or close a loop
       if (!rect) return ev.fails > 0 ? { status: 'FOR RECTIFICATION', cycle: 1, rectified: false } : null;
       if (!ev.reinspection) return null;                                    // only a re-inspection visit can advance an open loop (a reopened original is ignored)
       return ev.fails > 0 ? { status: 'FOR RECTIFICATION', cycle: cyc + 1, rectified: false } : { status: 'RECTIFIED', cycle: cyc, rectified: true };
@@ -230,7 +236,7 @@
   function passRate(pass, fail) { var d = (pass || 0) + (fail || 0); return d ? Math.round((pass || 0) * 100 / d) : null; }
   function trend(cur, prev) { if (cur == null || prev == null) return { delta: null, dir: null }; var d = cur - prev; return { delta: d, dir: d > 0 ? 'up' : d < 0 ? 'down' : 'flat' }; }
 
-  return { VISIT: VISIT, ASSESS: ASSESS, WIRE: WIRE, QAGC: QAGC, defaultAssessment: defaultAssessment, parsePenalty: parsePenalty,
+  return { VISIT: VISIT, INSPECTED: INSPECTED, ASSESS: ASSESS, WIRE: WIRE, QAGC: QAGC, defaultAssessment: defaultAssessment, parsePenalty: parsePenalty,
            penaltyFor: penaltyFor, totals: totals, validateSubmission: validateSubmission, normalizeSheetRow: normalizeSheetRow,
            hasLegacyQa: hasLegacyQa, initialStatus: initialStatus, pickSample: pickSample, agingBucket: agingBucket,
            weeklySummary: weeklySummary, toDate: toDate,

@@ -228,6 +228,47 @@ test('loop: failed submit opens FOR RECTIFICATION with default deadline, notice,
   assert.equal(j.qa_status, 'VISITED');
 });
 
+test('NPA: a failed VISITED / NPA inspection stores items + assessment and opens the loop', async () => {
+  let t = new Date('2026-09-09T02:00:00Z'); const sim = Sim.create({ now: () => t, seed: Sim.demoSeed() });
+  const id = await assignedAudit(sim, 'J2');
+  await sim.startAudit(id, {});
+  const p = payload(sim, id, 1);
+  // subscriber absent: no name, no subscriber signature, no location photo — the checklist still applies
+  delete p.subscriber_signed_name; delete p.subscriber_signature_path;
+  const r = await sim.submitAudit(id, { ...p, visit_status: 'VISITED / NPA' });
+  assert.equal(r.audit.visit_status, 'VISITED / NPA');
+  assert.equal(r.audit.assessment, 'FOR RECTIFY'); assert.equal(r.audit.wire, 'STANDARD'); assert.equal(r.audit.qa_gc, 'COMPLETED');
+  assert.equal(r.audit.subscriber_signature_path, null);
+  assert.equal(sim._db.items.filter(i => i.audit_id === id).length, sim._db.checklist.length);
+  assert.equal(r.audit.total_violations, 1);
+  const { rectification } = await sim.getAudit(id);
+  assert.ok(rectification, 'an NPA visit with a fail opens a rectification loop');
+  assert.equal(rectification.status, 'FOR RECTIFICATION'); assert.equal(rectification.cycle, 1); assert.equal(rectification.deadline, '2026-09-16');
+  // the inspector signature is still required on an NPA visit
+  const id2 = await assignedAudit(sim, 'AVELINE');
+  const p2 = payload(sim, id2, 0); delete p2.subscriber_signed_name; delete p2.subscriber_signature_path;
+  await assert.rejects(sim.submitAudit(id2, { ...p2, visit_status: 'VISITED / NPA', inspector_signature_path: null }), /[Ii]nspector/);
+});
+
+test('NPA: a clean VISITED / NPA inspection stores GOOD, opens nothing, and mirrors qa_status on the JO', async () => {
+  let t = new Date('2026-09-09T02:00:00Z'); const sim = Sim.create({ now: () => t, seed: Sim.demoSeed() });
+  const withJob = (await sim.listAudits({ status: ['queued'] })).rows.filter(a => a.job_id)[0];
+  assert.ok(withJob, 'demo seed links the first sheet rows to JOs');
+  await sim.assignAudits([withJob.id], { inspector: 'AHBA_QA01', date: '2026-09-09', by: 'HEAD' });
+  const p = payload(sim, withJob.id, 0); delete p.subscriber_signed_name; delete p.subscriber_signature_path;
+  const r = await sim.submitAudit(withJob.id, { ...p, visit_status: 'VISITED / NPA' });
+  assert.equal(r.audit.assessment, 'GOOD');
+  assert.equal((await sim.getAudit(withJob.id)).rectification, null);
+  assert.equal(job(sim, withJob.job_id).qa_status, 'VISITED / NPA');
+  assert.equal(job(sim, withJob.job_id).qa_assessment, 'GOOD');
+  // Commercial is Yes/No only: found_business must be a valid value even on an NPA visit
+  const id2 = await assignedAudit(sim, 'AVELINE');
+  const p2 = payload(sim, id2, 0); delete p2.subscriber_signed_name; delete p2.subscriber_signature_path;
+  await assert.rejects(sim.submitAudit(id2, { ...p2, visit_status: 'VISITED / NPA', found_business: 'bogus' }), /Invalid found_business/);
+  const ok = await sim.submitAudit(id2, { ...p2, visit_status: 'VISITED / NPA', found_business: 'yes', new_plan: 'BIZ 100' });
+  assert.equal(ok.audit.found_business, 'yes'); assert.equal(ok.audit.new_plan, 'BIZ 100');
+});
+
 test('loop: assign re-inspection → new audit source=reinspection; GOOD closes as RECTIFIED; head cannot close RECTIFIED', async () => {
   let t = new Date('2026-09-09T02:00:00Z'); const sim = Sim.create({ now: () => t, seed: Sim.demoSeed() });
   const id = await assignedAudit(sim, 'J2'); await sim.submitAudit(id, payload(sim, id, 1));

@@ -40,12 +40,49 @@ test('validateSubmission enforces the form rules', () => {
   assert.deepEqual(C.validateSubmission(failOk, CHECK), []);
   const failGood = {...failOk, assessment:'GOOD'};
   assert.ok(C.validateSubmission(failGood, CHECK).some(e=>/assessment/i.test(e)));
-  const npa = { submit_key:'k2', visit_status:'VISITED / NPA', remarks:'walang tao', photos:[{path:'p'}] };
-  assert.deepEqual(C.validateSubmission(npa, CHECK), []);
-  const npaNoPhoto = { submit_key:'k3', visit_status:'UNLOCATED', remarks:'x', photos:[] };
-  assert.ok(C.validateSubmission(npaNoPhoto, CHECK).some(e=>/photo/i.test(e)));
+  const closed = { submit_key:'k2', visit_status:'H.CLOSED', remarks:'sarado', photos:[{path:'p'}] };
+  assert.deepEqual(C.validateSubmission(closed, CHECK), []);
+  const closedNoPhoto = { submit_key:'k3', visit_status:'UNLOCATED', remarks:'x', photos:[] };
+  assert.ok(C.validateSubmission(closedNoPhoto, CHECK).some(e=>/photo/i.test(e)));
   const noSig = {...base, subscriber_signature_path:null};
   assert.ok(C.validateSubmission(noSig, CHECK).some(e=>/signature/i.test(e)));
+});
+
+test('VISITED / NPA is an inspected visit: full checklist, no subscriber name or signature', () => {
+  const npa = { submit_key:'n1', visit_status:'VISITED / NPA', assessment:'GOOD', wire:'STANDARD', qa_gc:'COMPLETED',
+    items:[{item_id:1,result:'pass'},{item_id:2,result:'pass'}], violations:[], photos:[], inspector_signature_path:'qa/x/i.png' };
+  assert.deepEqual(C.INSPECTED, ['VISITED','VISITED / NPA']);
+  assert.deepEqual(C.validateSubmission(npa, CHECK), []);                                   // no subscriber, no location photo, no remarks
+  assert.ok(C.validateSubmission({...npa, inspector_signature_path:null}, CHECK).some(e=>/inspector/i.test(e)));
+  assert.ok(C.validateSubmission({...npa, items:[{item_id:1,result:'pass'}]}, CHECK).some(e=>/no answer/i.test(e)));
+  assert.ok(C.validateSubmission({...npa, wire:''}, CHECK).some(e=>/wire/i.test(e)));
+  const npaFail = {...npa, items:[{item_id:1,result:'fail'},{item_id:2,result:'pass'}], assessment:'FOR RECTIFY', photos:[{path:'p',item_id:1}]};
+  assert.ok(C.validateSubmission(npaFail, CHECK).some(e=>/violation code/i.test(e)));
+  assert.ok(C.validateSubmission({...npaFail, assessment:'GOOD', violations:[{code:'HA001',item_id:1}]}, CHECK).some(e=>/GOOD/i.test(e)));
+  assert.deepEqual(C.validateSubmission({...npaFail, violations:[{code:'HA001',item_id:1}]}, CHECK), []);
+  // the other three statuses keep the short form: location photo + remarks, no checklist
+  assert.ok(C.validateSubmission({submit_key:'n2', visit_status:'UNLOCATED', remarks:'x', photos:[]}, CHECK).some(e=>/photo/i.test(e)));
+  assert.ok(C.validateSubmission({submit_key:'n3', visit_status:'UNLOCATED', remarks:'', photos:[{path:'p'}]}, CHECK).some(e=>/[Rr]emarks/.test(e)));
+  assert.deepEqual(C.validateSubmission({submit_key:'n4', visit_status:'UNLOCATED', remarks:'hindi mahanap', photos:[{path:'p'}]}, CHECK), []);
+});
+
+test('Commercial is Yes/No only: found_business allows yes (and the legacy willing/not_willing) but rejects junk', () => {
+  const base = { submit_key:'c1', visit_status:'VISITED', assessment:'GOOD', wire:'STANDARD', qa_gc:'COMPLETED',
+    items:[{item_id:1,result:'pass'},{item_id:2,result:'pass'}], violations:[], photos:[],
+    subscriber_signed_name:'JUAN', subscriber_signature_path:'qa/x/s.png', inspector_signature_path:'qa/x/i.png' };
+  assert.deepEqual(C.validateSubmission(base, CHECK), []);                                       // absent = Commercial No
+  assert.deepEqual(C.validateSubmission({...base, found_business:null}, CHECK), []);
+  assert.deepEqual(C.validateSubmission({...base, found_business:'yes'}, CHECK), []);
+  assert.deepEqual(C.validateSubmission({...base, found_business:'willing'}, CHECK), []);         // legacy rows still valid
+  assert.deepEqual(C.validateSubmission({...base, found_business:'not_willing'}, CHECK), []);
+  assert.deepEqual(C.validateSubmission({...base, found_business:'bogus'}, CHECK), ['Invalid found_business.']);
+  // NPA is inspected too, so the same rule applies there
+  const npa = { submit_key:'c2', visit_status:'VISITED / NPA', assessment:'GOOD', wire:'STANDARD', qa_gc:'COMPLETED',
+    items:[{item_id:1,result:'pass'},{item_id:2,result:'pass'}], violations:[], photos:[], inspector_signature_path:'i', found_business:'bogus' };
+  assert.deepEqual(C.validateSubmission(npa, CHECK), ['Invalid found_business.']);
+  assert.deepEqual(C.validateSubmission({...npa, found_business:'yes'}, CHECK), []);
+  // a non-inspected visit never reaches the found_business rule
+  assert.deepEqual(C.validateSubmission({submit_key:'c3', visit_status:'H.CLOSED', remarks:'x', photos:[{path:'p'}], found_business:'bogus'}, CHECK), []);
 });
 
 test('normalizeSheetRow maps headers, dates, blanks; rejects rows without JONO', () => {
@@ -172,6 +209,19 @@ test('rectNext: first fail opens, GOOD re-inspection rectifies, failed re-inspec
   assert.deepEqual(Core.rectNext(open, { type: 'close' }), { status: 'CLOSED', cycle: 1, rectified: false });
   assert.equal(Core.rectNext({ status: 'RECTIFIED', cycle: 1 }, { type: 'close' }), null);
   assert.equal(Core.rectNext({ status: 'CLOSED', cycle: 2 }, { type: 'submit', visit_status: 'VISITED', fails: 1, reinspection: true }), null);
+});
+
+test('rectNext: an NPA inspection opens and advances the loop exactly like VISITED', () => {
+  assert.deepEqual(Core.rectNext(null, { type:'submit', visit_status:'VISITED / NPA', fails:1 }), { status:'FOR RECTIFICATION', cycle:1, rectified:false });
+  const open = { status:'FOR RE-INSPECTION', cycle:1 };
+  assert.deepEqual(Core.rectNext(open, { type:'submit', visit_status:'VISITED / NPA', fails:0, reinspection:true }), { status:'RECTIFIED', cycle:1, rectified:true });
+  assert.deepEqual(Core.rectNext(open, { type:'submit', visit_status:'VISITED / NPA', fails:2, reinspection:true }), { status:'FOR RECTIFICATION', cycle:2, rectified:false });
+  assert.deepEqual(Core.rectNext({ status:'RECTIFIED', cycle:1 }, { type:'submit', visit_status:'VISITED / NPA', fails:1, reinspection:true, sameAudit:true }),
+    { status:'FOR RECTIFICATION', cycle:1, rectified:false, reopened:true });
+  // the three uninspected statuses still never touch a loop
+  assert.equal(Core.rectNext(null, { type:'submit', visit_status:'UNLOCATED', fails:1 }), null);
+  assert.equal(Core.rectNext(open, { type:'submit', visit_status:'H.CLOSED', fails:0, reinspection:true }), null);
+  assert.equal(Core.rectNext(open, { type:'submit', visit_status:'NOT EXIST', fails:2, reinspection:true }), null);
 });
 
 test('rectNext: a reopened RECTIFIED re-inspection resubmitted with fails reopens the loop in place; every other terminal read stays null', () => {
