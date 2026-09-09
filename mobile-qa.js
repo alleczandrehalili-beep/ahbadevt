@@ -131,7 +131,7 @@
 
     // ---------- inspection sheet ----------
     function draftKey(id) { return DRAFT + id; }
-    function newDraft(a) { return { audit_id: a.id, submit_key: a.id + '-' + Date.now(), visit_status: 'VISITED', contractor_rep: '', installers_text: a.installers_text || '', wire: '', qa_gc: '', assessment: '', found_business: '', old_plan: '', new_plan: '', remarks: '', items: {}, violations: {}, photos: [], pending: [], subscriber_signed_name: a.subscriber || '', sig_sub: null, sig_ins: null, lat: a.lat, lng: a.lng }; }
+    function newDraft(a) { return { audit_id: a.id, submit_key: a.id + '-' + Date.now(), visit_status: 'VISITED', contractor_rep: '', installers_text: a.installers_text || '', wire: '', qa_gc: '', assessment: '', commercial: '', old_plan: '', new_plan: '', remarks: '', items: {}, violations: {}, photos: [], pending: [], subscriber_signed_name: a.subscriber || '', sig_sub: null, sig_ins: null, lat: a.lat, lng: a.lng }; }
     function prefillFromServer(id, a) {
       return api.getAudit(id).then(function (r) {
         if (state.destroyed || state.open !== a) return null;
@@ -142,7 +142,7 @@
         d.wire = ra.wire || '';
         d.qa_gc = ra.qa_gc || '';
         d.assessment = ra.assessment || '';
-        d.found_business = ra.found_business || '';
+        d.commercial = ra.found_business ? 'yes' : (ra.status === 'done' ? 'no' : '');   // derived: found_business stays the only stored field
         d.old_plan = ra.old_plan || '';
         d.new_plan = ra.new_plan || '';
         d.remarks = ra.remarks || '';
@@ -177,6 +177,7 @@
         if (state.destroyed || state.open !== a) return;
         if (a.status === 'done') { state.draft = null; renderSheet(); return; }
         var localDraft = lsGet(draftKey(id), null);
+        if (localDraft && localDraft.commercial == null) localDraft.commercial = localDraft.found_business ? 'yes' : '';   // drafts saved before the Commercial Yes/No build
         var reopened = a.reopened_count > 0 || a.inspected_at;
         var ready = (!localDraft && reopened) ? prefillFromServer(id, a).then(function (d) { return d || newDraft(a); }) : Promise.resolve(localDraft || newDraft(a));
         ready.then(function (d) {
@@ -250,7 +251,7 @@
       api.getAudit(a.id).then(function (r) {
         if (state.destroyed || state.open !== a) return;
         var labels = {}; checklist().forEach(function (c) { labels[c.id] = c.label; });
-        $('#qaBody').innerHTML = '<div class="qa-sec">Result</div><div class="qa-card"><div class="t">' + esc(r.audit.visit_status || '') + (r.audit.assessment ? ' · ' + esc(r.audit.assessment) : '') + '</div><div class="s">Wire ' + esc(r.audit.wire || '—') + ' · QA/GC ' + esc(r.audit.qa_gc || '—') + ' · Violations ' + r.audit.total_violations + ' · ₱' + Number(r.audit.total_penalty || 0).toLocaleString() + '</div><div class="s">' + esc(r.audit.remarks || '') + '</div><div class="s">Submitted ' + fmtDate(r.audit.inspected_at) + '</div></div>' +
+        $('#qaBody').innerHTML = '<div class="qa-sec">Result</div><div class="qa-card"><div class="t">' + esc(r.audit.visit_status || '') + (r.audit.assessment ? ' · ' + esc(r.audit.assessment) : '') + '</div><div class="s">Wire ' + esc(r.audit.wire || '—') + ' · QA/GC ' + esc(r.audit.qa_gc || '—') + ' · Violations ' + r.audit.total_violations + ' · ₱' + Number(r.audit.total_penalty || 0).toLocaleString() + '</div><div class="s">Commercial: ' + (r.audit.found_business ? 'YES' : 'NO') + (r.audit.old_plan || r.audit.new_plan ? ' · old ' + esc(r.audit.old_plan || '—') + ' · new ' + esc(r.audit.new_plan || '—') : '') + '</div><div class="s">' + esc(r.audit.remarks || '') + '</div><div class="s">Submitted ' + fmtDate(r.audit.inspected_at) + '</div></div>' +
           (r.items.length ? '<div class="qa-sec">Checklist</div>' + r.items.map(function (i) { return '<div class="qa-item"><div class="lbl">' + esc(labels[i.item_id] || i.item_id) + ' <span class="qa-badge ' + (i.result === 'fail' ? 'prog' : '') + '">' + i.result.toUpperCase() + '</span></div>' + (i.remark ? '<div class="s">' + esc(i.remark) + '</div>' : '') + '</div>'; }).join('') : '') +
           (r.violations.length ? '<div class="qa-sec">Violations</div>' + r.violations.map(function (v) { return '<div class="qa-item"><div class="lbl">' + esc(v.code) + ' — ' + esc(v.category || '') + '</div><div class="s">' + esc(v.description || '') + (v.penalty_amount != null ? ' · ₱' + Number(v.penalty_amount).toLocaleString() : '') + '</div></div>'; }).join('') : '') +
           '<div class="qa-sec">Photos</div><div class="qa-thumbs" id="qaRoThumbs"></div>';
@@ -269,10 +270,11 @@
 
     function renderForm() {
       var a = state.open, d = state.draft, body = $('#qaBody');
-      var visited = d.visit_status === 'VISITED';
+      var inspected = Core.INSPECTED.indexOf(d.visit_status) >= 0;
+      var withSub = d.visit_status === 'VISITED';   // the subscriber acknowledgement block only exists when the subscriber was around
       var html = '<div class="qa-sec">Visit</div><div class="qa-seg" id="qaVisit">' + Core.VISIT.map(function (v) { return '<button data-v="' + esc(v) + '" class="' + (d.visit_status === v ? 'on' : '') + '">' + esc(v) + '</button>'; }).join('') + '</div>';
       html += '<div class="qa-field" style="margin-top:8px"><label>Contractor\'s representative</label><input id="f_rep" value="' + esc(d.contractor_rep) + '"></div><div class="qa-field"><label>Installer/s</label><input id="f_inst" value="' + esc(d.installers_text) + '"></div>';
-      if (!visited) {
+      if (!inspected) {
         html += '<div class="qa-sec">Location photo *</div><div class="qa-thumbs" id="qaLocThumbs"></div><input type="file" accept="image/*" capture="environment" id="f_locphoto" style="margin-top:6px">' +
           '<div class="qa-field" style="margin-top:8px"><label>Remarks *</label><textarea id="f_remarks" rows="3">' + esc(d.remarks) + '</textarea></div>';
       } else {
@@ -292,18 +294,28 @@
         html += '<div class="qa-sec">Assessment</div><div class="qa-field"><label>Wire *</label><div class="qa-seg" data-seg="wire">' + Core.WIRE.map(function (v) { return '<button data-v="' + v + '" class="' + (d.wire === v ? 'on' : '') + '">' + v + '</button>'; }).join('') + '</div></div>' +
           '<div class="qa-field"><label>QA / GC *</label><div class="qa-seg" data-seg="qa_gc">' + Core.QAGC.map(function (v) { return '<button data-v="' + v + '" class="' + (d.qa_gc === v ? 'on' : '') + '">' + v + '</button>'; }).join('') + '</div></div>' +
           '<div class="qa-field"><label>Assessment *</label><div class="qa-seg" data-seg="assessment">' + Core.ASSESS.map(function (v) { return '<button data-v="' + v + '" class="' + (d.assessment === v ? 'on' : '') + '"' + (v === 'GOOD' && hasFail ? ' disabled title="Not allowed with a failed item"' : '') + '>' + v + '</button>'; }).join('') + '</div></div>' +
-          '<div class="qa-sec">Found business</div><div class="qa-seg" data-seg="found_business"><button data-v="" class="' + (!d.found_business ? 'on' : '') + '">NONE</button><button data-v="willing" class="' + (d.found_business === 'willing' ? 'on' : '') + '">WILLING TO UPGRADE</button><button data-v="not_willing" class="' + (d.found_business === 'not_willing' ? 'on' : '') + '">NOT WILLING (SUBJECT FOR TERMINATION)</button></div>' +
-          '<div style="display:flex;gap:8px;margin-top:8px"><div class="qa-field" style="flex:1"><label>Old plan</label><input id="f_old" value="' + esc(d.old_plan) + '"></div><div class="qa-field" style="flex:1"><label>New plan</label><input id="f_new" value="' + esc(d.new_plan) + '"></div></div>' +
+          '<div class="qa-sec">Commercial</div><div class="qa-seg" data-seg="commercial"><button data-v="yes" class="' + (d.commercial === 'yes' ? 'on' : '') + '">YES</button><button data-v="no" class="' + (d.commercial === 'no' ? 'on' : '') + '">NO</button></div>' +
+          (d.commercial === 'yes' ?
+            '<div style="display:flex;gap:8px;margin-top:8px"><div class="qa-field" style="flex:1"><label>Old plan</label><input id="f_old" value="' + esc(d.old_plan) + '"></div><div class="qa-field" style="flex:1"><label>New plan</label><input id="f_new" value="' + esc(d.new_plan) + '"></div></div>' : '') +
           '<div class="qa-field"><label>General remarks</label><textarea id="f_remarks" rows="2">' + esc(d.remarks) + '</textarea></div>' +
-          '<div class="qa-sec">Subscriber acknowledgement</div><div class="qa-cert">I, <b>' + esc(d.subscriber_signed_name || a.subscriber || '__________') + '</b>, the client, understand that there is a non-compliance regarding my subscription and that I need to change and/or upgrade from residential plan to business plan (applies only when a business was found).</div>' +
-          '<div class="qa-field"><label>Subscriber\'s name *</label><input id="f_subname" value="' + esc(d.subscriber_signed_name) + '"></div><canvas class="qa-sig" id="sigSub"></canvas><div style="display:flex;justify-content:space-between;align-items:center"><span class="qa-pend">' + ((d.sig_sub || d.sig_sub_path) ? '✓ signature captured' : '') + '</span><button class="qa-btn ghost" id="sigSubClear">Clear</button></div>' +
+          (withSub ?
+            '<div class="qa-sec">Subscriber acknowledgement</div><div class="qa-cert">I, <b>' + esc(d.subscriber_signed_name || a.subscriber || '__________') + '</b>, the client, understand that there is a non-compliance regarding my subscription and that I need to change and/or upgrade from residential plan to business plan (applies only when a business was found).</div>' +
+            '<div class="qa-field"><label>Subscriber\'s name *</label><input id="f_subname" value="' + esc(d.subscriber_signed_name) + '"></div><canvas class="qa-sig" id="sigSub"></canvas><div style="display:flex;justify-content:space-between;align-items:center"><span class="qa-pend">' + ((d.sig_sub || d.sig_sub_path) ? '✓ signature captured' : '') + '</span><button class="qa-btn ghost" id="sigSubClear">Clear</button></div>'
+            : '<div class="qa-sec">Subscriber acknowledgement</div><div class="qa-cert">Subscriber not around — no subscriber signature needed; the checklist still applies.</div>') +
           '<div class="qa-sec">Inspector certification</div><div class="qa-cert">I, the inspector, hereby certify that the inspection has been performed in a fair, professional, and honest way, and that I have not asked, nor received any favour, compensation or gifts from anyone.</div><canvas class="qa-sig" id="sigIns"></canvas><div style="display:flex;justify-content:space-between;align-items:center"><span class="qa-pend">' + ((d.sig_ins || d.sig_ins_path) ? '✓ signature captured' : '') + '</span><button class="qa-btn ghost" id="sigInsClear">Clear</button></div>';
       }
       if (a.job_id) html += '<div class="qa-sec">Install close-out photos (technician)</div><div class="qa-thumbs" id="qaInstall">Loading…</div>';
       body.innerHTML = html;
       // wiring
-      body.querySelectorAll('#qaVisit button').forEach(function (b) { b.onclick = function () { d.visit_status = b.dataset.v; saveDraft(); renderForm(); }; });
-      body.querySelectorAll('[data-seg]').forEach(function (seg) { seg.querySelectorAll('button').forEach(function (b) { b.onclick = function () { if (b.disabled) return; d[seg.dataset.seg] = b.dataset.v; seg.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); }); saveDraft(); }; }); });
+      body.querySelectorAll('#qaVisit button').forEach(function (b) { b.onclick = function () {
+        d.visit_status = b.dataset.v;
+        if (b.dataset.v !== 'VISITED') {   // no subscriber around — drop any signature captured before the switch
+          d.subscriber_signed_name = ''; d.sig_sub = null; d.sig_sub_path = null;
+          if (state.pads.sub) { state.pads.sub.destroy(); state.pads.sub = null; }
+        } else if (!d.subscriber_signed_name) { d.subscriber_signed_name = a.subscriber || ''; }   // back to VISITED: restore the prefilled name
+        saveDraft(); renderForm();
+      }; });
+      body.querySelectorAll('[data-seg]').forEach(function (seg) { seg.querySelectorAll('button').forEach(function (b) { b.onclick = function () { if (b.disabled) return; d[seg.dataset.seg] = b.dataset.v; if (seg.dataset.seg === 'commercial') { if (b.dataset.v !== 'yes') { d.old_plan = ''; d.new_plan = ''; } saveDraft(); renderForm(); return; } seg.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); }); saveDraft(); }; }); });
       body.querySelectorAll('.qa-pfn button').forEach(function (b) { b.onclick = function () { var item = b.closest('[data-item]').dataset.item; d.items[item] = b.dataset.r; if (b.dataset.r === 'fail' && !d.violations[item]) { var c = checklist().filter(function (x) { return String(x.id) === item; })[0]; d.violations[item] = { code: c.suggested_code || '', remark: '', item_id: c.id }; } if (b.dataset.r !== 'fail') delete d.violations[item]; if (!Object.values(d.items).some(function (r) { return r === 'fail'; })) d.assessment = 'GOOD'; else if (d.assessment === 'GOOD') d.assessment = ''; saveDraft(); renderForm(); }; });
       body.querySelectorAll('[data-code]').forEach(function (s) { s.onchange = function () { d.violations[s.dataset.code].code = s.value; saveDraft(); var hint = body.querySelector('[data-offhint="' + s.dataset.code + '"]'); if (hint) hint.textContent = ''; loadOffenseHints(); }; });
       body.querySelectorAll('[data-remark]').forEach(function (t) { t.oninput = function () { d.violations[t.dataset.remark].remark = t.value; saveDraft(); }; });
@@ -313,16 +325,21 @@
       body.querySelectorAll('[data-photo]').forEach(function (inp) { inp.onchange = function () { if (inp.files && inp.files[0]) addPhoto(inp.files[0], Number(inp.dataset.photo)); }; });
       var loc = $('#f_locphoto'); if (loc) { loc.onchange = function () { if (loc.files && loc.files[0]) addPhoto(loc.files[0], null); }; var lt = $('#qaLocThumbs'); if (lt) lt.innerHTML = d.photos.concat(d.pending).filter(function (p) { return p.item_id == null; }).map(photoTag).join(''); }
       [['f_rep', 'contractor_rep'], ['f_inst', 'installers_text'], ['f_remarks', 'remarks'], ['f_old', 'old_plan'], ['f_new', 'new_plan'], ['f_subname', 'subscriber_signed_name']].forEach(function (p) { var el = $('#' + p[0]); if (el) el.oninput = function () { d[p[1]] = el.value; saveDraft(); }; });
-      if (visited) {
+      if (inspected) {
         if (state.pads.sub) state.pads.sub.destroy(); if (state.pads.ins) state.pads.ins.destroy();
-        state.pads.sub = makeSignaturePad($('#sigSub'), function () { state.pads.sub.toBlob().then(blobToDataUrl).then(function (u) { d.sig_sub = u; d.sig_sub_path = null; saveDraft(); }); });
+        state.pads.sub = null;
+        var subCanvas = $('#sigSub');   // absent on an NPA visit — the subscriber was not around
+        if (subCanvas) {
+          state.pads.sub = makeSignaturePad(subCanvas, function () { state.pads.sub.toBlob().then(blobToDataUrl).then(function (u) { d.sig_sub = u; d.sig_sub_path = null; saveDraft(); }); });
+          if (d.sig_sub) state.pads.sub.restore(d.sig_sub);
+          $('#sigSubClear').onclick = function () { state.pads.sub.clear(); d.sig_sub = null; d.sig_sub_path = null; saveDraft(); };
+        }
         state.pads.ins = makeSignaturePad($('#sigIns'), function () { state.pads.ins.toBlob().then(blobToDataUrl).then(function (u) { d.sig_ins = u; d.sig_ins_path = null; saveDraft(); }); });
-        if (d.sig_sub) state.pads.sub.restore(d.sig_sub); if (d.sig_ins) state.pads.ins.restore(d.sig_ins);
-        $('#sigSubClear').onclick = function () { state.pads.sub.clear(); d.sig_sub = null; d.sig_sub_path = null; saveDraft(); };
+        if (d.sig_ins) state.pads.ins.restore(d.sig_ins);
         $('#sigInsClear').onclick = function () { state.pads.ins.clear(); d.sig_ins = null; d.sig_ins_path = null; saveDraft(); };
       }
       if (a.job_id) api.getInstallPhotos(a.job_id).then(function (ps) { if (state.destroyed) return; var el = $('#qaInstall'); if (!el) return; el.innerHTML = ps.length ? ps.map(function (p) { return '<a href="' + esc(p.url) + '" target="_blank" rel="noopener"><img src="' + esc(p.url) + '" alt="" title="' + esc(p.label || '') + '"></a>'; }).join('') : '<span class="qa-pend">No close-out photos uploaded by the technician.</span>'; });
-      if (visited) loadOffenseHints();
+      if (inspected) loadOffenseHints();
     }
 
     function addPhoto(file, itemId) {
@@ -356,14 +373,14 @@
       }).then(function () {
         var viol = Object.keys(d.violations).map(function (k) { var v = d.violations[k]; var ph = d.photos.filter(function (p) { return v.item_id != null && p.item_id === v.item_id; })[0]; return { code: v.code, item_id: v.item_id, remark: v.remark || null, photo_path: ph ? ph.path : null }; }).filter(function (v) { return v.code; });
         return { submit_key: d.submit_key, visit_status: d.visit_status, contractor_rep: d.contractor_rep, installers_text: d.installers_text, wire: d.wire, qa_gc: d.qa_gc, assessment: d.assessment,
-          found_business: d.found_business || null, old_plan: d.old_plan, new_plan: d.new_plan, remarks: d.remarks, lat: d.lat, lng: d.lng,
+          found_business: d.commercial === 'yes' ? 'yes' : null, old_plan: d.commercial === 'yes' ? d.old_plan : null, new_plan: d.commercial === 'yes' ? d.new_plan : null, remarks: d.remarks, lat: d.lat, lng: d.lng,
           items: Object.keys(d.items).map(function (k) { return { item_id: Number(k), result: d.items[k], remark: (d.violations[k] || {}).remark || null }; }),
           violations: viol, photos: d.photos.map(function (p) { return { path: p.path, item_id: p.item_id, label: p.label }; }),
           subscriber_signed_name: d.subscriber_signed_name, subscriber_signature_path: d.sig_sub_path || null, inspector_signature_path: d.sig_ins_path || null };
       });
     }
     function localCheck(d) {
-      var probe = { submit_key: d.submit_key, visit_status: d.visit_status, wire: d.wire, qa_gc: d.qa_gc, assessment: d.assessment, remarks: d.remarks, subscriber_signed_name: d.subscriber_signed_name,
+      var probe = { submit_key: d.submit_key, visit_status: d.visit_status, wire: d.wire, qa_gc: d.qa_gc, assessment: d.assessment, remarks: d.remarks, found_business: d.commercial === 'yes' ? 'yes' : null, subscriber_signed_name: d.subscriber_signed_name,
         subscriber_signature_path: (d.sig_sub || d.sig_sub_path) ? 'x' : null, inspector_signature_path: (d.sig_ins || d.sig_ins_path) ? 'x' : null,
         items: Object.keys(d.items).map(function (k) { return { item_id: Number(k), result: d.items[k] }; }),
         violations: Object.keys(d.violations).map(function (k) { return { code: d.violations[k].code, item_id: d.violations[k].item_id }; }),
@@ -383,7 +400,7 @@
         var msg = String(e && e.message || e);
         // qa.submit_audit on the server raises exactly these phrases for validation failures;
         // anything else (network drop, timeout, 5xx, ...) is a transport failure and gets queued for retry.
-        if (/not submittable|cannot be|required|Unknown|GOOD|signature|photo|items|assigned/i.test(msg)) { errEl.textContent = msg; $('#qaSubmit').disabled = false; return; }
+        if (/not submittable|cannot be|required|Unknown|Invalid|GOOD|signature|photo|items|assigned/i.test(msg)) { errEl.textContent = msg; $('#qaSubmit').disabled = false; return; }
         var q = lsGet(QUEUE, []); if (!q.some(function (x) { return x.audit_id === d.audit_id; })) q.push({ audit_id: d.audit_id, at: Date.now() }); lsSet(QUEUE, q); saveDraft();
         toast('No signal — inspection saved, will submit when online'); closeSheet();
       });
@@ -392,6 +409,7 @@
       var q = lsGet(QUEUE, []); if (!q.length) { renderPend(); return Promise.resolve(); }
       var item = q[0], d = lsGet(draftKey(item.audit_id), null);
       if (!d) { lsSet(QUEUE, q.slice(1)); return flushQueue(); }
+      if (d.commercial == null) d.commercial = d.found_business ? 'yes' : '';
       return materialize(d, d.audit_id).then(function (payload) { saveDraftFor(d); return api.submitAudit(d.audit_id, payload); }).then(function () {
         lsDel(draftKey(d.audit_id)); lsSet(QUEUE, q.slice(1)); toast('✅ Queued inspection ' + d.audit_id + ' submitted'); return flushQueue();
       }).catch(function (e) {
