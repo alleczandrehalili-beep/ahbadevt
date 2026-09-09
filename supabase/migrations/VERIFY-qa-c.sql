@@ -35,7 +35,7 @@ union all select 'cfg read narrowed (all 5)', case when count(*) = 5 then 'OK' e
   from pg_policy p where p.polname = 'qa_cfg_read'
    and p.polrelid in ('qa.violation_codes'::regclass,'qa.contractors'::regclass,'qa.quick_remarks'::regclass,'qa.settings'::regclass,'qa.checklist_items'::regclass)
    and pg_get_expr(p.polqual, p.polrelid) like '%is_head%'
-union all select 'storage subcon policy', case when exists (select 1 from pg_policies where schemaname = 'storage' and policyname = 'qa_photos_subcon_read') then 'OK' else 'FAIL' end
+union all select 'rls helpers (no recursion)', case when to_regprocedure('qa.prev_of_mine(text)') is not null and to_regprocedure('qa.rect_of_mine(text)') is not null and not exists (select 1 from pg_policies where schemaname='qa' and qual ilike '%from qa.audits%') then 'OK' else 'FAIL' end
 -- is_console() is called from the storage + notices quals, which run with the CALLER's privileges
 union all select 'is_console executable', case when has_function_privilege('authenticated','public.is_console()','execute') then 'OK' else 'FAIL' end
 union all select 'touch trigger', case when exists (select 1 from pg_trigger where tgname = 'qa_touch_rectifications' and not tgisinternal) then 'OK' else 'FAIL' end

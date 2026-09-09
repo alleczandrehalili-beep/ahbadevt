@@ -63,6 +63,16 @@ language sql volatile security definer set search_path = qa, pg_temp as $$
   select 'RC-' || to_char(now() at time zone 'Asia/Manila', 'YYYY') || '-' || lpad(nextval('qa.rect_seq')::text, 6, '0')
 $$;
 
+-- RLS helpers (SECURITY DEFINER so policies never re-enter qa.audits' own RLS — see qa-05d)
+create or replace function qa.prev_of_mine(p_audit_id text) returns boolean
+language sql stable security definer set search_path = qa, public, pg_temp as $$
+  select exists (select 1 from qa.audits n where n.reinspection_of = p_audit_id and n.assigned_to = public.my_team() and n.deleted_at is null)
+$$;
+create or replace function qa.rect_of_mine(p_rect_id text) returns boolean
+language sql stable security definer set search_path = qa, public, pg_temp as $$
+  select exists (select 1 from qa.audits a where a.rectification_id = p_rect_id and a.assigned_to = public.my_team() and a.deleted_at is null)
+$$;
+
 create or replace function qa.my_org() returns uuid
 language sql stable security definer set search_path = public, pg_temp as $$
   select public.jwt_org_id()
@@ -547,8 +557,10 @@ create policy qa_rect_subcon on qa.rectifications for select to authenticated
 drop policy if exists qa_rect_insp on qa.rectifications;
 -- a.deleted_at is null: a RETIRED re-inspection (replaced or released) must not keep granting its old inspector
 -- read access to the loop — that is exactly the row assign_reinspection / unassign_audits soft-delete.
-create policy qa_rect_insp on qa.rectifications for select to authenticated
-  using (qa.is_inspector() and exists (select 1 from qa.audits a where a.rectification_id = rectifications.id and a.assigned_to = public.my_team() and a.deleted_at is null));
+-- NEVER put a subquery on an RLS-protected table inside a policy: qa.audits' own policies would be evaluated again →
+-- "infinite recursion detected in policy" (42P17) for every non-head caller (this broke ALL storage uploads on 2026-09-10).
+-- qa.rect_of_mine / qa.prev_of_mine are SECURITY DEFINER helpers (defined in qa-05d) that read qa.audits without RLS.
+create policy qa_rect_insp on qa.rectifications for select to authenticated using (qa.is_inspector() and qa.rect_of_mine(id));
 drop policy if exists qa_notices_head on qa.notices;
 create policy qa_notices_head on qa.notices for all to authenticated using (qa.is_head()) with check (qa.is_head());
 drop policy if exists qa_notices_subcon_read on qa.notices;
@@ -578,32 +590,17 @@ create policy qa_checklist_subcon on qa.checklist_items for select to authentica
 drop policy if exists qa_audits_subcon on qa.audits;
 -- inspectors also read the previous inspection of their re-inspection
 drop policy if exists qa_audits_insp_prev on qa.audits;
-create policy qa_audits_insp_prev on qa.audits for select to authenticated
-  using (qa.is_inspector() and exists (select 1 from qa.audits n where n.reinspection_of = audits.id and n.assigned_to = public.my_team() and n.deleted_at is null));
+create policy qa_audits_insp_prev on qa.audits for select to authenticated using (qa.is_inspector() and qa.prev_of_mine(id));
 do $$ declare t text; begin
   foreach t in array array['audit_items','audit_violations','audit_photos'] loop
     execute format('drop policy if exists qa_child_subcon on qa.%I', t);      -- retired: bundle RPC only (column filtering)
     execute format('drop policy if exists qa_child_insp_prev on qa.%I', t);
-    execute format($p$create policy qa_child_insp_prev on qa.%I for select to authenticated
-      using (qa.is_inspector() and exists (select 1 from qa.audits n where n.reinspection_of = audit_id and n.assigned_to = public.my_team() and n.deleted_at is null))$p$, t);
+    execute format('create policy qa_child_insp_prev on qa.%I for select to authenticated using (qa.is_inspector() and qa.prev_of_mine(audit_id))', t);
   end loop;
 end $$;
--- storage: the subcon reads ONLY objects registered as a photo of a FAILED checklist item on an own-org loop audit.
--- Signatures (sig_*) and pass-item photos are unreachable because they never satisfy the existence test.
--- Security definer: an RLS qual runs with the caller's privileges, and the subcon has no select policy on the qa tables at all.
-create or replace function qa.subcon_can_read_photo(p_name text) returns boolean
-language sql stable security definer set search_path = qa, public, pg_temp as $$
-  select exists (
-    select 1 from qa.audit_photos ph
-      join qa.audit_items i on i.audit_id = ph.audit_id and i.item_id = ph.item_id and i.result = 'fail'
-      join qa.audits a on a.id = ph.audit_id
-      join qa.rectifications r on r.id = a.rectification_id
-     where ph.path = p_name and a.deleted_at is null and r.deleted_at is null
-       and r.contractor_org_id is not null and r.contractor_org_id = qa.my_org())
-$$;
+-- storage policy for subcon photo access: RETIRED (see qa-05d) — will be re-added in a recursion-safe form before C3.
 drop policy if exists qa_photos_subcon_read on storage.objects;
-create policy qa_photos_subcon_read on storage.objects for select to authenticated
-  using (bucket_id = 'qa-photos' and public.is_console() and qa.subcon_can_read_photo(name));
+drop function if exists qa.subcon_can_read_photo(text);
 
 grant select on qa.rectifications, qa.notices to authenticated;
 grant update (seen_at) on qa.notices to authenticated;
@@ -617,7 +614,7 @@ do $$ begin alter publication supabase_realtime add table qa.notices; exception 
 -- ---------- 11. grants for the new RPCs ----------
 revoke execute on all functions in schema qa from public, anon, authenticated;
 -- helpers called from RLS/storage quals: a policy expression runs with the CALLER's privileges, so these must be executable
-grant execute on function qa.is_head(), qa.is_inspector(), qa.my_org(), qa.subcon_can_read_photo(text) to authenticated;
+grant execute on function qa.is_head(), qa.is_inspector(), qa.my_org(), qa.prev_of_mine(text), qa.rect_of_mine(text) to authenticated;
 grant execute on function qa.ingest_sheet_rows(), qa.assign_audits(text[],text,date,int), qa.unassign_audits(text[]), qa.queue_pool(text[]),
   qa.sample_inhouse(date,date,numeric), qa.reopen_audit(text,text), qa.start_audit(text,double precision,double precision),
   qa.submit_audit(text,jsonb), qa.weekly_report(date,date), qa.sync_status(),
