@@ -42,6 +42,7 @@
         if (f.contractor) b = b.eq('contractor_name', f.contractor);
         if (f.kind) b = b.eq('kind', f.kind);
         if (f.barangay) b = b.eq('barangay', f.barangay);
+        if (f.district) { var bs = Core.barangaysOf(f.district); b = bs.length ? b.in('barangay', bs) : b.eq('barangay', '__none__'); }
         if (f.from) b = b.gte('jo_date_closed', f.from);
         if (f.to) b = b.lte('jo_date_closed', f.to);
         if (f.inspector) { var insp = String(f.inspector).replace(/[(),]/g, ' ').trim(); b = b.or('inspector.eq.' + insp + ',assigned_to.eq.' + insp); }
@@ -62,8 +63,16 @@
           unwrap(qa().from('audit_items').select('*').eq('audit_id', id)),
           unwrap(qa().from('audit_photos').select('*').eq('audit_id', id).order('id')),
           unwrap(qa().from('audit_violations').select('*').eq('audit_id', id).order('id')),
-          unwrap(qa().from('audit_log').select('*').eq('audit_id', id).order('at'))
-        ]).then(function (r) { return { audit: r[0], items: r[1] || [], photos: r[2] || [], violations: r[3] || [], log: r[4] || [] }; });
+          unwrap(qa().from('audit_log').select('*').eq('audit_id', id).order('at')).catch(function () { return []; })   // inspectors have no audit_log grant
+        ]).then(function (r) {
+          var out = { audit: r[0], items: r[1] || [], photos: r[2] || [], violations: r[3] || [], log: r[4] || [], rectification: null, previous: null };
+          var a = r[0] || {}; var tasks = [];
+          if (a.rectification_id) tasks.push(unwrap(qa().from('rectifications').select('*').eq('id', a.rectification_id).maybeSingle()).then(function (x) { out.rectification = x || null; }).catch(function () {}));
+          if (a.reinspection_of) tasks.push(Promise.all([unwrap(qa().from('audits').select('*').eq('id', a.reinspection_of).maybeSingle()), unwrap(qa().from('audit_items').select('*').eq('audit_id', a.reinspection_of)),
+              unwrap(qa().from('audit_violations').select('*').eq('audit_id', a.reinspection_of).order('id')), unwrap(qa().from('audit_photos').select('*').eq('audit_id', a.reinspection_of).order('id'))])
+            .then(function (p) { if (p[0]) out.previous = { audit: p[0], items: p[1] || [], violations: p[2] || [], photos: p[3] || [] }; }).catch(function () {}));
+          return Promise.all(tasks).then(function () { return out; });
+        });
       },
       reopenAudit: function (id, o) { return rpc('reopen_audit', { p_id: id, p_reason: (o || {}).reason || '' }); },
       listInspectors: function () { return unwrap(client.from('technicians').select('username,display_name').eq('role', 'qa_inspector').order('username')); },
@@ -75,6 +84,9 @@
           unwrap(qa().from('contractors').select('*').order('sheet_name')), unwrap(qa().from('quick_remarks').select('*').order('sort_order')), unwrap(qa().from('settings').select('*'))
         ]).then(function (r) { var s = {}; (r[4] || []).forEach(function (x) { s[x.key] = x.value; }); return { checklist: r[0] || [], codes: r[1] || [], contractors: r[2] || [], quickRemarks: r[3] || [], settings: s }; });
       },
+      // labels only. A subcon console user may read this (policy qa_checklist_subcon) but NOT getConfig, whose
+      // codes/contractors/quick_remarks/settings reads are narrowed to head + inspectors.
+      getChecklist: function () { return unwrap(qa().from('checklist_items').select('id,label,section,sort_order').order('sort_order')).then(function (d) { return d || []; }); },
       // server-managed columns (identity PK, timestamps) must never travel in an update/upsert body
       saveChecklistItem: function (item) {
         var b = Object.assign({}, item); delete b.id; delete b.created_at; delete b.updated_at;
@@ -90,6 +102,34 @@
         return chunks.reduce(function (p, ch) { return p.then(function () { return unwrap(qa().from('sheet_rows').upsert(ch, { onConflict: 'jo_no' })); }); }, Promise.resolve())
           .then(function () { return rpc('ingest_sheet_rows'); })
           .then(function (n) { return api.saveSetting('last_sync_at', new Date().toISOString()).then(function () { return api.saveSetting('last_sync_rows', norm.length); }).then(function () { return { upserted: norm.length, audits_created: n }; }); });
+      },
+      // ----- phase C -----
+      listRectifications: function (f) {
+        f = f || {}; var page = f.page || 1, size = f.pageSize || 50, td = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+        var b = qa().from('rectifications').select('*', { count: 'exact' }).is('deleted_at', null);
+        if (f.status && f.status.length) b = b.in('status', f.status);
+        if (f.contractor) b = b.eq('contractor_name', f.contractor);
+        if (f.org_id) b = b.eq('contractor_org_id', f.org_id);
+        if (f.district) { var bs = Core.barangaysOf(f.district); b = bs.length ? b.in('barangay', bs) : b.eq('barangay', '__none__'); }
+        if (f.overdue) b = b.in('status', Core.RECT_OPEN).lt('deadline', td);
+        if (f.q) { var q = String(f.q).replace(/[(),]/g, ' ').trim().replace(/[%_]/g, '\\$&'); b = b.or('id.ilike.%' + q + '%,jo_no.ilike.%' + q + '%,acct_no.ilike.%' + q + '%,subscriber.ilike.%' + q + '%,address.ilike.%' + q + '%'); }
+        b = b.order('deadline', { ascending: true }).order('id').range((page - 1) * size, page * size - 1);
+        return Promise.resolve(b).then(function (r) { if (r.error) throw new Error(r.error.message); return { rows: (r.data || []).map(function (x) { x.overdue = Core.isOverdue(x, td); return x; }), total: r.count || 0 }; });
+      },
+      getRectification: function (id) { return rpc('rectification_bundle', { p_id: id }); },   // security-definer: head = full rows; subcon = own-org, no signatures/GPS/pass photos
+      setRectDeadline: function (id, date, reason) { return rpc('set_rect_deadline', { p_id: id, p_date: date, p_reason: reason || '' }); },
+      assignReinspection: function (id, o) { o = o || {}; return rpc('assign_reinspection', { p_rect_id: id, p_inspector: o.inspector, p_date: o.date, p_seq: o.startSeq == null ? 1 : o.startSeq }); },
+      closeRectification: function (id, reason) { return rpc('close_rectification', { p_id: id, p_reason: reason }); },
+      overridePenalty: function (vid, amount, reason) { return rpc('override_penalty', { p_violation_id: vid, p_amount: amount == null ? null : Number(amount), p_reason: reason }); },
+      offensePreview: function (contractor, codes) { return rpc('offense_preview', { p_contractor: contractor, p_codes: codes || [] }).then(function (d) { return d || {}; }); },
+      recomputeOffenses: function () { return rpc('recompute_offenses'); },
+      monthlyScorecard: function (month) { return rpc('monthly_scorecard', { p_month: month }).then(function (d) { return d || []; }); },
+      monthViolations: function (month) { return rpc('month_violations', { p_month: month }).then(function (d) { return d || []; }); },
+      noticesUnseen: function () { return rpc('notices_unseen').then(function (n) { return n || 0; }); },
+      markNoticesSeen: function () { return rpc('mark_notices_seen').then(function (n) { return n || 0; }); },
+      subscribeNotices: function (cb) {
+        var ch = client.channel('qa-notices-' + Math.random().toString(36).slice(2, 8)).on('postgres_changes', { event: 'INSERT', schema: 'qa', table: 'notices' }, function (m) { cb({ type: 'notice', row: m.new }); }).subscribe();
+        return function () { try { client.removeChannel(ch); } catch (e) {} };
       },
       subscribe: function (cb) {
         var ch = client.channel('qa-audits-' + Math.random().toString(36).slice(2, 8)).on('postgres_changes', { event: '*', schema: 'qa', table: 'audits' }, function (m) { cb({ type: 'audit', row: m.eventType === 'DELETE' ? m.old : m.new }); }).subscribe();
