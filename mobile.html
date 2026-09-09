@@ -415,6 +415,8 @@
         <div id="saSchedBody" style="padding:0 12px"><div class="empty">Loading…</div></div>
       </div>
     </div>
+    <!-- QA INSPECTOR — inside .wrap so it shares the 520px centered column and fills the height -->
+    <div class="hidden" id="qaView" style="flex:1"></div>
   </div>
 
   <div class="mexp-back hidden" id="payBack"></div>
@@ -487,8 +489,6 @@
     <div style="display:flex;gap:8px;margin-top:6px"><button class="btn-ghost" id="mexpCancel" style="flex:1">Cancel</button><button class="btn-primary" id="mexpSave" style="flex:1">Save expense</button></div>
   </div>
 
-  <!-- QA INSPECTOR -->
-  <div class="hidden" id="qaView"></div>
 
   <div class="toast" id="toast"></div>
 
