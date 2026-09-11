@@ -9,14 +9,27 @@
     '.cq-pill{display:inline-block;font-size:10px;font-weight:800;padding:2px 8px;border-radius:9px;background:#eef2ec;color:#3a4a45}.cq-pill.queued{background:#fff3d6;color:#9a6200}.cq-pill.assigned{background:#e8ecff;color:#2d3fa8}.cq-pill.in_progress{background:#ffe9d6;color:#a04a00}.cq-pill.done{background:#e7f7ef;color:#11825f}.cq-pill.pool{background:#f1f1f1;color:#777}.cq-pill.fail{background:#fde4df;color:#c2503a}' +
     '.cq-age{font-size:10px;color:#8a9894}.cq-age.late{color:#c2503a;font-weight:800}.cq-map{height:320px;border-radius:12px;border:1px solid #e3e8e2;margin-bottom:12px;background:#eef2ec}.cq-cols{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}.cq-col{background:#fff;border:1px solid #e3e8e2;border-radius:12px;padding:10px}.cq-col h4{margin:0 0 8px;font-size:13px}.cq-row{border:1px solid #f0f2ef;border-radius:9px;padding:7px 9px;margin-bottom:6px;font-size:12px}' +
     '.cq-modal{position:fixed;inset:0;background:rgba(8,28,24,.45);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px}.cq-modal>div{background:#fff;border-radius:14px;max-width:920px;width:100%;max-height:92vh;overflow:auto;padding:20px}.cq-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;font-size:12px}.cq-grid b{display:block;font-size:10px;color:#8a9894;text-transform:uppercase}.cq-thumbs{display:flex;gap:8px;flex-wrap:wrap}.cq-thumbs img{width:110px;height:110px;object-fit:cover;border-radius:9px;border:1px solid #e3e8e2}.cq-sec{font:800 10px Manrope,system-ui;letter-spacing:.08em;text-transform:uppercase;color:#107b5e;margin:14px 0 6px}.cq-banner{background:#fde4df;color:#8a2c1b;border:1px solid #f0c4b9;border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:12px}.cq-empty{padding:26px;text-align:center;color:#9aa6a2}' +
-    '.cq-disp{display:grid;grid-template-columns:290px 1fr;gap:12px;align-items:start;margin-bottom:12px}.cq-blwrap,.cq-lanewrap{background:#fff;border:1px solid #e3e8e2;border-radius:12px;padding:10px}.cq-blwrap{max-height:72vh;overflow:auto}.cq-blwrap h4{margin:0 0 8px;font-size:13px}.cq-blbar{gap:5px}.cq-blbar select,.cq-blbar input{font-size:11px;padding:5px 7px;width:100%}.cq-lanewrap{overflow-x:auto}' +
-    '.cq-blcard{border:1px solid #e3e8e2;border-radius:9px;padding:7px 9px;margin-bottom:6px;font-size:12px;background:#fff;cursor:grab}.cq-blcard:active{cursor:grabbing}#cqBacklog.cq-dropping{outline:2px dashed #18a57b;outline-offset:3px;border-radius:9px;background:#f2faf6}' +
-    '.cq-tl-headrow,.cq-tl-row{display:flex;align-items:stretch;min-width:620px}.cq-tl-headrow{padding-bottom:4px;border-bottom:1px solid #e3e8e2}.cq-tl-row{border-bottom:1px solid #f0f2ef;padding:7px 0}.cq-tl-name{width:132px;flex:none;font-size:11px;padding-right:6px}.cq-tl-axis{flex:1;display:flex;margin-left:102px}.cq-tl-h{flex:1;font-size:9px;color:#8a9894;border-left:1px solid #eef0ed;padding-left:3px}' +
-    // .cq-tl-name / .cq-tl-none carry padding + a border inside their fixed width — border-box keeps the lane rows
-    // aligned with the hour axis above them (which is offset by the same 132+96-ish pixels).
-    '.cq-tl-name,.cq-tl-none{box-sizing:border-box}' +
-    '.cq-tl-none{width:96px;flex:none;border-right:1px dashed #dfe6e1;padding-right:6px;margin-right:6px;display:flex;flex-direction:column;gap:3px}.cq-tl-track{flex:1;position:relative;min-height:30px;border-radius:8px;background:#fafbfa}.cq-tl-track.cq-dropping{background:#eaf7f1;outline:2px dashed #18a57b}.cq-tl-gl{position:absolute;top:0;bottom:0;width:1px;background:#eef0ed}' +
-    '.cq-tl-block{position:absolute;height:22px;line-height:21px;box-sizing:border-box;border-radius:6px;font-size:10px;font-weight:700;padding:0 5px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:grab;background:#fff;border:1.5px solid #18a57b;color:#0e5c45}.cq-tl-block:active{cursor:grabbing}.cq-tl-block.s-in_progress{border-color:#d08a00;background:#fff6e6;color:#8a5a00}.cq-tl-block.s-done{border-color:#c8d0cb;background:#eceeec;color:#6b7671}.cq-tl-chip{position:static;width:100%;height:auto;line-height:1.35;white-space:normal;padding:2px 5px}.cq-tl-re{display:inline-block;background:#7b2d8a;color:#fff;border-radius:4px;font-size:8px;padding:0 3px;margin-right:3px}' +
+    // ---- Dispatch tab: a copy of the console's SLI Dispatch Dashboard timeline (styles.css .tl-*), prefixed cq-tl-.
+    // The module never loads styles.css, so every value (172px name column, 42px tracks, 32px blocks, chip sizes)
+    // is duplicated here literally. The 11 hour columns mirror Core.TL.hours — change both together.
+    '.cq-tl-panel{background:#fff;border:1px solid #e3e8e2;border-radius:12px;margin-bottom:12px}.cq-tl-hd{padding:10px 14px 0}.cq-tl-hd h4{margin:0;font:800 13px Manrope,system-ui}.cq-tl-hd p{font-size:10px;color:#8a9894;margin:4px 0 0}' +
+    '.cq-blbar{gap:6px;margin-bottom:10px}.cq-blbar select,.cq-blbar input{font-size:11px;padding:6px 8px}.cq-blbar input{min-width:190px}' +
+    '.cq-tl-strip{display:flex;flex-wrap:wrap;align-content:flex-start;gap:6px;padding:10px 14px;max-height:220px;overflow:auto}.cq-tl-strip.cq-dropping{outline:2px dashed #18a57b;outline-offset:-5px;background:#eef9f3}' +
+    '.cq-tl-chip{background:#fff;border:1px solid #e3e8e2;border-radius:8px;padding:5px 8px;color:#0e2b27;cursor:grab;display:inline-flex;align-items:center;gap:6px;max-width:250px;overflow:hidden;box-shadow:0 1px 3px rgba(20,45,40,.05);transition:box-shadow .12s ease,border-color .12s ease,transform .05s ease}.cq-tl-chip:hover{border-color:#9fd9c2;box-shadow:0 3px 9px rgba(20,45,40,.12)}.cq-tl-chip:active{cursor:grabbing;transform:scale(.98)}' +
+    '.cq-tl-chip-body{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}.cq-tl-chip-sub{font:800 10px Manrope,system-ui;color:#0e2b27;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cq-tl-chip-meta{font-size:8.5px;font-weight:700;color:#127b5d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '.cq-tl-chip-as{flex:none;border:0;background:none;padding:0 2px;color:#127b5d;font:700 9px Manrope,system-ui;cursor:pointer;text-decoration:underline}' +
+    '.cq-tl-counts{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px;border-top:1px solid #e3e8e2;background:#fafbf9;border-radius:0 0 12px 12px}.cq-tl-count{display:inline-flex;align-items:center;gap:5px;border-radius:20px;padding:4px 10px;font-size:9px;font-weight:700;line-height:1}.cq-tl-count b{font:800 11px Manrope,system-ui}.cq-tl-count-total{background:#102925;color:#fff;border:1px solid #102925}' +
+    '.cq-tl-grid{min-width:820px}.cq-tl-headrow,.cq-tl-row{display:grid;grid-template-columns:172px 1fr;border-top:1px solid #e3e8e2}.cq-tl-headrow{background:#f8f9f7;border-top:0;position:sticky;top:0;z-index:2}.cq-tl-name-h{padding:7px 10px;font-size:9px;color:#889591;text-transform:uppercase;letter-spacing:.06em;border-right:1px solid #e3e8e2}' +
+    '.cq-tl-axis{display:grid;grid-template-columns:repeat(11,1fr)}.cq-tl-h{font-size:9px;color:#889591;text-align:center;padding:7px 0;border-left:1px solid #eef1ed}' +
+    '.cq-tl-name{display:flex;flex-direction:column;justify-content:center;gap:2px;padding:5px 10px;border-right:1px solid #e3e8e2;background:#fff;overflow:hidden}.cq-tl-nm{display:flex;align-items:center;font:700 11px Manrope,system-ui}.cq-tl-cnt{margin-left:auto;background:#102925;color:#fff;border-radius:20px;min-width:18px;height:16px;padding:0 5px;font:800 9px Manrope,system-ui;display:inline-flex;align-items:center;justify-content:center}.cq-tl-sub{font-size:8.5px;color:#7d8c88;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    // .cq-tl-name / .cq-tl-cell carry padding + a border — border-box keeps the 172px inspector column exactly as
+    // wide as the header's, so every lane's track starts under the 7 AM label.
+    '.cq-tl-name,.cq-tl-cell{box-sizing:border-box}' +
+    '.cq-tl-cell{display:flex;flex-direction:column;min-width:0}.cq-tl-track{position:relative;height:42px;background:repeating-linear-gradient(90deg,transparent,transparent calc(100%/11 - 1px),#eef1ed calc(100%/11 - 1px),#eef1ed calc(100%/11))}.cq-tl-track.cq-dropping{background:#e7f4ed;outline:2px dashed #18a57b;outline-offset:-2px}' +
+    '.cq-tl-block{position:absolute;height:32px;border-radius:7px;padding:3px 6px;font:800 9.5px Manrope,system-ui;line-height:1.1;overflow:hidden;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.18);box-sizing:border-box;background:#e7f7ef;color:#0e5c45;border:1px solid #c4ecd9}.cq-tl-block small{display:block;font-weight:400;font-size:8.5px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cq-tl-block[draggable]{cursor:grab}.cq-tl-block[draggable]:active{cursor:grabbing}' +
+    '.cq-tl-block.s-in_progress{background:#fff4cf;color:#8a5a00;border-color:#f0e2a6}.cq-tl-block.s-done{background:#f2f2f2;color:#6b7671;border-color:#dcdfdd;opacity:.72}' +
+    '.cq-tl-untimed{display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:4px 8px 6px;border-top:1px dashed #e6ebe7}.cq-tl-untimed-l{flex:none;font:800 8px Manrope,system-ui;letter-spacing:.06em;text-transform:uppercase;color:#9aa6a2}.cq-tl-untimed .cq-tl-chip{padding:3px 7px}.cq-tl-untimed .cq-tl-chip.s-in_progress{background:#fff4cf;border-color:#f0e2a6}.cq-tl-untimed .cq-tl-chip.s-done{background:#f2f2f2;border-color:#dcdfdd;opacity:.72;cursor:pointer}' +
+    '.cq-tl-re{display:inline-block;background:#7b2d8a;color:#fff;border-radius:4px;font-size:8px;padding:0 3px;margin-right:3px;vertical-align:1px}' +
     '.cq-pill.r-FORRECTIFICATION{background:#fde8e4;color:#b23a25}.cq-pill.r-FORREINSPECTION{background:#fff3d6;color:#9a6200}.cq-pill.r-RECTIFIED{background:#e7f7ef;color:#11825f}.cq-pill.r-CLOSED{background:#e8ecff;color:#2d3fa8}.cq-over{color:#c2503a;font-weight:800}.cq-ovr{font-size:10px;color:#9a6200}';
   var COLORS = ['#18a57b', '#2d3fa8', '#c2503a', '#9a6200', '#7b2d8a', '#0d7c9a'];
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -164,12 +177,12 @@
       if (S.map) { try { S.map.remove(); } catch (e) {} }
       S.map = null; S.drag = null; S.board = { rows: [], backlog: [], total: 0 };   // the tab is redrawn from scratch — drop the cache so "Loading…" shows
       var b = S.bl;
-      var hdr = '<div class="cq-tl-name"></div><div class="cq-tl-axis">' + Array.apply(null, Array(Core.TL.hours)).map(function (_, i) { return '<div class="cq-tl-h">' + fmtHour12(Core.TL.start + i) + '</div>'; }).join('') + '</div>';
+      var hdr = '<div class="cq-tl-name-h">Inspector</div><div class="cq-tl-axis" style="grid-template-columns:repeat(' + Core.TL.hours + ',1fr)">' + Array.apply(null, Array(Core.TL.hours)).map(function (_, i) { return '<div class="cq-tl-h">' + fmtHour12(Core.TL.start + i) + '</div>'; }).join('') + '</div>';
       $('#cqBody').innerHTML = '<div class="cq-bar"><label>Date <input type="date" id="bd_date" value="' + esc(S.boardDate) + '"></label><button class="cq-btn ghost" id="bd_prev">‹</button><button class="cq-btn ghost" id="bd_next">›</button><span id="bd_sum" class="cq-age"></span></div>' +
-        '<div class="cq-disp"><div class="cq-blwrap"><h4 id="bd_blh">For dispatch</h4>' +
         '<div class="cq-bar cq-blbar"><select id="bl_district">' + districtOpts() + '</select><select id="bl_brgy"><option value="">All barangays</option></select><select id="bl_contractor">' + contractorOpts() + '</select><input id="bl_q" placeholder="Search name / address / JO"><button class="cq-btn ghost" id="bl_go">Filter</button></div>' +
-        '<div id="cqBacklog"></div></div>' +
-        '<div class="cq-lanewrap"><div class="cq-tl-headrow">' + hdr + '</div><div id="cqLanes"></div></div></div>' +
+        '<div class="cq-tl-panel"><div class="cq-tl-hd"><h4 id="bd_blh">For dispatch</h4><p>Drag a chip onto an inspector\'s track to schedule it. Drag a block to another track or hour to move it, or back here to return it to the queue; click a block for the full audit.</p></div>' +
+        '<div id="cqBacklog" class="cq-tl-strip"></div><div id="cqCounts" class="cq-tl-counts"></div></div>' +
+        '<div class="cq-tl-panel" style="overflow:auto;padding-bottom:6px"><div class="cq-tl-grid"><div class="cq-tl-headrow">' + hdr + '</div><div id="cqLanes"></div></div></div>' +
         '<div class="cq-map" id="cqMap"></div>';
       // The day only moves the lanes — the backlog is every queued audit, which does not depend on the board date.
       $('#bd_date').onchange = function () { S.boardDate = $('#bd_date').value; loadLanes(); };
@@ -213,18 +226,29 @@
       S.laneT = setTimeout(function () { S.laneT = null; if (S.tab === 'board') loadLanes(); }, 2000);
     }
     function boardSummary() {
-      var rows = S.board.rows, backlog = S.board.backlog, el = $('#bd_sum'); if (!el) return;
-      el.textContent = rows.length + ' assigned · ' + rows.filter(function (a) { return a.status === 'done'; }).length + ' done · ' + rows.filter(function (a) { return a.status === 'in_progress'; }).length + ' in progress · ' + backlog.length + ' waiting';
+      var rows = S.board.rows, backlog = S.board.backlog;
+      var done = rows.filter(function (a) { return a.status === 'done'; }).length;
+      var prog = rows.filter(function (a) { return a.status === 'in_progress'; }).length;
+      var el = $('#bd_sum'); if (el) el.textContent = rows.length + ' assigned · ' + done + ' done · ' + prog + ' in progress · ' + backlog.length + ' waiting';
+      var c = $('#cqCounts'); if (!c) return;
+      // Same tally banner as the Dashboard's .tl-counts — the day's assigned set plus the queue that feeds it.
+      c.innerHTML = '<span class="cq-tl-count cq-tl-count-total"><b>' + rows.length + '</b>Assigned this day</span>' +
+        [['#e7f7ef', '#11825f', '#c4ecd9', done, 'Done'], ['#fff4cf', '#9a7b12', '#f0e2a6', prog, 'In progress'],
+          ['#eaf1ff', '#3473d8', '#cfe0ff', rows.length - done - prog, 'Not started'], ['#fff', '#56655f', '#d4dcd5', backlog.length, 'Waiting (queue)']]
+          .map(function (d) { return '<span class="cq-tl-count" style="background:' + d[0] + ';color:' + d[1] + ';border:1px solid ' + d[2] + '"><b>' + d[3] + '</b>' + d[4] + '</span>'; }).join('');
+    }
+    // One queued audit as a compact backlog chip — the Dashboard's .tl-chip, with the aging in place of the agent line.
+    function chipHtml(a) {
+      var d = daysSince(a.jo_date_closed);
+      var meta = 'JO ' + (a.jo_no || '—') + ' · ' + (a.contractor_name || '');
+      return '<span class="cq-tl-chip"' + (canEdit ? ' draggable="true"' : '') + ' data-bl="' + esc(a.id) + '" title="' + esc(a.id + ' · ' + (a.subscriber || '') + ' · ' + (a.address || '') + (a.barangay ? ' · ' + a.barangay : '') + ' · ' + meta + ' · ' + d + ' d since close — drag onto an inspector\'s track to schedule') + '">' +
+        '<span class="cq-tl-chip-body"><b class="cq-tl-chip-sub">' + esc(a.subscriber || '—') + '</b><span class="cq-tl-chip-meta">' + esc(meta) + ' · <span class="' + (d > 14 ? 'cq-over' : '') + '">' + d + ' d</span></span></span>' +
+        (canEdit ? '<button class="cq-tl-chip-as" data-blas="' + esc(a.id) + '">Assign…</button>' : '') + '</span>';
     }
     function renderBacklog() {
       var backlog = S.board.backlog, h = $('#bd_blh'), el = $('#cqBacklog'); if (!el) return;
       if (h) h.innerHTML = 'For dispatch (' + backlog.length + ')' + (S.board.total > backlog.length ? ' <span class="cq-age">first ' + backlog.length + ' of ' + S.board.total + '</span>' : '');
-      el.innerHTML = backlog.length ? backlog.map(function (a) {
-        var d = daysSince(a.jo_date_closed);
-        return '<div class="cq-blcard"' + (canEdit ? ' draggable="true"' : '') + ' data-bl="' + esc(a.id) + '" title="Drag onto an inspector\'s track to schedule"><b>' + esc(a.subscriber || '—') + '</b><div class="cq-age">' + esc(a.address || '') + (a.barangay ? ' · ' + esc(a.barangay) : '') + '</div>' +
-          '<div class="cq-age">' + esc(a.contractor_name || '') + ' · JO ' + esc(a.jo_no || '—') + ' · <span class="' + (d > 14 ? 'late' : '') + '">' + d + ' d</span></div>' +
-          (canEdit ? '<div style="margin-top:5px"><button class="cq-btn ghost" data-blas="' + esc(a.id) + '" style="padding:2px 7px;font-size:10px">Assign…</button></div>' : '') + '</div>';
-      }).join('') : '<div class="cq-empty" style="padding:14px">Nothing waiting for dispatch.</div>';
+      el.innerHTML = backlog.length ? backlog.map(chipHtml).join('') : '<span class="cq-age">Nothing waiting for dispatch.</span>';
       rootEl.querySelectorAll('[data-blas]').forEach(function (btn) { btn.onclick = function (e) { e.stopPropagation(); assignDialog([btn.dataset.blas], loadBoard); }; });
       boardSummary();
       if (canEdit) wireBacklogDnD();
@@ -237,28 +261,33 @@
       el.innerHTML = names.length ? names.map(function (n, i) {
         var list = by[n] || [], blocks = Core.laneBlocks(list);
         var timed = blocks.filter(function (x) { return x.left != null; }), none = blocks.filter(function (x) { return x.left == null; });
-        var maxRow = timed.reduce(function (m, x) { return Math.max(m, x.row); }, -1);
+        var maxRow = timed.reduce(function (m, x) { return Math.max(m, x.row); }, 0);
         var insp = S.inspectors.filter(function (x) { return x.username === n; })[0] || {};
-        var grid = Array.apply(null, Array(Core.TL.hours)).map(function (_, k) { return '<i class="cq-tl-gl" style="left:' + (k / Core.TL.hours * 100) + '%"></i>'; }).join('');
-        return '<div class="cq-tl-row"><div class="cq-tl-name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + COLORS[i % COLORS.length] + ';margin-right:5px"></span><b>' + esc(n) + '</b>' +
-          (insp.display_name ? '<div class="cq-age">' + esc(insp.display_name) + '</div>' : '') + '<div class="cq-age">' + list.filter(function (a) { return a.status === 'done'; }).length + '/' + list.length + ' done</div></div>' +
-          '<div class="cq-tl-none">' + (none.length ? none.map(function (a) { return blockHtml(a, true); }).join('') : '<span class="cq-age">no time</span>') + '</div>' +
-          '<div class="cq-tl-track" data-lane="' + esc(n) + '" style="min-height:' + Math.max(30, (maxRow + 1) * 26 + 6) + 'px">' + grid + timed.map(function (a) { return blockHtml(a, false); }).join('') + '</div></div>';
+        var cnt = list.length ? '<span class="cq-tl-cnt" title="' + list.length + ' audit(s) on this day">' + list.length + '</span>' : '';
+        return '<div class="cq-tl-row"><div class="cq-tl-name"><div class="cq-tl-nm"><span style="width:7px;height:7px;border-radius:50%;background:' + COLORS[i % COLORS.length] + ';display:inline-block;margin-right:6px;flex:none"></span>' + esc(n) + cnt + '</div>' +
+          (insp.display_name ? '<span class="cq-tl-sub">' + esc(insp.display_name) + '</span>' : '') +
+          '<span class="cq-tl-sub">' + list.filter(function (a) { return a.status === 'done'; }).length + '/' + list.length + ' done</span></div>' +
+          // The untimed audits sit in a thin strip UNDER the track, not as blocks — a lane with ten "no time"
+          // audits must stay 42 px tall like the Dashboard's, not grow into a ten-row column.
+          '<div class="cq-tl-cell"><div class="cq-tl-track" data-lane="' + esc(n) + '" style="height:' + (42 + maxRow * 26) + 'px">' + timed.map(function (a) { return blockHtml(a, false); }).join('') + '</div>' +
+          (none.length ? '<div class="cq-tl-untimed"><span class="cq-tl-untimed-l">No time:</span>' + none.map(function (a) { return blockHtml(a, true); }).join('') + '</div>' : '') + '</div></div>';
       }).join('') : '<div class="cq-empty">No QA inspector accounts yet — add them in Settings.</div>';
       rootEl.querySelectorAll('[data-blk]').forEach(function (b) { b.onclick = function () { openDetail(b.dataset.blk); }; });
       boardSummary();
       if (canEdit) wireLanesDnD();
       drawMap(rows, names);
     }
-    // One scheduled audit as a track block (or a chip in the lane's "no time" bucket).
+    // One scheduled audit: a track block when it has a time, otherwise a chip in the lane's "No time:" strip.
     function blockHtml(a, chip) {
       var t = a.scheduled_time ? Core.hourToTime(Core.timeToHour(a.scheduled_time)) : null;
       var re = a.source === 'reinspection' ? '<span class="cq-tl-re">RE</span>' : '';
-      var label = '#' + (a.sequence || '-') + (t ? ' ' + t : '') + ' · ' + esc(String(a.subscriber || '').slice(0, 18));
+      var seq = '#' + (a.sequence || '-');
       var title = a.id + ' · ' + (a.subscriber || '') + ' · ' + String(a.status).replace('_', ' ') + (t ? ' · ' + t : ' · no time') + ' · ' + (a.contractor_name || '');
-      var pos = chip ? '' : 'left:' + a.left + '%;width:' + a.width + '%;top:' + (a.row * 26) + 'px;';
       var movable = canEdit && (a.status === 'assigned' || a.status === 'in_progress');   // a submitted visit is history — it must not be dragged anywhere
-      return '<div class="cq-tl-block s-' + esc(a.status) + (chip ? ' cq-tl-chip' : '') + '"' + (movable ? ' draggable="true"' : '') + ' data-blk="' + esc(a.id) + '" data-src="' + esc(a.source || '') + '" style="' + pos + '" title="' + esc(title) + '">' + re + label + '</div>';
+      var attrs = (movable ? ' draggable="true"' : '') + ' data-blk="' + esc(a.id) + '" data-src="' + esc(a.source || '') + '" title="' + esc(title) + '"';
+      if (chip) return '<span class="cq-tl-chip s-' + esc(a.status) + '"' + attrs + '><span class="cq-tl-chip-body"><b class="cq-tl-chip-sub">' + re + seq + ' ' + esc(a.subscriber || '—') + '</b><span class="cq-tl-chip-meta">' + esc(a.contractor_name || '') + '</span></span></span>';
+      var pos = 'left:' + a.left + '%;width:' + a.width + '%;top:' + (5 + a.row * 28) + 'px;';
+      return '<div class="cq-tl-block s-' + esc(a.status) + '"' + attrs + ' style="' + pos + '">' + re + seq + (t ? ' ' + t : '') + '<small>' + esc(a.subscriber || '') + '</small></div>';
     }
     function dragId(e) { var id = S.drag && S.drag.id; if (!id) { try { id = e.dataTransfer.getData('text/plain'); } catch (x) {} } return id; }
     function rowById(id) { return S.board.rows.filter(function (a) { return a.id === id; })[0] || null; }
