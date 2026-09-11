@@ -109,10 +109,12 @@
         state.audits = lsGet('qa_cache_' + user.username, []); renderList(); toast('Offline — showing cached inspections');
       });
     }
+    // 'HH:MM' for a pinned dispatch time (Postgres hands back 'HH:MM:SS'), null when the head left it open.
+    function schedTime(a) { var h = Core.timeToHour(a && a.scheduled_time); return h == null ? null : Core.hourToTime(h); }
     function renderPend() { var q = lsGet(QUEUE, []); var p = $('#qaPend'); if (p) p.textContent = q.length ? ('⏳ ' + q.length + ' pending upload') : ''; }
     function renderList() {
       renderPend();
-      var t = today(), list = state.audits.filter(function (a) {
+      var t = today(), list = Core.sortForInspector(state.audits).filter(function (a) {
         if (state.tab === 'done') return a.status === 'done';
         if (a.status === 'done') return false;
         return state.tab === 'today' ? (a.scheduled_date || t) <= t : (a.scheduled_date || t) > t;
@@ -120,7 +122,7 @@
       var el = $('#qaList');
       if (!list.length) { el.innerHTML = '<div style="text-align:center;color:#9aa6a2;padding:30px 0">' + (state.tab === 'today' ? 'No inspections assigned for today.' : 'Nothing here.') + '</div>'; return; }
       el.innerHTML = list.map(function (a) {
-        var badge = a.status === 'done' ? '<span class="qa-badge done">' + esc(a.visit_status || 'DONE') + (a.assessment ? ' · ' + esc(a.assessment) : '') + '</span>' : a.status === 'in_progress' ? '<span class="qa-badge prog">IN PROGRESS</span>' : '<span class="qa-badge">#' + (a.sequence || '-') + '</span>';
+        var badge = a.status === 'done' ? '<span class="qa-badge done">' + esc(a.visit_status || 'DONE') + (a.assessment ? ' · ' + esc(a.assessment) : '') + '</span>' : a.status === 'in_progress' ? '<span class="qa-badge prog">IN PROGRESS</span>' : '<span class="qa-badge">' + (schedTime(a) ? esc(schedTime(a)) + ' · ' : '') + '#' + (a.sequence || '-') + '</span>';
         var re = a.source === 'reinspection' ? '<span class="qa-badge prog">RE-INSPECTION</span>' : '';
         return '<div class="qa-card" data-id="' + esc(a.id) + '"><div class="t">' + esc(a.subscriber || '—') + badge + re + '</div><div class="s">' + esc(a.address || '') + (a.barangay ? ' · ' + esc(a.barangay) : '') + '</div>' +
           '<div class="s">' + esc(a.id) + ' · ' + esc(a.contractor_name || '') + ' · JO ' + esc(a.jo_no || '—') + ' · closed ' + esc(a.jo_date_closed || '—') + '</div>' + (a.installers_text ? '<div class="s">Installers: ' + esc(a.installers_text) + '</div>' : '') +
@@ -213,7 +215,7 @@
 
     function renderSheet() {
       var a = state.open, d = state.draft, ro = !d;
-      var hdr = '<div class="qa-card"><div class="t">' + esc(a.id) + ' <span class="qa-badge">' + esc(a.contractor_name || '') + '</span></div><div class="s"><b>' + esc(a.subscriber || '') + '</b> · Acct ' + esc(a.acct_no || '—') + ' · JO ' + esc(a.jo_no || '—') + '</div><div class="s">' + esc(a.address || '') + ' · ' + esc(a.barangay || '') + '</div><div class="s">NAP ' + esc(a.nap_code || '—') + ' · Port ' + esc(a.port_no || '—') + ' · S/N ' + esc(a.serial_no || '—') + '</div><div class="s">Inspector: ' + esc(user.username) + ' · ' + esc(today()) + '</div></div>';
+      var hdr = '<div class="qa-card"><div class="t">' + esc(a.id) + ' <span class="qa-badge">' + esc(a.contractor_name || '') + '</span></div><div class="s"><b>' + esc(a.subscriber || '') + '</b> · Acct ' + esc(a.acct_no || '—') + ' · JO ' + esc(a.jo_no || '—') + '</div><div class="s">' + esc(a.address || '') + ' · ' + esc(a.barangay || '') + '</div><div class="s">NAP ' + esc(a.nap_code || '—') + ' · Port ' + esc(a.port_no || '—') + ' · S/N ' + esc(a.serial_no || '—') + '</div><div class="s">Inspector: ' + esc(user.username) + ' · ' + esc(today()) + (schedTime(a) ? ' · Scheduled ' + esc(schedTime(a)) : '') + '</div></div>';
       if (a.source === 'reinspection') hdr += '<div id="qaReBox"></div>';
       var sheet = $('#qaSheet'); sheet.innerHTML = '<div class="qa-sheet">' + hdr + '<div id="qaBody"></div><div class="qa-err" id="qaErr"></div></div><div class="qa-footer"><button class="qa-btn ghost" id="qaBack">' + (ro ? 'Close' : 'Save & back') + '</button>' + (ro ? '' : '<button class="qa-btn" id="qaSubmit">Submit inspection</button>') + '</div>';
       if (a.source === 'reinspection') renderReBox();
