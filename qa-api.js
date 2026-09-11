@@ -54,6 +54,8 @@
         return Promise.resolve(b).then(function (r) { if (r.error) throw new Error(r.error.message); return { rows: r.data || [], total: r.count || 0 }; });
       },
       assignAudits: function (ids, o) { o = o || {}; return rpc('assign_audits', { p_ids: ids, p_inspector: o.inspector, p_date: o.date, p_start_seq: o.startSeq == null ? 1 : o.startSeq }); },
+      // Dispatch board drop: assign/redispatch one audit AND pin it to a clock time (qa-05f).
+      scheduleAudit: function (id, o) { o = o || {}; return rpc('schedule_audit', { p_id: id, p_inspector: o.inspector, p_date: o.date, p_time: o.time }); },
       unassignAudits: function (ids) { return rpc('unassign_audits', { p_ids: ids }); },
       queuePool: function (ids) { return rpc('queue_pool', { p_ids: ids }); },
       sampleInhouse: function (o) { o = o || {}; return rpc('sample_inhouse', { p_from: o.from, p_to: o.to, p_pct: o.pct }); },

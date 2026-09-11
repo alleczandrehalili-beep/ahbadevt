@@ -139,7 +139,7 @@
     function newAudit(base) {
       var a = Object.assign({ id: nextId(), source: 'sheet', job_id: null, jo_no: null, acct_no: null, sheet_row_jo: null, contractor_name: null, contractor_org_id: null, kind: null, unmapped: false, rectification_id: null, reinspection_of: null,
         subscriber: null, mobile_no: null, address: null, barangay: null, nap_code: null, port_no: null, serial_no: null, tran_type: null, jo_date_closed: null, installers_text: null, sheet_latlong: null,
-        status: 'queued', assigned_to: null, assigned_by: null, assigned_at: null, scheduled_date: null, sequence: null, started_at: null, inspected_at: null, lat: null, lng: null,
+        status: 'queued', assigned_to: null, assigned_by: null, assigned_at: null, scheduled_date: null, scheduled_time: null, sequence: null, started_at: null, inspected_at: null, lat: null, lng: null,
         inspector: null, contractor_rep: null, visit_status: null, qa_gc: null, wire: null, assessment: null, found_business: null, old_plan: null, new_plan: null, remarks: null,
         subscriber_signed_name: null, subscriber_signature_path: null, inspector_signature_path: null, total_violations: 0, total_penalty: 0, submit_key: null, reopened_count: 0,
         created_at: iso(), updated_at: iso(), deleted_at: null, deleted_by: null }, base);
@@ -201,13 +201,20 @@
     }
     function bump(a) { a.updated_at = iso(); emit(a); return clone(a); }
     function inspectorExists(u) { return db.inspectors.some(function (i) { return i.username === u; }); }
+    // Renumber one inspector's day 1..n by scheduled_time (nulls last), sequence, id — the qa.reseq_day update.
+    function reseqDay(inspector, date) {
+      if (!inspector || !date) return;
+      Core.sortForInspector(db.audits.filter(function (a) { return a.assigned_to === inspector && a.scheduled_date === date && !a.deleted_at && ['assigned', 'in_progress', 'done'].indexOf(a.status) >= 0; }))
+        .forEach(function (a, i) { if (a.sequence !== i + 1) { a.sequence = i + 1; a.updated_at = iso(); } });
+    }
 
     var api = {
       // ----- inspector -----
       listMyAudits: function (username) {
         var cutoff = new Date(now().getTime() - 30 * 86400000).toISOString();
-        return Promise.resolve(db.audits.filter(function (a) { return !a.deleted_at && a.assigned_to === username && (a.status === 'assigned' || a.status === 'in_progress' || (a.status === 'done' && a.inspected_at >= cutoff)); })
-          .sort(function (x, y) { return (x.scheduled_date || '').localeCompare(y.scheduled_date || '') || (x.sequence || 0) - (y.sequence || 0); }).map(clone));
+        var mine = db.audits.filter(function (a) { return !a.deleted_at && a.assigned_to === username && (a.status === 'assigned' || a.status === 'in_progress' || (a.status === 'done' && a.inspected_at >= cutoff)); })
+          .map(clone);
+        return Promise.resolve(Core.sortForInspector(mine));
       },
       startAudit: function (id, pos) {
         var a = find(id); pos = pos || {};
@@ -291,10 +298,27 @@
           var prev = a.assigned_to; var same = prev === o.inspector;
           Object.assign(a, { status: same && a.status === 'in_progress' ? 'in_progress' : 'assigned', assigned_to: o.inspector, assigned_by: o.by || 'HEAD', assigned_at: iso(), scheduled_date: o.date, sequence: seq++, started_at: same ? a.started_at : null, inspector: same ? a.inspector : null });
           syncJob(a); log(id, prev && prev !== o.inspector ? 'reassigned' : 'assigned', { from: prev, to: o.inspector, date: o.date, seq: a.sequence }, o.by); bump(a); n++; });
+        // Mirrors qa.assign_audits (qa-05f): a plain queue-assign also resequences the inspector's day, so the
+        // start-sequence numbers never overwrite a pinned time slot — timed visits stay first, in clock order.
+        if (n) reseqDay(o.inspector, o.date);
         return Promise.resolve(n);
       },
+      // Drag-and-drop dispatch: assign (or redispatch) one audit and pin it to a clock time on that lane.
+      // Mirrors qa.schedule_audit — assign_audits does the status/redispatch/log work, then the day is resequenced by time.
+      scheduleAudit: function (id, o) {
+        o = o || {}; var a = find(id);
+        if (['pool', 'queued', 'assigned', 'in_progress'].indexOf(a.status) < 0 || a.deleted_at) return Promise.reject(new Error('Audit ' + id + ' cannot be scheduled'));
+        var prevInsp = a.assigned_to, prevDate = a.scheduled_date;
+        return api.assignAudits([id], { inspector: o.inspector, date: o.date, startSeq: 1, by: o.by }).then(function () {
+          a.scheduled_time = o.time || null;
+          reseqDay(o.inspector, o.date);
+          if (prevInsp && (prevInsp !== o.inspector || prevDate !== o.date)) reseqDay(prevInsp, prevDate);   // the lane it left closes its gap
+          log(id, 'scheduled', { to: o.inspector, date: o.date, time: o.time || null }, o.by);
+          return bump(a);
+        });
+      },
       unassignAudits: function (ids, o) { var n = 0; ids.forEach(function (id) { var a = find(id); if (a.status !== 'assigned' && a.status !== 'in_progress') return;
-        Object.assign(a, { status: 'queued', assigned_to: null, assigned_by: null, assigned_at: null, scheduled_date: null, sequence: null, started_at: null });
+        Object.assign(a, { status: 'queued', assigned_to: null, assigned_by: null, assigned_at: null, scheduled_date: null, scheduled_time: null, sequence: null, started_at: null });
         if (a.source === 'reinspection' && a.rectification_id) { a.deleted_at = iso(); a.deleted_by = (o || {}).by || 'HEAD';
           var r = db.rectifications.filter(function (x) { return x.id === a.rectification_id; })[0]; var nx = r && Core.rectNext(r, { type: 'unassign' }); if (nx) { r.status = nx.status; r.updated_at = iso(); syncJobRect(r); } }
         else syncJob(a);
@@ -310,7 +334,10 @@
         var pv = a.reinspection_of && db.audits.filter(function (x) { return x.id === a.reinspection_of; })[0]; out.previous = pv ? bundle(pv) : null; return Promise.resolve(out); },
       reopenAudit: function (id, o) { var a = find(id); if (a.status !== 'done' || !a.assigned_to) return Promise.reject(new Error('Audit ' + id + ' is not done or has no inspector')); a.status = 'in_progress'; a.reopened_count++; a.submit_key = null; syncJob(a); log(id, 'reopened', { reason: (o || {}).reason }, (o || {}).by); return Promise.resolve(bump(a)); },
       listInspectors: function () { return Promise.resolve(clone(db.inspectors)); },
-      board: function (date) { return Promise.resolve(db.audits.filter(function (a) { return !a.deleted_at && a.scheduled_date === date && a.assigned_to; }).sort(function (x, y) { return (x.assigned_to || '').localeCompare(y.assigned_to || '') || (x.sequence || 0) - (y.sequence || 0); }).map(clone)); },
+      board: function (date) {
+        var day = Core.sortForInspector(db.audits.filter(function (a) { return !a.deleted_at && a.scheduled_date === date && a.assigned_to; }));
+        return Promise.resolve(day.sort(function (x, y) { return (x.assigned_to || '').localeCompare(y.assigned_to || ''); }).map(clone));   // stable: within a lane the schedule order survives
+      },
       weeklyReport: function (from, to) {
         var done = db.audits.filter(function (a) { return !a.deleted_at && a.status === 'done' && a.inspected_at && a.inspected_at.slice(0, 10) >= from && a.inspected_at.slice(0, 10) <= to; });
         var sheet = Object.values(db.sheetRows).filter(function (r) { return r.jo_date_closed >= from && r.jo_date_closed <= to; });
@@ -474,7 +501,7 @@
       // getConfig/listInspectors are special-cased below (labels-only / empty, mirroring the narrowed config RLS);
       // getChecklist, listRectifications, getRectification, noticesUnseen, markNoticesSeen, subscribeNotices and photoUrl stay as-is.
       var DENIED = ['listMyAudits', 'startAudit', 'uploadPhoto', 'uploadSignature', 'submitAudit', 'getInstallPhotos', 'listAudits', 'assignAudits', 'unassignAudits',
-        'queuePool', 'sampleInhouse', 'getAudit', 'reopenAudit', 'board', 'weeklyReport', 'saveChecklistItem', 'saveCode', 'saveContractor', 'saveSetting', 'syncStatus',
+        'scheduleAudit', 'queuePool', 'sampleInhouse', 'getAudit', 'reopenAudit', 'board', 'weeklyReport', 'saveChecklistItem', 'saveCode', 'saveContractor', 'saveSetting', 'syncStatus',
         'importRows', 'setRectDeadline', 'assignReinspection', 'closeRectification', 'overridePenalty', 'offensePreview', 'recomputeOffenses', 'monthlyScorecard',
         'monthViolations', 'subscribe'];
       DENIED.forEach(function (k) { api[k] = function () { return Promise.reject(new Error('Not allowed for a subcontractor console user')); }; });

@@ -232,6 +232,63 @@
     return null;
   }
 
+
+  // ---------------- Dispatch board (Clicksoft-style lanes) ----------------
+  // One track per inspector spanning TL.start .. TL.start+TL.hours (07:00–18:00). Mirrors the console's SLI
+  // timeline: a dropped card snaps to the nearest half hour, a block is drawn one hour wide.
+  var TL = { start: 7, hours: 11 };
+
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  // frac = 0..1 across the track width. Snapped to :00/:30 and clamped to the last droppable slot.
+  function snapHour(frac) {
+    var f = Number(frac); if (!isFinite(f)) f = 0;
+    var h = Math.round((TL.start + f * TL.hours) * 2) / 2;
+    var lo = TL.start, hi = TL.start + TL.hours - 0.5;
+    return h < lo ? lo : h > hi ? hi : h;
+  }
+  function hourToTime(h) {
+    if (h == null || h === '' || !isFinite(Number(h))) return null;
+    var t = Math.round(Number(h) * 60);
+    return pad2(Math.floor(t / 60)) + ':' + pad2(t % 60);
+  }
+  // 'HH:MM' or Postgres' 'HH:MM:SS' → fractional hour. Anything unparseable (incl. null) → null.
+  function timeToHour(t) {
+    var m = /^\s*(\d{1,2}):([0-5]\d)/.exec(String(t == null ? '' : t));
+    return m ? parseInt(m[1], 10) + parseInt(m[2], 10) / 60 : null;
+  }
+  // Order one inspector's work the way the head scheduled it — and the way qa.schedule_audit resequences it.
+  // A missing `sequence` sorts LAST, not first: the SQL orders `... , sequence, id` and Postgres puts nulls last
+  // by default, so `(x.sequence || 0)` would have disagreed with the server for a never-sequenced row.
+  function seqRank(a) { return a.sequence == null || a.sequence === '' ? Infinity : Number(a.sequence); }
+  function sortForInspector(audits) {
+    return (audits || []).slice().sort(function (x, y) {
+      var hx = timeToHour(x.scheduled_time), hy = timeToHour(y.scheduled_time);
+      var sx = seqRank(x), sy = seqRank(y);
+      return String(x.scheduled_date || '').localeCompare(String(y.scheduled_date || ''))
+        || (hx == null ? 1 : 0) - (hy == null ? 1 : 0)                      // no time = end of the day
+        || (hx == null ? 0 : hx - hy)
+        || (sx < sy ? -1 : sx > sy ? 1 : 0)                                 // Infinity - Infinity is NaN — compare, never subtract
+        || String(x.id || '').localeCompare(String(y.id || ''));
+    });
+  }
+  // Lay out ONE inspector's audits for ONE day. Timed rows get left/width percentages and a stacking `row`
+  // (greedy: first row whose last block has already ended); untimed rows come back with left = null so the
+  // caller can drop them into a "no time" bucket beside the track.
+  function laneBlocks(audits) {
+    var timed = [], untimed = [], w = 1 / TL.hours * 100;
+    (audits || []).forEach(function (a) { (timeToHour(a.scheduled_time) == null ? untimed : timed).push(a); });
+    timed.sort(function (x, y) { return timeToHour(x.scheduled_time) - timeToHour(y.scheduled_time) || (x.sequence || 0) - (y.sequence || 0) || String(x.id).localeCompare(String(y.id)); });
+    untimed.sort(function (x, y) { return (x.sequence || 0) - (y.sequence || 0) || String(x.id).localeCompare(String(y.id)); });
+    var ends = [];                                                          // ends[r] = hour at which row r is free again
+    var out = timed.map(function (a) {
+      var h = timeToHour(a.scheduled_time), r = 0;
+      while (ends[r] != null && ends[r] > h) r++;
+      ends[r] = h + 1;
+      return Object.assign({}, a, { id: a.id, left: (h - TL.start) / TL.hours * 100, width: w, row: r });
+    });
+    return out.concat(untimed.map(function (a) { return Object.assign({}, a, { id: a.id, left: null, width: null, row: null }); }));
+  }
+
   function isOverdue(rect, todayYmd) { return !!rect && RECT_OPEN.indexOf(rect.status) >= 0 && !!rect.deadline && rect.deadline < todayYmd; }
   function passRate(pass, fail) { var d = (pass || 0) + (fail || 0); return d ? Math.round((pass || 0) * 100 / d) : null; }
   function trend(cur, prev) { if (cur == null || prev == null) return { delta: null, dir: null }; var d = cur - prev; return { delta: d, dir: d > 0 ? 'up' : d < 0 ? 'down' : 'flat' }; }
@@ -242,6 +299,7 @@
            weeklySummary: weeklySummary, toDate: toDate,
            RECT_STATUS: RECT_STATUS, RECT_OPEN: RECT_OPEN, offenseNo: offenseNo, effectivePenalty: effectivePenalty,
            rectNext: rectNext, isOverdue: isOverdue, passRate: passRate, trend: trend,
-           QC_DISTRICTS: QC_DISTRICTS, districtOf: districtOf, barangaysOf: barangaysOf };
+           QC_DISTRICTS: QC_DISTRICTS, districtOf: districtOf, barangaysOf: barangaysOf,
+           TL: TL, snapHour: snapHour, hourToTime: hourToTime, timeToHour: timeToHour, laneBlocks: laneBlocks, sortForInspector: sortForInspector };
 });
 

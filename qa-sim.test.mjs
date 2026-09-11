@@ -443,5 +443,65 @@ test('redispatch: an in_progress ticket can be assigned to another inspector (st
   assert.equal(sim._db.audits.find(x => x.id === id).status, 'in_progress');
   assert.equal(await sim.assignAudits([id], { inspector: 'AHBA_QA02', date: '2026-09-10', startSeq: 5, by: 'HEAD' }), 1);
   const a2 = sim._db.audits.find(x => x.id === id);
-  assert.equal(a2.status, 'in_progress'); assert.equal(a2.inspector, 'AHBA_QA02'); assert.ok(a2.started_at); assert.equal(a2.sequence, 5);
+  assert.equal(a2.status, 'in_progress'); assert.equal(a2.inspector, 'AHBA_QA02'); assert.ok(a2.started_at);
+  // assignAudits resequences the whole day afterwards (qa-05f), so startSeq only fixes the ORDER within the batch —
+  // the lane always ends up numbered 1..n. This ticket is alone on QA02's 2026-09-10, so #5 becomes #1.
+  assert.equal(a2.sequence, 1);
+});
+
+// ---------------- Task 14: Dispatch board ----------------
+test('dispatch: scheduleAudit assigns, stamps the time and resequences that inspector day by time', async () => {
+  const sim = Sim.create({ seed: Sim.demoSeed() });
+  const { rows } = await sim.listAudits({ status: ['queued'], pageSize: 5 });
+  const [a, b] = rows.map(r => r.id);
+  const D = '2026-09-12', g = id => sim._db.audits.find(x => x.id === id);
+  await sim.scheduleAudit(a, { inspector: 'AHBA_QA01', date: D, time: '10:00', by: 'HEAD' });
+  assert.equal(g(a).sequence, 1);
+  await sim.scheduleAudit(b, { inspector: 'AHBA_QA01', date: D, time: '08:30', by: 'HEAD' });
+  assert.equal(g(a).scheduled_time, '10:00'); assert.equal(g(b).scheduled_time, '08:30');
+  assert.equal(g(a).sequence, 2); assert.equal(g(b).sequence, 1);        // the 08:30 drop takes over #1
+  assert.equal(g(a).status, 'assigned'); assert.equal(g(a).assigned_to, 'AHBA_QA01'); assert.equal(g(a).scheduled_date, D);
+  const mine = (await sim.listMyAudits('AHBA_QA01')).filter(x => x.id === a || x.id === b);
+  assert.deepEqual(mine.map(x => x.id), [b, a]);                         // the phone list follows the schedule
+  assert.deepEqual(sim._db.log.filter(l => l.audit_id === b && l.action === 'scheduled')[0].detail, { to: 'AHBA_QA01', date: D, time: '08:30' });
+  const lane = (await sim.board(D)).filter(x => x.assigned_to === 'AHBA_QA01');
+  assert.deepEqual(lane.map(x => x.id), [b, a]);
+});
+
+test('dispatch: scheduling onto another inspector redispatches and resequences BOTH lanes; unassign clears the time', async () => {
+  const sim = Sim.create({ seed: Sim.demoSeed() });
+  const { rows } = await sim.listAudits({ status: ['queued'], pageSize: 5 });
+  const [a, b, c] = rows.map(r => r.id);
+  const D = '2026-09-12', g = id => sim._db.audits.find(x => x.id === id);
+  await sim.scheduleAudit(a, { inspector: 'AHBA_QA01', date: D, time: '08:00', by: 'HEAD' });
+  await sim.scheduleAudit(b, { inspector: 'AHBA_QA01', date: D, time: '09:00', by: 'HEAD' });
+  await sim.scheduleAudit(c, { inspector: 'AHBA_QA02', date: D, time: '13:00', by: 'HEAD' });
+  assert.equal(g(b).sequence, 2);
+  await sim.scheduleAudit(a, { inspector: 'AHBA_QA02', date: D, time: '11:30', by: 'HEAD' });
+  assert.equal(g(a).assigned_to, 'AHBA_QA02'); assert.equal(g(a).scheduled_time, '11:30');
+  assert.equal(g(a).sequence, 1); assert.equal(g(c).sequence, 2);        // destination lane: 11:30 before 13:00
+  assert.equal(g(b).sequence, 1);                                        // source lane closed the gap
+  assert.equal(sim._db.log.filter(l => l.audit_id === a && l.action === 'reassigned').length, 1);
+  assert.equal(await sim.unassignAudits([a], { by: 'HEAD' }), 1);
+  assert.equal(g(a).status, 'queued'); assert.equal(g(a).scheduled_time, null); assert.equal(g(a).scheduled_date, null); assert.equal(g(a).sequence, null);
+  assert.equal(sim._db.audits.every(x => 'scheduled_time' in x), true);  // every audit carries the column
+  await assert.rejects(sim.scheduleAudit(b, { inspector: 'NOT_A_QA', date: D, time: '09:00', by: 'HEAD' }), /Not a QA inspector/);
+});
+
+// Owner's call: a plain Queue-tab assign resequences the inspector's day too, so it can never renumber a visit the
+// board already pinned to a clock time. Timed rows lead in time order; untimed rows keep the head's manual order.
+test('dispatch: a plain assignAudits resequences the day — a pinned time keeps #1 and a later assign lands after it', async () => {
+  const sim = Sim.create({ seed: Sim.demoSeed() });
+  const { rows } = await sim.listAudits({ status: ['queued'], pageSize: 6 });
+  const [a, b, c, d] = rows.map(r => r.id);
+  const D = '2026-09-13', g = id => sim._db.audits.find(x => x.id === id);
+  assert.equal(await sim.assignAudits([a, b, c], { inspector: 'AHBA_QA01', date: D, startSeq: 1, by: 'HEAD' }), 3);
+  assert.deepEqual([g(a).sequence, g(b).sequence, g(c).sequence], [1, 2, 3]);   // untimed rows keep the manual order
+  await sim.scheduleAudit(c, { inspector: 'AHBA_QA01', date: D, time: '08:00', by: 'HEAD' });
+  assert.deepEqual([g(c).sequence, g(a).sequence, g(b).sequence], [1, 2, 3]);   // the 08:00 visit leads the day
+  assert.deepEqual((await sim.board(D)).filter(x => x.assigned_to === 'AHBA_QA01').map(x => x.id), [c, a, b]);
+  assert.equal(await sim.assignAudits([d], { inspector: 'AHBA_QA01', date: D, startSeq: 4, by: 'HEAD' }), 1);
+  assert.equal(g(d).sequence, 4);                                              // queued behind the timed visit, not ahead of it
+  assert.equal(g(c).sequence, 1); assert.equal(g(c).scheduled_time, '08:00');  // the pinned time was NOT renumbered away
+  assert.deepEqual((await sim.listMyAudits('AHBA_QA01')).filter(x => x.scheduled_date === D).map(x => x.id), [c, a, b, d]);
 });

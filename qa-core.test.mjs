@@ -259,3 +259,73 @@ test('districtOf / barangaysOf use the QC district table (uppercase, case-insens
   assert.deepEqual(Core.barangaysOf('9'), []);
   assert.equal(Object.keys(Core.QC_DISTRICTS).length, 6);
 });
+
+// ---------------- Task 14: Dispatch board (Clicksoft-style lanes) ----------------
+const r2 = (n) => Math.round(n * 100) / 100;
+
+test('dispatch grid: TL window, snapHour clamps to half hours, hourToTime/timeToHour round-trip', () => {
+  assert.deepEqual(Core.TL, { start: 7, hours: 11 });                 // 07:00 → 18:00
+  assert.equal(Core.snapHour(0), 7);
+  assert.equal(Core.snapHour(1), 17.5);                               // last droppable slot, not 18:00
+  assert.equal(Core.snapHour(0.5), 12.5);
+  assert.equal(Core.snapHour(0.28), 10);                              // 7 + 3.08 → 10.0
+  assert.equal(Core.snapHour(0.3), 10.5);                             // 7 + 3.30 → 10.5
+  assert.equal(Core.snapHour(-3), 7);                                 // dropped left of the track
+  assert.equal(Core.snapHour(9), 17.5);                               // dropped right of the track
+  assert.equal(Core.hourToTime(9.5), '09:30');
+  assert.equal(Core.hourToTime(7), '07:00');
+  assert.equal(Core.hourToTime(17.5), '17:30');
+  assert.equal(Core.hourToTime(null), null);
+  assert.equal(Core.timeToHour('09:30'), 9.5);
+  assert.equal(Core.timeToHour('07:00:00'), 7);                       // Postgres `time` comes back with seconds
+  assert.equal(Core.timeToHour(null), null);
+  assert.equal(Core.timeToHour(''), null);
+  assert.equal(Core.timeToHour('nonsense'), null);
+  assert.equal(Core.hourToTime(Core.snapHour(0.28)), '10:00');        // the drop path the console uses
+});
+
+test('laneBlocks positions 1-hour blocks, stacks overlaps into rows, and buckets the untimed ones', () => {
+  const rows = [
+    { id: 'A', scheduled_time: '09:00', sequence: 2, status: 'assigned' },
+    { id: 'B', scheduled_time: '09:30', sequence: 3, status: 'in_progress' },
+    { id: 'C', scheduled_time: '10:00', sequence: 4, status: 'done' },
+    { id: 'D', scheduled_time: null, sequence: 9, status: 'assigned' },
+    { id: 'E', scheduled_time: null, sequence: 1, status: 'assigned' }
+  ];
+  const bl = Core.laneBlocks(rows);
+  assert.deepEqual(bl.map(b => b.id), ['A', 'B', 'C', 'E', 'D']);     // timed by hour, then untimed by sequence
+  assert.equal(r2(bl[0].left), r2(2 / 11 * 100));                     // 09:00 → (9-7)/11
+  assert.equal(r2(bl[1].left), r2(2.5 / 11 * 100));
+  assert.equal(r2(bl[2].left), r2(3 / 11 * 100));
+  assert.equal(r2(bl[0].width), r2(1 / 11 * 100));                    // every block is one hour wide
+  assert.equal(r2(bl[2].width), r2(1 / 11 * 100));
+  assert.equal(bl[0].row, 0);
+  assert.equal(bl[1].row, 1);                                         // 09:30 still inside A's hour → second row
+  assert.equal(bl[2].row, 0);                                         // 10:00 = A has ended → back to row 0
+  assert.equal(bl[3].left, null); assert.equal(bl[4].left, null);     // "no time" bucket
+  assert.equal(bl[0].status, 'assigned'); assert.equal(bl[2].status, 'done');   // the audit's own fields ride along
+  assert.deepEqual(Core.laneBlocks([]), []);
+  assert.deepEqual(rows.map(r => r.id), ['A', 'B', 'C', 'D', 'E']);   // input untouched
+});
+
+test('sortForInspector: date, then time (nulls last), then sequence, then id', () => {
+  const rows = [
+    { id: 'A2', scheduled_date: '2026-09-11', scheduled_time: null, sequence: 1 },
+    { id: 'A1', scheduled_date: '2026-09-11', scheduled_time: '08:30', sequence: 5 },
+    { id: 'B1', scheduled_date: '2026-09-10', scheduled_time: '17:00', sequence: 2 },
+    { id: 'A3', scheduled_date: '2026-09-11', scheduled_time: null, sequence: 1 }
+  ];
+  assert.deepEqual(Core.sortForInspector(rows).map(r => r.id), ['B1', 'A1', 'A2', 'A3']);
+  assert.deepEqual(rows.map(r => r.id), ['A2', 'A1', 'B1', 'A3']);    // pure: returns a new array
+  assert.deepEqual(Core.sortForInspector([]), []);
+});
+
+test('sortForInspector: a null sequence sorts LAST, matching the SQL nulls-last order', () => {
+  const rows = [
+    { id: 'C', scheduled_date: '2026-09-11', scheduled_time: null, sequence: null },
+    { id: 'A', scheduled_date: '2026-09-11', scheduled_time: null, sequence: 1 },
+    { id: 'D', scheduled_date: '2026-09-11', scheduled_time: null, sequence: null },
+    { id: 'B', scheduled_date: '2026-09-11', scheduled_time: null, sequence: 2 }
+  ];
+  assert.deepEqual(Core.sortForInspector(rows).map(r => r.id), ['A', 'B', 'C', 'D']);   // and two nulls tie-break on id
+});

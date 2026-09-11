@@ -5,7 +5,7 @@ const Api = (await import('./qa-api.js')).default ?? require('./qa-api.js');
 
 const PUBLIC = ['listMyAudits','startAudit','uploadPhoto','uploadSignature','submitAudit','getInstallPhotos','listAudits','assignAudits','unassignAudits','queuePool',
   'sampleInhouse','getAudit','reopenAudit','listInspectors','board','weeklyReport','getConfig','getChecklist','saveChecklistItem','saveCode','saveContractor','saveSetting',
-  'syncStatus','importRows','subscribe','photoUrl',
+  'syncStatus','importRows','subscribe','photoUrl','scheduleAudit',
   'listRectifications','getRectification','setRectDeadline','assignReinspection','closeRectification','overridePenalty','offensePreview','recomputeOffenses','monthlyScorecard','monthViolations','noticesUnseen','markNoticesSeen','subscribeNotices'];
 
 function fakeClient() {
@@ -63,4 +63,10 @@ test('qa-api final-review additions: month_violations RPC and the labels-only ch
   // getChecklist is a plain table read (the one config table a subcon console user may select from), not an RPC
   await api.getChecklist();
   assert.deepEqual(c.calls.pop(), ['from', 'qa', 'checklist_items']);
+});
+
+test('qa-api: scheduleAudit routes to the qa-05f schedule_audit RPC', async () => {
+  const c = fakeClient(); const api = Api.create(c, { username: 'HEAD' });
+  await api.scheduleAudit('QA-1', { inspector: 'AHBA_QA02', date: '2026-09-12', time: '10:30', by: 'HEAD' });
+  assert.deepEqual(c.calls.pop(), ['rpc', 'qa', 'schedule_audit', { p_id: 'QA-1', p_inspector: 'AHBA_QA02', p_date: '2026-09-12', p_time: '10:30' }]);
 });

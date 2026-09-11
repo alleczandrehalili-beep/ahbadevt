@@ -9,6 +9,14 @@
     '.cq-pill{display:inline-block;font-size:10px;font-weight:800;padding:2px 8px;border-radius:9px;background:#eef2ec;color:#3a4a45}.cq-pill.queued{background:#fff3d6;color:#9a6200}.cq-pill.assigned{background:#e8ecff;color:#2d3fa8}.cq-pill.in_progress{background:#ffe9d6;color:#a04a00}.cq-pill.done{background:#e7f7ef;color:#11825f}.cq-pill.pool{background:#f1f1f1;color:#777}.cq-pill.fail{background:#fde4df;color:#c2503a}' +
     '.cq-age{font-size:10px;color:#8a9894}.cq-age.late{color:#c2503a;font-weight:800}.cq-map{height:320px;border-radius:12px;border:1px solid #e3e8e2;margin-bottom:12px;background:#eef2ec}.cq-cols{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}.cq-col{background:#fff;border:1px solid #e3e8e2;border-radius:12px;padding:10px}.cq-col h4{margin:0 0 8px;font-size:13px}.cq-row{border:1px solid #f0f2ef;border-radius:9px;padding:7px 9px;margin-bottom:6px;font-size:12px}' +
     '.cq-modal{position:fixed;inset:0;background:rgba(8,28,24,.45);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px}.cq-modal>div{background:#fff;border-radius:14px;max-width:920px;width:100%;max-height:92vh;overflow:auto;padding:20px}.cq-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;font-size:12px}.cq-grid b{display:block;font-size:10px;color:#8a9894;text-transform:uppercase}.cq-thumbs{display:flex;gap:8px;flex-wrap:wrap}.cq-thumbs img{width:110px;height:110px;object-fit:cover;border-radius:9px;border:1px solid #e3e8e2}.cq-sec{font:800 10px Manrope,system-ui;letter-spacing:.08em;text-transform:uppercase;color:#107b5e;margin:14px 0 6px}.cq-banner{background:#fde4df;color:#8a2c1b;border:1px solid #f0c4b9;border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:12px}.cq-empty{padding:26px;text-align:center;color:#9aa6a2}' +
+    '.cq-disp{display:grid;grid-template-columns:290px 1fr;gap:12px;align-items:start;margin-bottom:12px}.cq-blwrap,.cq-lanewrap{background:#fff;border:1px solid #e3e8e2;border-radius:12px;padding:10px}.cq-blwrap{max-height:72vh;overflow:auto}.cq-blwrap h4{margin:0 0 8px;font-size:13px}.cq-blbar{gap:5px}.cq-blbar select,.cq-blbar input{font-size:11px;padding:5px 7px;width:100%}.cq-lanewrap{overflow-x:auto}' +
+    '.cq-blcard{border:1px solid #e3e8e2;border-radius:9px;padding:7px 9px;margin-bottom:6px;font-size:12px;background:#fff;cursor:grab}.cq-blcard:active{cursor:grabbing}#cqBacklog.cq-dropping{outline:2px dashed #18a57b;outline-offset:3px;border-radius:9px;background:#f2faf6}' +
+    '.cq-tl-headrow,.cq-tl-row{display:flex;align-items:stretch;min-width:620px}.cq-tl-headrow{padding-bottom:4px;border-bottom:1px solid #e3e8e2}.cq-tl-row{border-bottom:1px solid #f0f2ef;padding:7px 0}.cq-tl-name{width:132px;flex:none;font-size:11px;padding-right:6px}.cq-tl-axis{flex:1;display:flex;margin-left:102px}.cq-tl-h{flex:1;font-size:9px;color:#8a9894;border-left:1px solid #eef0ed;padding-left:3px}' +
+    // .cq-tl-name / .cq-tl-none carry padding + a border inside their fixed width — border-box keeps the lane rows
+    // aligned with the hour axis above them (which is offset by the same 132+96-ish pixels).
+    '.cq-tl-name,.cq-tl-none{box-sizing:border-box}' +
+    '.cq-tl-none{width:96px;flex:none;border-right:1px dashed #dfe6e1;padding-right:6px;margin-right:6px;display:flex;flex-direction:column;gap:3px}.cq-tl-track{flex:1;position:relative;min-height:30px;border-radius:8px;background:#fafbfa}.cq-tl-track.cq-dropping{background:#eaf7f1;outline:2px dashed #18a57b}.cq-tl-gl{position:absolute;top:0;bottom:0;width:1px;background:#eef0ed}' +
+    '.cq-tl-block{position:absolute;height:22px;line-height:21px;box-sizing:border-box;border-radius:6px;font-size:10px;font-weight:700;padding:0 5px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:grab;background:#fff;border:1.5px solid #18a57b;color:#0e5c45}.cq-tl-block:active{cursor:grabbing}.cq-tl-block.s-in_progress{border-color:#d08a00;background:#fff6e6;color:#8a5a00}.cq-tl-block.s-done{border-color:#c8d0cb;background:#eceeec;color:#6b7671}.cq-tl-chip{position:static;width:100%;height:auto;line-height:1.35;white-space:normal;padding:2px 5px}.cq-tl-re{display:inline-block;background:#7b2d8a;color:#fff;border-radius:4px;font-size:8px;padding:0 3px;margin-right:3px}' +
     '.cq-pill.r-FORRECTIFICATION{background:#fde8e4;color:#b23a25}.cq-pill.r-FORREINSPECTION{background:#fff3d6;color:#9a6200}.cq-pill.r-RECTIFIED{background:#e7f7ef;color:#11825f}.cq-pill.r-CLOSED{background:#e8ecff;color:#2d3fa8}.cq-over{color:#c2503a;font-weight:800}.cq-ovr{font-size:10px;color:#9a6200}';
   var COLORS = ['#18a57b', '#2d3fa8', '#c2503a', '#9a6200', '#7b2d8a', '#0d7c9a'];
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -26,9 +34,9 @@
   function mount(rootEl, o) {
     var api = o.api, user = o.user || {}, deps = o.deps || {}, canEdit = deps.canEdit !== false, L = deps.L || root.L;
     var toast = deps.toast || function (m) { console.log('[cq]', m); };
-    var S = { tab: 'queue', cfg: null, inspectors: [], sel: {}, filter: { status: ['queued'], page: 1 }, boardDate: today(), map: null, layer: null, unsub: null, unsubN: null, submittedToday: 0, results: { page: 1 }, report: { from: addDays(today(), -6), to: today() }, rect: { status: ['FOR RECTIFICATION', 'FOR RE-INSPECTION'], page: 1 } };
+    var S = { tab: 'queue', cfg: null, inspectors: [], sel: {}, filter: { status: ['queued'], page: 1 }, boardDate: today(), bl: {}, board: { rows: [], backlog: [], total: 0 }, drag: null, laneT: null, map: null, layer: null, unsub: null, unsubN: null, submittedToday: 0, results: { page: 1 }, report: { from: addDays(today(), -6), to: today() }, rect: { status: ['FOR RECTIFICATION', 'FOR RE-INSPECTION'], page: 1 } };
     if (!document.getElementById('cqCss')) { var st = document.createElement('style'); st.id = 'cqCss'; st.textContent = CSS; document.head.appendChild(st); }
-    rootEl.innerHTML = '<div class="cq"><div id="cqBanner"></div><div class="cq-tabs">' + [['queue', 'Queue'], ['board', "Today's board"], ['results', 'Results'], ['rect', 'Rectifications'], ['reports', 'Reports'], ['settings', 'Settings']].map(function (t) { return '<button data-tab="' + t[0] + '" class="' + (t[0] === 'queue' ? 'on' : '') + '">' + t[1] + '</button>'; }).join('') + '</div><div id="cqBody"></div></div><div id="cqModal"></div>';
+    rootEl.innerHTML = '<div class="cq"><div id="cqBanner"></div><div class="cq-tabs">' + [['queue', 'Queue'], ['board', 'Dispatch'], ['results', 'Results'], ['rect', 'Rectifications'], ['reports', 'Reports'], ['settings', 'Settings']].map(function (t) { return '<button data-tab="' + t[0] + '" class="' + (t[0] === 'queue' ? 'on' : '') + '">' + t[1] + '</button>'; }).join('') + '</div><div id="cqBody"></div></div><div id="cqModal"></div>';
     var $ = function (s) { return rootEl.querySelector(s); };
     rootEl.querySelectorAll('.cq-tabs button').forEach(function (b) { b.onclick = function () { S.tab = b.dataset.tab; rootEl.querySelectorAll('.cq-tabs button').forEach(function (x) { x.classList.toggle('on', x === b); }); render(); }; });
 
@@ -88,7 +96,7 @@
       $('#qf_q').onkeydown = function (e) { if (e.key === 'Enter') $('#qf_go').click(); };
       $('#q_prev').onclick = function () { if (S.filter.page > 1) { S.filter.page--; loadQueue(); } };
       $('#q_next').onclick = function () { S.filter.page++; loadQueue(); };
-      if (canEdit) { $('#q_assign').onclick = assignDialog; $('#q_pick').onclick = function () { act(api.queuePool(selIds(), { by: user.username }), 'queued'); }; $('#q_unassign').onclick = function () { var ids = selIds(); if (!ids.length) return; api.unassignAudits(ids, { by: user.username }).then(function (n) { toast(n ? (n + ' audit(s) unassigned') : 'Nothing unassigned (ticket already moved)'); S.sel = {}; loadQueue(); loadQueueStats(); }).catch(function (e) { toast('Failed: ' + e.message); }); }; $('#q_sample').onclick = sampleDialog; }
+      if (canEdit) { $('#q_assign').onclick = function () { assignDialog(); }; $('#q_pick').onclick = function () { act(api.queuePool(selIds(), { by: user.username }), 'queued'); }; $('#q_unassign').onclick = function () { var ids = selIds(); if (!ids.length) return; api.unassignAudits(ids, { by: user.username }).then(function (n) { toast(n ? (n + ' audit(s) unassigned') : 'Nothing unassigned (ticket already moved)'); S.sel = {}; loadQueue(); loadQueueStats(); }).catch(function (e) { toast('Failed: ' + e.message); }); }; $('#q_sample').onclick = sampleDialog; }
       loadQueue(); loadQueueStats();
     }
     // Populates the barangay select from the chosen district (all six districts' barangays, sorted, when none is chosen).
@@ -116,6 +124,7 @@
     function loadQueue() {
       var f = S.filter; $('#cqQTable').innerHTML = '<div class="cq-empty">Loading…</div>';
       api.listAudits({ status: f.status, contractor: f.contractor, kind: f.kind, district: f.district, barangay: f.barangay, from: f.from, to: f.to, q: f.q, page: f.page, pageSize: 50 }).then(function (r) {
+        if (S.tab !== 'queue' || !$('#cqQTable')) return;   // tab changed mid-fetch
         $('#q_page').textContent = 'Page ' + f.page + ' · ' + r.total + ' rows';
         if (!r.rows.length) { $('#cqQTable').innerHTML = '<div class="cq-empty">No audits match.</div>'; return; }
         $('#cqQTable').innerHTML = '<table><thead><tr>' + (canEdit ? '<th><input type="checkbox" id="q_all"></th>' : '') + '<th>Audit</th><th>Subscriber</th><th>Address</th><th>District</th><th>Contractor</th><th>JO closed</th><th>Aging</th><th>Status</th><th>Assigned</th></tr></thead><tbody>' + r.rows.map(function (a) {
@@ -129,11 +138,15 @@
       });
     }
     function syncButtons() { var n = selIds().length; ['q_assign', 'q_pick', 'q_unassign'].forEach(function (id) { var b = $('#' + id); if (b) b.disabled = !n; }); }
-    function assignDialog() {
-      var ids = selIds(); if (!ids.length) return;
+    // `ids` defaults to the Queue tab's checked rows; `done` (Dispatch board) replaces the queue-only reload.
+    function assignDialog(ids, done) {
+      ids = (ids && ids.length) ? ids : selIds(); if (!ids.length) return;
       modal('<h3 style="margin:0 0 10px">Assign / redispatch ' + ids.length + ' audit(s)</h3><div class="cq-bar"><label>Inspector <select id="as_insp">' + inspectorOpts() + '</select></label><label>Date <input type="date" id="as_date" value="' + today() + '"></label><label>Start sequence # <input type="number" id="as_seq" value="1" min="1" style="width:70px"></label></div><div class="cq-age" style="margin-bottom:10px">Sequence = order of visits for that day. The inspector sees them in this order (push notification is wired at deploy). Tickets already assigned or in progress are pulled from their current inspector.</div><div class="cq-bar" style="justify-content:flex-end"><button class="cq-btn ghost" id="as_cancel">Cancel</button><button class="cq-btn" id="as_ok">Assign</button></div>');
       $('#as_cancel').onclick = closeModal;
-      $('#as_ok').onclick = function () { var insp = $('#as_insp').value, date = $('#as_date').value, seq = Number($('#as_seq').value || 1); if (!insp || !date) { toast('Pick an inspector and a date'); return; } closeModal(); act(api.assignAudits(ids, { inspector: insp, date: date, startSeq: seq, by: user.username }).then(function (n) { fireAssigned(insp, date, ids.length); return n; }), 'assigned to ' + insp); };
+      $('#as_ok').onclick = function () { var insp = $('#as_insp').value, date = $('#as_date').value, seq = Number($('#as_seq').value || 1); if (!insp || !date) { toast('Pick an inspector and a date'); return; } closeModal();
+        var p = api.assignAudits(ids, { inspector: insp, date: date, startSeq: seq, by: user.username }).then(function (n) { fireAssigned(insp, date, ids.length); return n; });
+        if (done) p.then(function (n) { toast(n + ' audit(s) assigned to ' + insp); done(); }).catch(function (e) { toast('Failed: ' + e.message); });
+        else act(p, 'assigned to ' + insp); };
     }
     function sampleDialog() {
       var pct = (S.cfg.settings || {}).inhouse_sample_pct || '10';
@@ -142,32 +155,155 @@
       $('#sm_ok').onclick = function () { var o = { from: $('#sm_from').value, to: $('#sm_to').value, pct: Number($('#sm_pct').value), by: user.username }; closeModal(); act(api.sampleInhouse(o), 'sampled into the queue'); };
     }
 
-    // ---------------- TODAY'S BOARD ----------------
+    // ---------------- DISPATCH BOARD (Clicksoft-style lanes) ----------------
+    // Left = "For dispatch" (queued audits, draggable cards). Right = one track per inspector, 07:00–18:00,
+    // with 1-hour blocks laid out by Core.laneBlocks. Drop a card on a track to schedule it, drag a block to
+    // another track to redispatch, drag it back to the backlog to unassign. Layout math lives in qa-core.js.
+    function fmtHour12(h) { var ap = h < 12 ? 'AM' : 'PM'; return (((h + 11) % 12) + 1) + ' ' + ap; }
     function renderBoard() {
       if (S.map) { try { S.map.remove(); } catch (e) {} }
-      S.map = null;
-      $('#cqBody').innerHTML = '<div class="cq-bar"><label>Date <input type="date" id="bd_date" value="' + S.boardDate + '"></label><button class="cq-btn ghost" id="bd_prev">‹</button><button class="cq-btn ghost" id="bd_next">›</button><span id="bd_sum" class="cq-age"></span></div><div class="cq-map" id="cqMap"></div><div class="cq-cols" id="cqCols"></div>';
-      $('#bd_date').onchange = function () { S.boardDate = $('#bd_date').value; loadBoard(); };
-      $('#bd_prev').onclick = function () { S.boardDate = addDays(S.boardDate, -1); $('#bd_date').value = S.boardDate; loadBoard(); };
-      $('#bd_next').onclick = function () { S.boardDate = addDays(S.boardDate, 1); $('#bd_date').value = S.boardDate; loadBoard(); };
+      S.map = null; S.drag = null; S.board = { rows: [], backlog: [], total: 0 };   // the tab is redrawn from scratch — drop the cache so "Loading…" shows
+      var b = S.bl;
+      var hdr = '<div class="cq-tl-name"></div><div class="cq-tl-axis">' + Array.apply(null, Array(Core.TL.hours)).map(function (_, i) { return '<div class="cq-tl-h">' + fmtHour12(Core.TL.start + i) + '</div>'; }).join('') + '</div>';
+      $('#cqBody').innerHTML = '<div class="cq-bar"><label>Date <input type="date" id="bd_date" value="' + esc(S.boardDate) + '"></label><button class="cq-btn ghost" id="bd_prev">‹</button><button class="cq-btn ghost" id="bd_next">›</button><span id="bd_sum" class="cq-age"></span></div>' +
+        '<div class="cq-disp"><div class="cq-blwrap"><h4 id="bd_blh">For dispatch</h4>' +
+        '<div class="cq-bar cq-blbar"><select id="bl_district">' + districtOpts() + '</select><select id="bl_brgy"><option value="">All barangays</option></select><select id="bl_contractor">' + contractorOpts() + '</select><input id="bl_q" placeholder="Search name / address / JO"><button class="cq-btn ghost" id="bl_go">Filter</button></div>' +
+        '<div id="cqBacklog"></div></div>' +
+        '<div class="cq-lanewrap"><div class="cq-tl-headrow">' + hdr + '</div><div id="cqLanes"></div></div></div>' +
+        '<div class="cq-map" id="cqMap"></div>';
+      // The day only moves the lanes — the backlog is every queued audit, which does not depend on the board date.
+      $('#bd_date').onchange = function () { S.boardDate = $('#bd_date').value; loadLanes(); };
+      $('#bd_prev').onclick = function () { S.boardDate = addDays(S.boardDate, -1); $('#bd_date').value = S.boardDate; loadLanes(); };
+      $('#bd_next').onclick = function () { S.boardDate = addDays(S.boardDate, 1); $('#bd_date').value = S.boardDate; loadLanes(); };
+      if (b.district) $('#bl_district').value = b.district; if (b.contractor) $('#bl_contractor').value = b.contractor; if (b.q) $('#bl_q').value = b.q;
+      fillBrgyOptions($('#bl_district'), $('#bl_brgy'), b.barangay);
+      $('#bl_district').onchange = function () { fillBrgyOptions($('#bl_district'), $('#bl_brgy'), null); };
+      $('#bl_go').onclick = function () { S.bl = { district: $('#bl_district').value, barangay: $('#bl_brgy').value, contractor: $('#bl_contractor').value, q: $('#bl_q').value }; loadBacklog(); };
+      $('#bl_q').onkeydown = function (e) { if (e.key === 'Enter') $('#bl_go').click(); };
       loadBoard();
     }
-    function loadBoard() {
-      api.board(S.boardDate).then(function (rows) {
-        var by = {}; rows.forEach(function (a) { (by[a.assigned_to] = by[a.assigned_to] || []).push(a); });
-        var names = Object.keys(by).sort();
-        $('#bd_sum').textContent = rows.length + ' assigned · ' + rows.filter(function (a) { return a.status === 'done'; }).length + ' done · ' + rows.filter(function (a) { return a.status === 'in_progress'; }).length + ' in progress';
-        $('#cqCols').innerHTML = names.length ? names.map(function (n, i) {
-          var list = by[n];
-          return '<div class="cq-col"><h4><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + COLORS[i % COLORS.length] + ';margin-right:6px"></span>' + esc(n) + ' <span class="cq-age">' + list.filter(function (a) { return a.status === 'done'; }).length + '/' + list.length + ' done</span></h4>' +
-            list.map(function (a) { return '<div class="cq-row"><b>#' + (a.sequence || '-') + ' ' + esc(a.subscriber || '') + '</b> ' + pill(a.status) + '<div class="cq-age">' + esc(a.address || '') + ' · ' + esc(a.contractor_name || '') + (a.started_at ? ' · started ' + fmtWhen(a.started_at) : '') + (a.inspected_at ? ' · done ' + fmtWhen(a.inspected_at) : '') + '</div>' +
-              (canEdit && (a.status === 'assigned' || a.status === 'in_progress') ? '<div style="margin-top:4px"><select data-re="' + esc(a.id) + '"><option value="">Reassign to…</option>' + inspectorOpts() + '</select> <input type="number" min="1" value="' + (a.sequence || 1) + '" data-seq="' + esc(a.id) + '" style="width:56px" title="Visit order"> <button class="cq-btn ghost" data-un="' + esc(a.id) + '" style="padding:3px 8px">Unassign</button></div>' : '') + (a.status === 'done' ? '<div style="margin-top:4px"><button class="cq-btn ghost" data-view="' + esc(a.id) + '" style="padding:3px 8px">View result</button></div>' : '') + '</div>'; }).join('') + '</div>';
-        }).join('') : '<div class="cq-empty">Nothing assigned for ' + esc(S.boardDate) + '.</div>';
-        rootEl.querySelectorAll('[data-re]').forEach(function (s) { s.onchange = function () { if (!s.value) return; var a = rows.filter(function (x) { return x.id === s.dataset.re; })[0]; api.assignAudits([a.id], { inspector: s.value, date: S.boardDate, startSeq: a.sequence || 1, by: user.username }).then(function () { fireAssigned(s.value, S.boardDate, 1); toast('Reassigned'); loadBoard(); }); }; });
-        rootEl.querySelectorAll('[data-un]').forEach(function (b) { b.onclick = function () { api.unassignAudits([b.dataset.un], { by: user.username }).then(function (n) { toast(n ? 'Unassigned' : 'Nothing unassigned (ticket already moved)'); loadBoard(); }); }; });
-        rootEl.querySelectorAll('[data-seq]').forEach(function (input) { input.onchange = function () { var a = rows.filter(function (x) { return x.id === input.dataset.seq; })[0]; if (!a) return; api.assignAudits([a.id], { inspector: a.assigned_to, date: S.boardDate, startSeq: Number(input.value) || 1, by: user.username }).then(function () { fireAssigned(a.assigned_to, S.boardDate, 1); toast('Order updated'); loadBoard(); }); }; });
-        rootEl.querySelectorAll('[data-view]').forEach(function (b) { b.onclick = function () { openDetail(b.dataset.view); }; });
-        drawMap(rows, names);
+    // The two halves of the board are fetched separately on purpose. `api.board(date)` is one small day's worth of
+    // rows; the backlog is up to 200 queued audits and is what makes a refresh expensive — so realtime events and
+    // the fallback timer only ever refetch the lanes. The backlog is refetched on tab render, on a filter change,
+    // and after a write that can move a row in or out of the queue (schedule / unassign / assign).
+    function loadBoard() { return Promise.all([loadLanes(), loadBacklog()]); }
+    function loadLanes() {
+      if (S.drag) return Promise.resolve();                                 // never yank the DOM out from under a drag
+      var date = S.boardDate;
+      var lanesEl = $('#cqLanes'); if (lanesEl && !S.board.rows.length) lanesEl.innerHTML = '<div class="cq-empty">Loading…</div>';
+      return api.board(date).then(function (rows) {
+        if (S.tab !== 'board' || !$('#cqLanes') || date !== S.boardDate) return;   // the head switched tabs or days while we were loading
+        S.board.rows = rows || [];
+        if (S.drag) return;                                                 // a drag started while the fetch was in flight
+        renderLanes();
+      }).catch(function (e) { var el = $('#cqLanes'); if (el) el.innerHTML = '<div class="cq-empty">Could not load the board: ' + esc(e.message) + '</div>'; });
+    }
+    function loadBacklog() {
+      var b = S.bl;
+      return api.listAudits({ status: ['queued'], district: b.district, barangay: b.barangay, contractor: b.contractor, q: b.q, pageSize: 200 }).then(function (r) {
+        if (S.tab !== 'board' || !$('#cqBacklog')) return;
+        S.board.backlog = r.rows || []; S.board.total = r.total;
+        if (S.drag) return;
+        renderBacklog();
+      }).catch(function (e) { var el = $('#cqBacklog'); if (el) el.innerHTML = '<div class="cq-empty" style="padding:14px">Could not load the queue: ' + esc(e.message) + '</div>'; });
+    }
+    // Coalesce a burst of realtime events (and the 120-s timer) into ONE lane refetch.
+    function refreshLanesSoon() {
+      if (S.laneT) return;
+      S.laneT = setTimeout(function () { S.laneT = null; if (S.tab === 'board') loadLanes(); }, 2000);
+    }
+    function boardSummary() {
+      var rows = S.board.rows, backlog = S.board.backlog, el = $('#bd_sum'); if (!el) return;
+      el.textContent = rows.length + ' assigned · ' + rows.filter(function (a) { return a.status === 'done'; }).length + ' done · ' + rows.filter(function (a) { return a.status === 'in_progress'; }).length + ' in progress · ' + backlog.length + ' waiting';
+    }
+    function renderBacklog() {
+      var backlog = S.board.backlog, h = $('#bd_blh'), el = $('#cqBacklog'); if (!el) return;
+      if (h) h.innerHTML = 'For dispatch (' + backlog.length + ')' + (S.board.total > backlog.length ? ' <span class="cq-age">first ' + backlog.length + ' of ' + S.board.total + '</span>' : '');
+      el.innerHTML = backlog.length ? backlog.map(function (a) {
+        var d = daysSince(a.jo_date_closed);
+        return '<div class="cq-blcard"' + (canEdit ? ' draggable="true"' : '') + ' data-bl="' + esc(a.id) + '" title="Drag onto an inspector\'s track to schedule"><b>' + esc(a.subscriber || '—') + '</b><div class="cq-age">' + esc(a.address || '') + (a.barangay ? ' · ' + esc(a.barangay) : '') + '</div>' +
+          '<div class="cq-age">' + esc(a.contractor_name || '') + ' · JO ' + esc(a.jo_no || '—') + ' · <span class="' + (d > 14 ? 'late' : '') + '">' + d + ' d</span></div>' +
+          (canEdit ? '<div style="margin-top:5px"><button class="cq-btn ghost" data-blas="' + esc(a.id) + '" style="padding:2px 7px;font-size:10px">Assign…</button></div>' : '') + '</div>';
+      }).join('') : '<div class="cq-empty" style="padding:14px">Nothing waiting for dispatch.</div>';
+      rootEl.querySelectorAll('[data-blas]').forEach(function (btn) { btn.onclick = function (e) { e.stopPropagation(); assignDialog([btn.dataset.blas], loadBoard); }; });
+      boardSummary();
+      if (canEdit) wireBacklogDnD();
+    }
+    function renderLanes() {
+      var rows = S.board.rows, el = $('#cqLanes'); if (!el) return;
+      var by = {}; rows.forEach(function (a) { (by[a.assigned_to] = by[a.assigned_to] || []).push(a); });
+      var names = S.inspectors.map(function (i) { return i.username; });
+      Object.keys(by).forEach(function (n) { if (names.indexOf(n) < 0) names.push(n); });   // an inspector who left the roster still shows their day
+      el.innerHTML = names.length ? names.map(function (n, i) {
+        var list = by[n] || [], blocks = Core.laneBlocks(list);
+        var timed = blocks.filter(function (x) { return x.left != null; }), none = blocks.filter(function (x) { return x.left == null; });
+        var maxRow = timed.reduce(function (m, x) { return Math.max(m, x.row); }, -1);
+        var insp = S.inspectors.filter(function (x) { return x.username === n; })[0] || {};
+        var grid = Array.apply(null, Array(Core.TL.hours)).map(function (_, k) { return '<i class="cq-tl-gl" style="left:' + (k / Core.TL.hours * 100) + '%"></i>'; }).join('');
+        return '<div class="cq-tl-row"><div class="cq-tl-name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + COLORS[i % COLORS.length] + ';margin-right:5px"></span><b>' + esc(n) + '</b>' +
+          (insp.display_name ? '<div class="cq-age">' + esc(insp.display_name) + '</div>' : '') + '<div class="cq-age">' + list.filter(function (a) { return a.status === 'done'; }).length + '/' + list.length + ' done</div></div>' +
+          '<div class="cq-tl-none">' + (none.length ? none.map(function (a) { return blockHtml(a, true); }).join('') : '<span class="cq-age">no time</span>') + '</div>' +
+          '<div class="cq-tl-track" data-lane="' + esc(n) + '" style="min-height:' + Math.max(30, (maxRow + 1) * 26 + 6) + 'px">' + grid + timed.map(function (a) { return blockHtml(a, false); }).join('') + '</div></div>';
+      }).join('') : '<div class="cq-empty">No QA inspector accounts yet — add them in Settings.</div>';
+      rootEl.querySelectorAll('[data-blk]').forEach(function (b) { b.onclick = function () { openDetail(b.dataset.blk); }; });
+      boardSummary();
+      if (canEdit) wireLanesDnD();
+      drawMap(rows, names);
+    }
+    // One scheduled audit as a track block (or a chip in the lane's "no time" bucket).
+    function blockHtml(a, chip) {
+      var t = a.scheduled_time ? Core.hourToTime(Core.timeToHour(a.scheduled_time)) : null;
+      var re = a.source === 'reinspection' ? '<span class="cq-tl-re">RE</span>' : '';
+      var label = '#' + (a.sequence || '-') + (t ? ' ' + t : '') + ' · ' + esc(String(a.subscriber || '').slice(0, 18));
+      var title = a.id + ' · ' + (a.subscriber || '') + ' · ' + String(a.status).replace('_', ' ') + (t ? ' · ' + t : ' · no time') + ' · ' + (a.contractor_name || '');
+      var pos = chip ? '' : 'left:' + a.left + '%;width:' + a.width + '%;top:' + (a.row * 26) + 'px;';
+      var movable = canEdit && (a.status === 'assigned' || a.status === 'in_progress');   // a submitted visit is history — it must not be dragged anywhere
+      return '<div class="cq-tl-block s-' + esc(a.status) + (chip ? ' cq-tl-chip' : '') + '"' + (movable ? ' draggable="true"' : '') + ' data-blk="' + esc(a.id) + '" data-src="' + esc(a.source || '') + '" style="' + pos + '" title="' + esc(title) + '">' + re + label + '</div>';
+    }
+    function dragId(e) { var id = S.drag && S.drag.id; if (!id) { try { id = e.dataTransfer.getData('text/plain'); } catch (x) {} } return id; }
+    function rowById(id) { return S.board.rows.filter(function (a) { return a.id === id; })[0] || null; }
+    // One drop zone. `dragleave` fires every time the pointer crosses into a CHILD of the zone, so the highlight
+    // flickers if we just remove the class — count enter/leave pairs instead and only clear it at depth 0.
+    function dropZone(el, onDrop) {
+      var depth = 0;
+      function clear() { depth = 0; el.classList.remove('cq-dropping'); }
+      el.ondragenter = function (e) { e.preventDefault(); depth++; el.classList.add('cq-dropping'); };
+      el.ondragover = function (e) { e.preventDefault(); el.classList.add('cq-dropping'); };
+      el.ondragleave = function () { depth = Math.max(0, depth - 1); if (!depth) el.classList.remove('cq-dropping'); };
+      el.ondrop = function (e) { e.preventDefault(); clear(); onDrop(e); };
+    }
+    function wireLanesDnD() {
+      rootEl.querySelectorAll('[data-blk][draggable]').forEach(function (bk) {
+        bk.ondragstart = function (e) { e.stopPropagation(); S.drag = { id: bk.dataset.blk, from: 'lane', source: bk.dataset.src || '' }; try { e.dataTransfer.setData('text/plain', bk.dataset.blk); } catch (x) {} };
+        bk.ondragend = function () { S.drag = null; };
+      });
+      rootEl.querySelectorAll('.cq-tl-track').forEach(function (tr) {
+        dropZone(tr, function (e) {
+          var id = dragId(e), insp = tr.dataset.lane; S.drag = null; if (!id || !insp) return;
+          var r = tr.getBoundingClientRect(), time = Core.hourToTime(Core.snapHour(r.width ? (e.clientX - r.left) / r.width : 0));
+          api.scheduleAudit(id, { inspector: insp, date: S.boardDate, time: time, by: user.username }).then(function () {
+            fireAssigned(insp, S.boardDate, 1); toast(id + ' → ' + insp + ' at ' + time); loadBoard();
+          }).catch(function (err) { toast('Failed: ' + err.message); });
+        });
+      });
+    }
+    function wireBacklogDnD() {
+      rootEl.querySelectorAll('[data-bl]').forEach(function (c) {
+        c.ondragstart = function (e) { S.drag = { id: c.dataset.bl, from: 'backlog', source: '' }; try { e.dataTransfer.setData('text/plain', c.dataset.bl); } catch (x) {} };
+        c.ondragend = function () { S.drag = null; };
+      });
+      var bl = $('#cqBacklog'); if (!bl) return;
+      dropZone(bl, function (e) {
+        var d = S.drag, id = dragId(e); S.drag = null;
+        if (!id || (d && d.from === 'backlog')) return;                     // a queued card dropped back on the queue is a no-op
+        var row = rowById(id);
+        var isRe = (d && d.source === 'reinspection') || !!(row && row.source === 'reinspection');
+        // Releasing a re-inspection is not the mirror image of scheduling it: qa.unassign_audits retires the visit
+        // (soft-delete) and pushes the loop back to FOR RECTIFICATION. Make the head say yes to that.
+        if (isRe && !confirm('This is a re-inspection visit. Releasing it retires the visit and returns the rectification to FOR RECTIFICATION. Continue?')) return;
+        api.unassignAudits([id], { by: user.username }).then(function (n) {
+          toast(n ? (isRe ? 'Re-inspection visit released' : id + ' returned to the queue') : 'Nothing unassigned (ticket already moved)'); loadBoard();
+        }).catch(function (err) { toast('Failed: ' + err.message); });
       });
     }
     function drawMap(rows, names) {
@@ -473,12 +609,12 @@
     function parseCsv(text) { var rows = [], row = [], cell = '', inQ = false, i, ch; text = String(text || ''); for (i = 0; i < text.length; i++) { ch = text[i]; if (inQ) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else inQ = false; } else cell += ch; } else if (ch === '"') inQ = true; else if (ch === ',') { row.push(cell); cell = ''; } else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; } else cell += ch; } if (cell !== '' || row.length) { row.push(cell); rows.push(row); } return rows.filter(function (r) { return r.some(function (c) { return c !== ''; }); }); }
 
     var TABS = { queue: renderQueue, board: renderBoard, results: renderResults, rect: renderRect, reports: renderReports, settings: renderSettings };
-    if (api.subscribe) S.unsub = api.subscribe(function (e) { var r = e.row || {}; if (r.status === 'done' && r.inspected_at && r.inspected_at.slice(0, 10) === today()) { S.submittedToday++; toast('✅ ' + r.id + ' submitted by ' + (r.inspector || r.assigned_to) + (r.assessment ? ' · ' + r.assessment : '')); if (o.onBadge) o.onBadge(S.submittedToday); } if (S.tab === 'board') loadBoard(); if (S.tab === 'queue') loadQueueStats(); if (S.tab === 'rect') { loadRect(); loadRectStats(); } });
+    if (api.subscribe) S.unsub = api.subscribe(function (e) { var r = e.row || {}; if (r.status === 'done' && r.inspected_at && r.inspected_at.slice(0, 10) === today()) { S.submittedToday++; toast('✅ ' + r.id + ' submitted by ' + (r.inspector || r.assigned_to) + (r.assessment ? ' · ' + r.assessment : '')); if (o.onBadge) o.onBadge(S.submittedToday); } if (S.tab === 'board') refreshLanesSoon(); if (S.tab === 'queue') loadQueueStats(); if (S.tab === 'rect') { loadRect(); loadRectStats(); } });
     if (api.subscribeNotices) S.unsubN = api.subscribeNotices(function () { if (S.tab === 'rect') { loadRect(); loadRectStats(); } });
     // single fallback timer — realtime is primary
-    S.timer = setInterval(function () { if (S.tab === 'board') loadBoard(); else if (S.tab === 'queue') loadQueueStats(); }, 120000);
+    S.timer = setInterval(function () { if (S.tab === 'board') refreshLanesSoon(); else if (S.tab === 'queue') loadQueueStats(); }, 120000);
     load().then(render).catch(function (e) { rootEl.querySelector('#cqBody').innerHTML = '<div class="cq-empty">Hindi ma-load ang QA data: ' + esc((e && e.message) || e) + '<br><span class="cq-age">Kung "permission denied", mag-sign in ulit (expired ang session) o walang QA Audit access ang account.</span></div>'; });
-    return { refresh: function () { return load().then(render).catch(function (e) { toast('QA: ' + ((e && e.message) || e)); }); }, destroy: function () { if (S.unsub) S.unsub(); if (S.unsubN) S.unsubN(); clearInterval(S.timer); rootEl.innerHTML = ''; }, badge: function () { return S.submittedToday; }, _S: S, _openDetail: function (id) { openDetail(id); }, _openRect: function (id) { openRect(id); } };
+    return { refresh: function () { return load().then(render).catch(function (e) { toast('QA: ' + ((e && e.message) || e)); }); }, destroy: function () { if (S.unsub) S.unsub(); if (S.unsubN) S.unsubN(); clearInterval(S.timer); if (S.laneT) { clearTimeout(S.laneT); S.laneT = null; } rootEl.innerHTML = ''; }, badge: function () { return S.submittedToday; }, _S: S, _openDetail: function (id) { openDetail(id); }, _openRect: function (id) { openRect(id); } };
   }
   root.ConsoleQA = { mount: mount };
 })(typeof self !== 'undefined' ? self : this);

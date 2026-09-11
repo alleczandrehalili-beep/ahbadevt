@@ -36,6 +36,7 @@ create index if not exists notices_org_unseen_idx on qa.notices(org_id) where se
 
 alter table qa.audits add column if not exists rectification_id text references qa.rectifications(id);
 alter table qa.audits add column if not exists reinspection_of text references qa.audits(id);
+alter table qa.audits add column if not exists scheduled_time time;   -- qa-05f: dispatch board clock time (null = "no time" bucket)
 alter table qa.audits drop constraint if exists audits_source_check;
 alter table qa.audits add constraint audits_source_check check (source in ('sheet','fieldops','sheet_legacy','manual','reinspection'));
 -- Commercial is Yes/No only (owner change, 2026-09-09 part 2): found_business = 'yes' means Commercial = Yes.
@@ -292,7 +293,7 @@ declare v_n int := 0; v_id text; a qa.audits; r qa.rectifications;
 begin
   if not qa.is_head() then raise exception 'QA Head only'; end if;
   foreach v_id in array p_ids loop
-    update qa.audits set status = 'queued', assigned_to = null, assigned_by = null, assigned_at = null, scheduled_date = null, sequence = null, started_at = null
+    update qa.audits set status = 'queued', assigned_to = null, assigned_by = null, assigned_at = null, scheduled_date = null, scheduled_time = null, sequence = null, started_at = null
      where id = v_id and deleted_at is null and status in ('assigned','in_progress') returning * into a;
     if found then
       if a.source = 'reinspection' and a.rectification_id is not null then
@@ -309,6 +310,42 @@ begin
 end $$;
 
 -- ---------- 7. QA Head RPCs ----------
+-- The board's contract: within one inspector-day, `sequence` is 1..n in scheduled_time order (untimed rows last).
+-- Called from qa.schedule_audit for BOTH the lane an audit lands on and the lane it left, so neither keeps a gap.
+create or replace function qa.reseq_day(p_inspector text, p_date date) returns void
+language plpgsql security definer set search_path = qa, public, pg_temp as $$
+begin
+  if p_inspector is null or p_date is null then return; end if;
+  update qa.audits a set sequence = s.rn
+    from (select id, row_number() over (order by scheduled_time nulls last, sequence, id) rn
+            from qa.audits
+           where assigned_to = p_inspector and scheduled_date = p_date and deleted_at is null
+             and status in ('assigned','in_progress','done')) s
+   where a.id = s.id and a.sequence is distinct from s.rn;
+end $$;
+
+-- assign_audits (qa-05c) already does the status / redispatch / sync_job / log work — this only adds the clock time.
+create or replace function qa.schedule_audit(p_id text, p_inspector text, p_date date, p_time time) returns qa.audits
+language plpgsql security definer set search_path = qa, public, pg_temp as $$
+declare a qa.audits; v_prev_insp text; v_prev_date date;
+begin
+  if not qa.is_head() then raise exception 'QA Head only'; end if;
+  if not exists (select 1 from public.technicians where username = p_inspector and role = 'qa_inspector') then
+    raise exception 'Not a QA inspector account: %', p_inspector; end if;
+  select assigned_to, scheduled_date into v_prev_insp, v_prev_date
+    from qa.audits where id = p_id and deleted_at is null and status in ('pool','queued','assigned','in_progress') for update;
+  if not found then raise exception 'Audit % cannot be scheduled', p_id; end if;
+  perform qa.assign_audits(array[p_id], p_inspector, p_date, 1);
+  update qa.audits set scheduled_time = p_time where id = p_id;
+  perform qa.reseq_day(p_inspector, p_date);
+  if v_prev_insp is not null and (v_prev_insp is distinct from p_inspector or v_prev_date is distinct from p_date) then
+    perform qa.reseq_day(v_prev_insp, v_prev_date);
+  end if;
+  select * into a from qa.audits where id = p_id;
+  perform qa.log(p_id, 'scheduled', jsonb_build_object('to', p_inspector, 'date', p_date, 'time', p_time));
+  return a;
+end $$;
+
 create or replace function qa.set_rect_deadline(p_id text, p_date date, p_reason text) returns qa.rectifications
 language plpgsql security definer set search_path = qa, public, pg_temp as $$
 declare r qa.rectifications;
@@ -630,6 +667,7 @@ grant execute on function qa.ingest_sheet_rows(), qa.assign_audits(text[],text,d
   qa.submit_audit(text,jsonb), qa.weekly_report(date,date), qa.sync_status(),
   qa.set_rect_deadline(text,date,text), qa.assign_reinspection(text,text,date,int), qa.close_rectification(text,text),
   qa.override_penalty(bigint,numeric,text), qa.offense_preview(text,text[]), qa.recompute_offenses(), qa.monthly_scorecard(date),
-  qa.month_violations(date), qa.notices_unseen(), qa.mark_notices_seen(), qa.rectification_bundle(text) to authenticated;
+  qa.month_violations(date), qa.notices_unseen(), qa.mark_notices_seen(), qa.rectification_bundle(text),
+  qa.schedule_audit(text,text,date,time) to authenticated;   -- qa-05f (qa.reseq_day stays internal to the definer)
 grant execute on function qa.ingest_sheet_rows() to service_role;
 notify pgrst, 'reload schema';

@@ -47,4 +47,15 @@ union all select 'touch trigger', case when exists (select 1 from pg_trigger whe
 union all select 'ingest excludes reinspection', case when coalesce(pg_get_functiondef(to_regprocedure('qa.ingest_sheet_rows()')), '') like '%reinspection%' then 'OK' else 'FAIL (run qa-05b)' end
 -- these two now need a QA-Head JWT; in the SQL editor (no claims) they report SKIP instead of raising
 union all select 'scorecard runs', case when not qa.is_head() then 'SKIP (needs head JWT)' when jsonb_typeof(qa.monthly_scorecard(current_date)) = 'array' then 'OK' else 'FAIL' end
+-- qa-05f: dispatch board (per-inspector lanes, drag-and-drop scheduling)
+union all select 'audits.scheduled_time', case when exists (select 1 from information_schema.columns where table_schema='qa' and table_name='audits' and column_name='scheduled_time') then 'OK' else 'FAIL (run qa-05f)' end
+union all select 'schedule_audit rpc', case when to_regprocedure('qa.schedule_audit(text,text,date,time)') is not null then 'OK' else 'FAIL (run qa-05f)' end
+union all select 'unassign clears the time', case when coalesce(pg_get_functiondef(to_regprocedure('qa.unassign_audits(text[])')), '') like '%scheduled_time = null%' then 'OK' else 'FAIL (run qa-05f)' end
+-- has_function_privilege RAISES on a function that does not exist, which would abort the whole VERIFY run and hide
+-- every row after it — so probe to_regprocedure first and report the missing function as a FAIL instead.
+union all select 'reseq_day not callable', case when to_regprocedure('qa.reseq_day(text,date)') is null then 'FAIL (run qa-05f)'
+       when has_function_privilege('authenticated','qa.reseq_day(text,date)','execute') then 'FAIL (exec granted — revoke it, head-only path)' else 'OK' end
+union all select 'assign_audits resequences the day', case when coalesce(pg_get_functiondef(to_regprocedure('qa.assign_audits(text[],text,date,int)')), '') like '%reseq_day%' then 'OK' else 'FAIL (run qa-05f AFTER qa-05c)' end
+union all select 'schedule_audit not public', case when to_regprocedure('qa.schedule_audit(text,text,date,time)') is null then 'FAIL (run qa-05f)'
+       when has_function_privilege('anon','qa.schedule_audit(text,text,date,time)','execute') then 'FAIL (anon can call it)' else 'OK' end
 union all select 'offense_preview runs', case when not qa.is_head() then 'SKIP (needs head JWT)' when qa.offense_preview('J2', array['HA001']) ? 'HA001' then 'OK' else 'FAIL' end;
