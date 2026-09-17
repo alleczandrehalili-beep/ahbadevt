@@ -19,4 +19,5 @@ done
 node --check mobile-a.js    || { echo "❌ lint: mobile-a.js"; FAIL=1; }
 node --check mobile-b.js    || { echo "❌ lint: mobile-b.js"; FAIL=1; }
 node --check mobile-wims.js || { echo "❌ lint: mobile-wims.js"; FAIL=1; }
+node --check mobile-fms.js  || { echo "❌ lint: mobile-fms.js"; FAIL=1; }
 if [ $FAIL = 0 ]; then echo "✅ DEPLOY CHECK PASSED — safe to push"; else echo "🛑 HUWAG I-PUSH — ayusin muna ang nasa itaas"; exit 1; fi

@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-09-15.1';
+    const APP_VERSION = '2026-09-18.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -467,7 +467,7 @@
     const statusLabel = s => (FLOW[s]?.label) || ({negative:'Incomplete',cancelled:'Cancelled',rejected:'Rejected',for_validation:'For validation'}[s]) || s;
 
     // ---------- views ----------
-    function show(view){['loginView','pwView','shiftView','appView','saView','secView','qaView'].forEach(v=>$('#'+v).classList.toggle('hidden', v!==view));const inApp=(view==='appView'||view==='saView'||view==='secView'||view==='qaView');$('#menuBtn').classList.toggle('hidden', !inApp);const hrb=$('#btnHardRefresh');if(hrb)hrb.classList.toggle('hidden', !inApp);const jtk=$('#jtTickets');if(jtk)jtk.classList.toggle('hidden', !(view==='appView'&&/^AHBA/i.test(myTeam||'')));$('#chatFab')&&$('#chatFab').classList.toggle('hidden', !(view==='appView'||view==='saView'||view==='qaView'));$('#menuPop').classList.add('hidden');try{renderAnnBanner();}catch(e){}}
+    function show(view){['loginView','pwView','shiftView','appView','saView','secView','qaView','fmsView'].forEach(v=>{const el=$('#'+v); if(el) el.classList.toggle('hidden', v!==view);});const inApp=(view==='appView'||view==='saView'||view==='secView'||view==='qaView'||view==='fmsView');$('#menuBtn').classList.toggle('hidden', !inApp);const hrb=$('#btnHardRefresh');if(hrb)hrb.classList.toggle('hidden', !inApp);const jtk=$('#jtTickets');if(jtk)jtk.classList.toggle('hidden', !(view==='appView'&&/^AHBA/i.test(myTeam||'')));$('#chatFab')&&$('#chatFab').classList.toggle('hidden', !(view==='appView'||view==='saView'||view==='qaView'));$('#menuPop').classList.add('hidden');try{renderAnnBanner();}catch(e){}}
 
     // ---------- shift setup (account + crew) ----------
     // Work accounts now come from the org-scoped `work_accounts` table (see openShift) — no hardcoded list,
@@ -533,6 +533,30 @@
       _qaMount=MobileQA.mount($('#qaView'),{api,user:{username:myTeam,display_name:myName},deps:{toast,compressImage,buildStamp,
         getPos:()=>_getPos().then(p=>(p&&p.coords)?{lat:p.coords.latitude,lng:p.coords.longitude}:null).catch(()=>null)}});
     }
+
+    // ---------- FLEET (module in mobile-fms.js): daily BLOWBAGETS checklist gate before the first load + "Report vehicle concern" ----------
+    // Pushes (Security "dispatched", fleet admins, equipment missing) are sent by the fms.submit_daily_check RPC on the server — nothing to send from here.
+    let _fmsMount=null;
+    function fmsApi(){ return FmsApi.create(sb,{username:myTeam,supaUrl:SUPA_URL}); }
+    function fmsMount(next,openConcern){
+      $('#teamName').textContent=headerName(); show('fmsView');
+      if(_fmsMount) _fmsMount.destroy();
+      const root=$('#fmsView'); root.innerHTML='';
+      const bar=document.createElement('div'); bar.style.cssText='padding:8px 12px 0;display:flex;justify-content:flex-end';
+      bar.innerHTML='<button type="button" id="fmsHostBack" style="background:none;border:0;color:#127b5d;font-weight:800;font-size:12px;cursor:pointer">'+(openConcern?'↩ Back to jobs':'Skip for now →')+'</button>';
+      const host=document.createElement('div'); root.appendChild(bar); root.appendChild(host);
+      const done=()=>{ if(_fmsMount){_fmsMount.destroy();_fmsMount=null;} root.innerHTML=''; next(); };
+      bar.querySelector('#fmsHostBack').onclick=done;                                   // never traps the technician (offline, wrong vehicle, no time)
+      _fmsMount=MobileFMS.mount(host,{api:fmsApi(),user:{username:myTeam,display_name:myName,driver:shiftDriver},deps:{toast,compressImage,notify:()=>{}},onConfirmed:done});
+      if(openConcern) _fmsMount.openConcern();
+    }
+    function startFMSGate(next){
+      if(!window.FmsApi||!window.MobileFMS||!/^AHBA/i.test(myTeam||'')){ next(); return; }       // module missing / not a technician team → never block
+      let guard=setTimeout(()=>{ guard=null; next(); },6000);                                   // slow network → let them work
+      fmsApi().todayCheck(myTeam).then(c=>{ if(guard===null) return; clearTimeout(guard); if(c){ next(); return; } fmsMount(next,false); })
+        .catch(()=>{ if(guard!==null){ clearTimeout(guard); next(); } });                       // schema not exposed / RLS error → never block
+    }
+    function openFMSConcern(){ if(!window.FmsApi||!window.MobileFMS){ toast('Fleet module not loaded — i-refresh ang app'); return; } fmsMount(()=>startApp(),true); }
 
     function secSwitch(tab){
       secTab=tab;
