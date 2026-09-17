@@ -633,6 +633,7 @@
       }
     }
     function startApp(){
+      try{ const mfc=$('#mFmsConcern'); if(mfc) mfc.classList.toggle('hidden', !(/^AHBA/i.test(myTeam||'') && window.MobileFMS)); }catch(e){}
       $('#teamName').textContent=headerName();
       show('appView'); setSync('syncing','Connecting…'); signature=''; knownJobIds=null; primeAudio();
       refresh();
@@ -682,7 +683,7 @@
       // On a refresh/resume of the SAME open session, restore the locked account.
       // resumeShift() already adopted the cloud's crew/account, so there's nothing to write
       // back — writing here is what used to clobber dispatcher edits with stale values.
-      if(!fresh && await resumeShift()){ startApp(); return; }
+      if(!fresh && await resumeShift()){ startFMSGate(startApp); return; }
       openShift();              // otherwise technicians must set account + crew first
     }
     // Restore today's account+crew. Cloud is the SOURCE OF TRUTH — a dispatcher may have
@@ -736,7 +737,7 @@
         if(attendanceId) await saveWrite('attendance','update',{id:attendanceId},{work_account:acc,crew_driver:drv,crew_tech1:t1,crew_tech2:t2});   // queued if offline
       }catch(e){ console.warn('shift save',e.message); }
       btn.disabled=false; btn.textContent='Start shift';
-      startApp();
+      startFMSGate(startApp);
     });
 
     function openPw(forced){
@@ -802,6 +803,7 @@
     $('#annClose').onclick=closeAnn; $('#annBack').onclick=closeAnn;
     $('#mChangePw').onclick=()=>{$('#menuPop').classList.add('hidden');openPw(false)};
     const msc=$('#mSysCheck'); if(msc) msc.onclick=()=>{$('#menuPop').classList.add('hidden');mobileSystemCheck();};
+    const mfc=$('#mFmsConcern'); if(mfc) mfc.onclick=()=>{$('#menuPop').classList.add('hidden');openFMSConcern();};
     $('#mName').onclick=async()=>{
       $('#menuPop').classList.add('hidden');
       const n=prompt('Your full name (as it should appear on records):', myName||'');

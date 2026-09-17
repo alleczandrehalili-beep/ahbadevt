@@ -164,6 +164,7 @@
       <button id="mLocate">Update my location</button>
       <button id="mChangePw">Change password</button>
       <button id="mSysCheck">🩺 Check system</button>
+      <button id="mFmsConcern" class="hidden">🔧 Report vehicle concern</button>
       <button id="mLogout" class="danger">Time out &amp; sign out</button>
     </div>
 
@@ -417,6 +418,8 @@
     </div>
     <!-- QA INSPECTOR — inside .wrap so it shares the 520px centered column and fills the height -->
     <div class="hidden" id="qaView" style="flex:1"></div>
+    <!-- FLEET: daily BLOWBAGETS vehicle check (gate before the first load) + repair concern report — module in mobile-fms.js -->
+    <div class="hidden" id="fmsView" style="flex:1;overflow:auto"></div>
   </div>
 
   <div class="mexp-back hidden" id="payBack"></div>
@@ -493,11 +496,14 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="mobile-a.js?v=2026-09-15.1"></script>
-  <script src="mobile-b.js?v=2026-09-15.1"></script>
-  <script src="mobile-wims.js?v=2026-09-15.1"></script>
-  <script src="qa-core.js?v=2026-09-15.1"></script>
-  <script src="qa-api.js?v=2026-09-15.1"></script>
-  <script src="mobile-qa.js?v=2026-09-15.1"></script>
+  <script src="mobile-a.js?v=2026-09-18.1"></script>
+  <script src="mobile-b.js?v=2026-09-18.1"></script>
+  <script src="mobile-wims.js?v=2026-09-18.1"></script>
+  <script src="qa-core.js?v=2026-09-18.1"></script>
+  <script src="qa-api.js?v=2026-09-18.1"></script>
+  <script src="mobile-qa.js?v=2026-09-18.1"></script>
+  <script src="fms-core.js?v=2026-09-18.1"></script>
+  <script src="fms-api.js?v=2026-09-18.1"></script>
+  <script src="mobile-fms.js?v=2026-09-18.1"></script>
 </body>
 </html>
