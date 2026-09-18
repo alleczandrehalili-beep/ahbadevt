@@ -354,9 +354,53 @@
     }catch(e){ return null; }   // gate error → huwag ipitin ang tech
   };
 
-  // Returns: null = filed / walang kailangan, o ERROR MESSAGE string kapag ang
-  // report ay HINDI naitala — hinaharang ng caller (confirmComplete) ang JO.
+  // ---- WIMS OFFLINE QUEUE (2026-09-19) --------------------------------------
+  // Ang jobs completion ay may offline queue; dati ang WIMS submit ay ONLINE-
+  // ONLY fire-and-forget — kapag walang signal sa sandali ng completion, ang
+  // report ay TULUYANG nawawala nang tahimik (ito ang pangunahing dahilan ng
+  // 'walang lumalabas na report ni team'). Ngayon: NETWORK error → i-queue sa
+  // localStorage + payagan ang completion (idempotent ang server RPCs kaya
+  // ligtas ang retry); VALIDATION error (may PostgREST/PG code) → HARANG at
+  // ipakita sa tech.
+  var WQKEY='wims_pending_v1';
+  function isNetErr(e){
+    if(!e) return true;
+    var c=e.code||'';
+    if(c==='PGRST301') return true;                    // JWT lapse — maaayos ng auto-refresh, retry later
+    if(c) return false;                                // may server code = validation, hindi network
+    return /fetch|network|timeout|abort|load failed|connection|offline/i.test(String(e.message||e));
+  }
+  function qAll(){ try{ return JSON.parse(localStorage.getItem(WQKEY)||'[]')||[]; }catch(e){ return []; } }
+  function qSave(a){ try{ localStorage.setItem(WQKEY, JSON.stringify(a.slice(0,50))); }catch(e){} }
+  var flushing=false;
+  async function flushWims(){
+    var a=qAll(); if(flushing||!a.length) return; flushing=true;
+    try{
+      var keep=[];
+      for(var i=0;i<a.length;i++){
+        var it=a[i];
+        try{
+          var r=await W().schema('wims').rpc(it.rpc, it.args);
+          if(r&&r.error) throw r.error;
+          cpeCache=null;
+          say('📦 Queued WIMS report filed — JO '+(it.jo||'?'));
+        }catch(e){
+          if(isNetErr(e)) keep.push(it);               // offline pa rin — susubukan ulit
+          else say('⚠ WIMS report for JO '+(it.jo||'?')+' FAILED: '+(e.message||e)+' — ipaalam sa warehouse');
+        }
+      }
+      qSave(keep);
+    }finally{ flushing=false; }
+  }
+  try{ window.addEventListener('online', function(){ setTimeout(flushWims, 2000); }); }catch(e){}
+  setInterval(flushWims, 60000);
+  setTimeout(flushWims, 8000);
+
+  // Returns: null = filed / na-queue (offline) / walang kailangan, o ERROR
+  // MESSAGE string kapag ang report ay HINDI naitala — hinaharang ng caller
+  // (confirmComplete) ang JO.
   window.wimsSubmit = async function(jobId, job){
+    var _rpc=null,_args=null,_jo=null;
     try{
       var acc=await ensureAccess(); if(!acc) return null;
       var s=wState[jobId];
@@ -389,6 +433,7 @@
           p_foc2_end: (s.foc2On&&!isNaN(parseFloat(s.foc2End)))?parseFloat(s.foc2End):null,
           p_kit_remarks: (s.kitRemarks||'').trim()||null
         };
+        _rpc='ticket_usage'; _args=targs; _jo=targs.p_jo;
         var tr=await W().schema('wims').rpc('ticket_usage',targs);
         if(tr&&tr.error) throw tr.error;
         cpeCache=null;
@@ -431,6 +476,7 @@
         p_foc2_end: (s.foc2On&&!isNaN(parseFloat(s.foc2End)))?parseFloat(s.foc2End):null,
         p_kit_remarks: (s.kitRemarks||'').trim()||null
       };
+      _rpc='complete_install'; _args=args; _jo=args.p_jo;
       var r=await W().schema('wims').rpc('complete_install',args);
       // fallback: kung LUMA pa ang backend (walang FOC params), subukan ang legacy signature
       if(r&&r.error&&/could not find the function|schema cache/i.test(String(r.error.message||''))){
@@ -457,7 +503,16 @@
       return null;
     }catch(e){
       try{console.warn('wimsSubmit',e);}catch(_){ }
-      // HINDI naitala ang report → ibalik ang dahilan para HARANGIN ang completion
+      // NETWORK/JWT lang ang dahilan → i-QUEUE at payagan ang completion
+      // (ang jobs patch mismo ay naka-offline-queue rin, magkasabay silang aabot)
+      if(_rpc && isNetErr(e)){
+        var q=qAll(); q.push({rpc:_rpc,args:_args,jo:_jo,ts:Date.now()}); qSave(q);
+        say('📴 Walang signal — WIMS report QUEUED, isesend automatic kapag online na');
+        return null;
+      }
+      // Lumang/maling serial sa cache? I-refresh ang picker para tama ang susunod na pili
+      if(/not released to your team/i.test(String(e.message||''))) cpeCache=null;
+      // VALIDATION error → HINDI naitala ang report → HARANGIN ang completion
       return 'WIMS report NOT saved — '+(e.message||e)+'. Ayusin ito bago i-complete ang JO (o ipaalam sa warehouse).';
     }
   };
