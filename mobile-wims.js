@@ -1,11 +1,16 @@
 // ============================================================================
 // WIMS — technician material report, shown INLINE in the job close-out card.
 // Visible ONLY for enrolled technicians (wims.profiles via my_access RPC).
-// Fully OPTIONAL and guarded: never blocks the normal FieldOps flow.
+// Hindi enrolled = walang epekto. ENROLLED = MANDATORY at FILE-FIRST
+// (2026-09-18): ang report ay ini-file BAGO makumpleto ang JO; kapag bigo ang
+// server, HARANG ang completion at kita ng tech ang dahilan (dating tahimik
+// na nawawala ang report — 'walang lumalabas na report ni team' bug).
 // Shares scope with mobile-a.js / mobile-b.js (classic scripts): sb, toast,
 // photoCount reachable as free variables.
 //   render()          -> window.wimsMountAll()   (populate inline slots)
-//   confirmComplete() -> window.wimsSubmit(id,job) (file complete_install)
+//   confirmComplete() -> window.wimsSubmit(id,job) BAGO ang completion save;
+//     regular install → complete_install · SLR-TICKET/Transfer/IPTV → ticket_usage
+//     (flexible: CPE optional; sa IPTV load ay required ang IPTV serial)
 // ============================================================================
 (function(){
   "use strict";
@@ -181,9 +186,11 @@
       var dwellRaw = slot.getAttribute('data-dwell')||'';
       var dw = dwellKey(dwellRaw);
       var is2 = iptvn>0;
-      // 🎫 SLR ticket: CPE optional, walang IPTV block, kit defaults ZERO (ideklara
-      // lang ang aktwal na ginamit), pero MANDATORY na may kahit isang declaration.
+      // 🎫/🔀/📺 flexible (SLR ticket · Transfer · IPTV): CPE optional, kit
+      // defaults ZERO (ideklara lang ang aktwal na ginamit), pero MANDATORY na
+      // may kahit isang declaration. Sa IPTV load: REQUIRED ang IPTV serial.
       var isTkt = slot.getAttribute('data-ticket')==='1';
+      var wlt = slot.getAttribute('data-lt')||'';
       if(isTkt && !s._tkInit){ s._tkInit=1; s.kit={conn:0,patch:0,tbox:0,sar:0,saf:0}; }
       if(!Array.isArray(s.iptv)) s.iptv=[];
       if(!is2) s.iptv=[];
@@ -194,12 +201,12 @@
       } else {
         iptvBlock = '<div style="font-size:11px;color:#8a9a94;margin:2px 0 8px">📶 1-PLAY · internet only — no IPTV for this JO</div>';
       }
-      if(isTkt) iptvBlock='';
+      if(isTkt && wlt!=='IPTV') iptvBlock='';
       var kitRows = KIT.map(function(k){ var q=(s.kit&&s.kit[k[0]]!=null)?s.kit[k[0]]:k[2]; return '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #eef4f1"><span style="flex:1;font-size:11px;color:#4a5c56">'+k[1]+'</span><input type="number" inputmode="numeric" min="0" value="'+q+'" data-wf="kitq" data-kk="'+k[0]+'" data-j="'+jid+'" style="width:54px;padding:5px;text-align:center"></div>'; }).join('');
       slot.innerHTML=
         '<div style="border:1.5px solid #bfe6d5;background:#f6fcf9;border-radius:14px;padding:12px;margin-top:10px">'+
-          '<div style="font-weight:800;font-size:12px;color:#0e6f52;margin-bottom:8px">📦 WIMS material report <span style="font-weight:600;color:#c2503a">'+(isTkt?'· 🎫 SLR ticket · declare the materials USED':'· REQUIRED · '+(is2?'2-PLAY':'1-PLAY'))+'</span></div>'+
-          '<div class="field"><label>'+(isTkt?'Replaced CPE (optional — only if you swapped the modem)':'Installed MODEM *')+'</label>'+
+          '<div style="font-weight:800;font-size:12px;color:#0e6f52;margin-bottom:8px">📦 WIMS material report <span style="font-weight:600;color:#c2503a">'+(isTkt?(wlt==='Transfer'?'· 🔀 Transfer · declare the materials USED':wlt==='IPTV'?'· 📺 IPTV add-on · select the installed IPTV + materials USED':'· 🎫 SLR ticket · declare the materials USED'):'· REQUIRED · '+(is2?'2-PLAY':'1-PLAY'))+'</span></div>'+
+          '<div class="field"><label>'+(isTkt?'Modem (optional — only if you installed/swapped a modem from your inventory)':'Installed MODEM *')+'</label>'+
           (s.modem
             ? '<div style="display:flex;gap:8px;align-items:center;border:1.5px solid #bfe6d5;background:#f3fbf7;border-radius:10px;padding:9px 11px">'+
                 '<b class="tnum" style="flex:1;font-size:13.5px">📶 '+s.modem+'</b>'+
@@ -250,7 +257,7 @@
           '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">'+MATS.filter(function(m){ if(['foc','conn','patch','tbox','sar','saf'].indexOf(m[0])>=0) return false;
             if(dw && m[2] && m[2].length && m[2].indexOf(dw)<0) return false; return true; }).map(function(m){return '<div class="field" style="margin:0"><label style="font-size:10px">'+m[1]+'</label><input type="number" inputmode="numeric" min="0" value="'+(s.mats[m[0]]||0)+'" data-wf="mat" data-mk="'+m[0]+'" data-j="'+jid+'" style="padding:6px"></div>';}).join('')+'</div>'+
           '<div style="font-size:10px;color:#9aa6a2;margin-top:6px">'+(isTkt
-            ?'Declare at least ONE material — the ticket cannot be closed without it. CPE serial and FOC reel # are optional for tickets.'
+            ?'Declare at least ONE material — the job cannot be completed without it.'+(wlt==='IPTV'?' The installed IPTV box is REQUIRED.':'')+' Modem serial and FOC reel # are optional.'
             :'Only CPE issued to your team'+(acc.team_code?(' ('+acc.team_code+')'):'')+' appears here. REQUIRED — the job cannot be completed without this report.')+'</div>'+
         '</div>';
       if(is2) mountIptv(jid);
@@ -305,14 +312,19 @@
   function anyPos(o){ if(!o||typeof o!=='object') return false;
     for(var k in o){ if(+o[k]>0) return true; } return false; }
   function jobOf(id){ try{ return (jobs||[]).find(function(x){return x.id===id;})||null; }catch(e){ return null; } }
+  // FLEXIBLE (ticket-style) load types: CPE optional, mandatory kahit ISANG
+  // declaration. Transfer/IPTV idinagdag 2026-09-18 — dating pinipilit silang
+  // pumili ng modem (mali) at laging bigo sa server photo check (12 vs 3).
+  function flexType(j){ return (j&&['SLR-TICKET','Transfer','IPTV'].indexOf(j.load_type)>=0)?j.load_type:null; }
   window.wimsGate = async function(jobId){
     try{
       var acc=await ensureAccess(); if(!acc) return null;   // hindi enrolled
       var s=wState[jobId];
       var _j=jobOf(jobId);
-      if(_j && _j.load_type==='SLR-TICKET'){
-        // 🎫 SLR ticket: HINDI required ang CPE/FOC reel — pero MANDATORY na may
-        // kahit ISANG declaration (CPE, kit item, drop material, o FOC footage).
+      var _ft=flexType(_j);
+      if(_ft){
+        // 🎫/🔀/📺 flexible: HINDI required ang modem/FOC reel — pero MANDATORY
+        // na may kahit ISANG declaration (CPE, kit item, drop material, o FOC).
         if(!s) return 'WIMS declaration is REQUIRED — declare the materials used in the WIMS section';
         var hasS=(s.focStart!==''&&s.focStart!=null), hasE=(s.focEnd!==''&&s.focEnd!=null);
         if(hasS!==hasE) return 'WIMS: START and END FOC meter readings are both required';
@@ -322,9 +334,11 @@
           var te2=parseFloat(s.foc2End);
           if(isNaN(te2)||te2<0||te2>=SPOOL) return 'WIMS: Reel 2 END must be between 0 and '+SPOOL;
         }
+        if(_ft==='IPTV' && !(Array.isArray(s.iptv)&&s.iptv.some(function(x){return !!x;})))
+          return 'WIMS: select the installed IPTV box — required for IPTV add-on JOs';
         var declared = !!s.modem || (Array.isArray(s.iptv)&&s.iptv.some(function(x){return !!x;}))
           || anyPos(s.kit) || anyPos(s.mats) || (hasS&&hasE);
-        if(!declared) return 'Declare at least one material used for this ticket (WIMS section)';
+        if(!declared) return 'Declare at least one material used for this job (WIMS section)';
         return null;
       }
       if(!s || !s.modem) return 'WIMS report is REQUIRED — select the installed MODEM sa WIMS section bago i-complete ang JO';
@@ -340,20 +354,26 @@
     }catch(e){ return null; }   // gate error → huwag ipitin ang tech
   };
 
+  // Returns: null = filed / walang kailangan, o ERROR MESSAGE string kapag ang
+  // report ay HINDI naitala — hinaharang ng caller (confirmComplete) ang JO.
   window.wimsSubmit = async function(jobId, job){
     try{
-      var acc=await ensureAccess(); if(!acc) return;
+      var acc=await ensureAccess(); if(!acc) return null;
       var s=wState[jobId];
-      // 🎫 SLR ticket → sariling RPC (ticket_usage): CPE optional, mandatory declare.
-      if(job && job.load_type==='SLR-TICKET'){
-        if(!s) return;
+      // 🎫/🔀/📺 SLR ticket · Transfer · IPTV → sariling RPC (ticket_usage):
+      // CPE optional, mandatory declare (server pa rin ang nagpapasya ng task).
+      var ft=flexType(job);
+      if(ft){
+        if(!s) return null;
         var tmats={}; Object.keys(s.mats||{}).forEach(function(k){ if(k!=='foc'&&s.mats[k]>0) tmats[k]=s.mats[k]; });
         var thS=(s.focStart!==''&&s.focStart!=null), thE=(s.focEnd!==''&&s.focEnd!=null);
-        if(thS!==thE){ say('⚠ WIMS: incomplete FOC footage — START and END meters are required'); return; }
+        if(thS!==thE) return '⚠ WIMS: incomplete FOC footage — START and END meters are required';
+        if(ft==='IPTV' && !(Array.isArray(s.iptv)&&s.iptv.some(function(x){return !!x;})))
+          return 'WIMS: select the installed IPTV box — required for IPTV add-on JOs';
         var tphotos=0; try{ if(typeof photoCount==='function') tphotos=photoCount(jobId); }catch(e){}
         var twa=''; try{ twa=(typeof shiftAccount!=='undefined'?shiftAccount:'')||''; }catch(e){ twa=''; }
         var targs={
-          p_jo: jobId,
+          p_jo: (job&&(job.job_order_no||job.ticket_no))||jobId,
           p_subscriber: (job&&job.subscriber)||'',
           p_account: (job&&job.ibass_acct_no)||'',
           p_work_account: twa,
@@ -372,24 +392,24 @@
         var tr=await W().schema('wims').rpc('ticket_usage',targs);
         if(tr&&tr.error) throw tr.error;
         cpeCache=null;
-        say('📦 WIMS ticket usage filed — deducted from your inventory');
-        return;
+        say('📦 WIMS usage filed — deducted from your inventory');
+        return null;
       }
-      if(!s || !s.modem) return;   // nothing reported → skip
+      if(!s || !s.modem) return null;   // nothing reported → skip (gate na ang humaharang sa enrolled)
       var mats={}; Object.keys(s.mats||{}).forEach(function(k){ if(k!=='foc'&&s.mats[k]>0) mats[k]=s.mats[k]; });
       // FOC FOOTAGE RULE: kapag may start O end, kailangan pareho; used = |end − start|
       var hasStart=(s.focStart!==''&&s.focStart!=null), hasEnd=(s.focEnd!==''&&s.focEnd!=null);
-      if(hasStart!==hasEnd){ say('⚠ WIMS: incomplete FOC footage — START and END meters are required'); return; }
-      if(kitExcess(s) && !(s.kitRemarks||'').trim()){ say('⚠ WIMS: kit usage exceeds the standard kit — remarks are REQUIRED'); return; }
+      if(hasStart!==hasEnd) return '⚠ WIMS: incomplete FOC footage — START and END meters are required';
+      if(kitExcess(s) && !(s.kitRemarks||'').trim()) return '⚠ WIMS: kit usage exceeds the standard kit — remarks are REQUIRED';
       if(s.foc2On){
-        if(!(s.foc2Reel||'').trim()){ say('⚠ WIMS: Reel 2 # is required'); return; }
+        if(!(s.foc2Reel||'').trim()) return '⚠ WIMS: Reel 2 # is required';
         var e2=parseFloat(s.foc2End);
-        if(isNaN(e2)||e2<0||e2>=SPOOL){ say('⚠ WIMS: Reel 2 END must be between 0 and '+SPOOL+' (pababa mula '+SPOOL+')'); return; }
-        if(!hasStart||!hasEnd){ say('⚠ WIMS: complete reel 1 footage first (START and END)'); return; }
+        if(isNaN(e2)||e2<0||e2>=SPOOL) return '⚠ WIMS: Reel 2 END must be between 0 and '+SPOOL+' (pababa mula '+SPOOL+')';
+        if(!hasStart||!hasEnd) return '⚠ WIMS: complete reel 1 footage first (START and END)';
       }
       var used=focUsed(s);
       if(hasStart&&hasEnd){
-        if(!(used>0)){ say('⚠ WIMS: FOC start and end meters are the same — nothing used?'); return; }
+        if(!(used>0)) return '⚠ WIMS: FOC start and end meters are the same — nothing used?';
         mats.foc=used;
       }
       var photos=0; try{ if(typeof photoCount==='function') photos=photoCount(jobId); }catch(e){}
@@ -434,6 +454,11 @@
       }
       cpeCache=null;   // installed CPE leaves the issued pool
       say('📦 WIMS material report filed');
-    }catch(e){ say('WIMS not saved: '+(e.message||e)); try{console.warn('wimsSubmit',e);}catch(_){ } }
+      return null;
+    }catch(e){
+      try{console.warn('wimsSubmit',e);}catch(_){ }
+      // HINDI naitala ang report → ibalik ang dahilan para HARANGIN ang completion
+      return 'WIMS report NOT saved — '+(e.message||e)+'. Ayusin ito bago i-complete ang JO (o ipaalam sa warehouse).';
+    }
   };
 })();

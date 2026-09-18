@@ -395,6 +395,16 @@
       }
       // WIMS MANDATORY (enrolled techs): kumpletong report bago makapag-complete
       if(window.wimsGate){ const wmsg=await window.wimsGate(id); if(wmsg){ showErr('#payErr', wmsg); return; } }
+      // WIMS FILE-FIRST (2026-09-18): ang report ay ini-file BAGO ang completion.
+      // Kapag bigo ang server (dating TAHIMIK na nawawala ang report), HARANG ang
+      // completion at makikita ng tech ang tunay na dahilan. Idempotent ang mga
+      // WIMS RPC (complete_install/ticket_usage) kaya ligtas ang retry.
+      if(window.wimsSubmit){
+        const wbtn=$('#paySave'); wbtn.disabled=true; wbtn.textContent='Filing WIMS…';
+        const werr=await window.wimsSubmit(id, job);
+        wbtn.disabled=false; wbtn.textContent='Complete job';
+        if(werr){ showErr('#payErr', werr); return; }
+      }
       const btn=$('#paySave'); btn.disabled=true; btn.textContent='Saving…';
       const now=new Date().toISOString();
       const hist=appendHist(await freshHist(id, job.history), `→ Completed (by ${myTeam} / ${shiftAccount}) · ${noPay?'no collection':(mode+' ₱'+amt+' · AR '+ar)}`+(svcRem?` · Service: ${svcRem}`:''));
@@ -405,7 +415,7 @@
       const ok=await saveJobPatch(id, patch);
       // Phone push sa encoder (sales agent) — banner kahit sarado ang app niya.
       try{ if(job.created_by&&typeof pushNotify==='function') pushNotify({team:job.created_by,title:'✔ JO completed',body:(job.subscriber||id)}); }catch(e){}
-      try{ if(window.wimsSubmit) await window.wimsSubmit(id, job); }catch(e){ console.warn('wims',e); }
+      // (WIMS submit lumipat sa ITAAS ng completion save — file-first, 2026-09-18)
       // Upload the Gcash Proof of Remittance (best-effort) so it appears with the load's photos.
       if(mode==='Gcash' && payProofFile){ try{ await uploadOne(id, payProofFile, 'Proof of Remittance'); }catch(e){ console.warn('proof upload',e.message); } }
       btn.disabled=false; btn.textContent='Complete job';
@@ -561,7 +571,7 @@
         if(j.status==='in-progress'){
           const REQ=photosReqFor(j);
           const canDone=n>=REQ;
-          extra=photoSlots(j.id)+'<div class="wims-slot" data-wjob="'+j.id+'" data-ticket="'+(isTk(j)?'1':'')+'" data-dwell="'+(j.dwelling_type||'')+'" data-iptvn="'+(j.play_type==='2-PLAY'?Math.max(1,parseInt(j.addon_count,10)||1):0)+'"></div>';
+          extra=photoSlots(j.id)+'<div class="wims-slot" data-wjob="'+j.id+'" data-ticket="'+(['SLR-TICKET','Transfer','IPTV'].includes(j.load_type)?'1':'')+'" data-lt="'+(j.load_type||'')+'" data-dwell="'+(j.dwelling_type||'')+'" data-iptvn="'+((j.play_type==='2-PLAY'||j.load_type==='IPTV')?Math.max(1,parseInt(j.addon_count,10)||1):0)+'"></div>';
           actions=`<div class="job-actions">${mapLink}<button class="act done" data-next="completed" data-id="${j.id}" ${canDone?'':'disabled'}>${svg('check')}Mark complete${canDone?'':` (${n}/${REQ})`}</button></div>`;
         } else if(j.status==='completed'){
           extra=allPhotos.length?`<div class="photos"><div class="photos-head"><span>Proof photos</span><span class="count ok">${allPhotos.length}</span></div><div class="thumbs">${thumbs}</div></div>`:'';
