@@ -216,6 +216,14 @@
                 '<button type="button" data-wf="modemscan" data-j="'+jid+'" style="font:800 12px system-ui;background:#082c28;color:#c9f36a;border:0;border-radius:10px;padding:0 14px;white-space:nowrap">📷 Scan</button></div>'+
               '<div data-modem-matches="'+jid+'"></div>')+
           '</div>'+
+          // 🔁 REPLACEMENT RULE (owner 2026-09-20): sa SLR ticket, kapag may
+          // BAGONG CPE mula sa inventory, REQUIRED ideklara ang serial ng
+          // BINUNOT/pinalitang unit — naka-track ito hanggang maisauli sa warehouse.
+          (wlt==='SLR-TICKET'
+            ? '<div class="field" style="margin-top:2px"><label>🔁 Binunot/Pinalitang CPE serial <span style="color:#c2503a;font-weight:700">· REQUIRED kapag may bagong CPE</span></label>'+
+              '<input data-wf="pulled" data-j="'+jid+'" value="'+(s.pulled||'')+'" placeholder="Serial ng LUMANG unit na binunot (comma kung marami)" autocapitalize="characters" style="text-transform:uppercase">'+
+              '<div style="font-size:10px;color:#8a9a94;margin-top:2px">Isasauli ang binunot na unit sa warehouse — naka-track ito sa pangalan ng team.</div></div>'
+            : '')+
           iptvBlock+
           (function(){
             var ls=lockedStart(s);
@@ -269,6 +277,7 @@
     var el=e.target.closest('[data-wf]'); if(!el) return;
     var jid=el.getAttribute('data-j'), f=el.getAttribute('data-wf'), s=st(jid);
     if(f==='modem') s.modem=el.value;
+    else if(f==='pulled') s.pulled=el.value.trim().toUpperCase();
     else if(f==='iptv'){ if(!Array.isArray(s.iptv)) s.iptv=[]; s.iptv[parseInt(el.getAttribute('data-idx'),10)||0]=el.value; mountIptv(jid); }
     else if(f==='kitq'){ if(!s.kit||typeof s.kit!=='object') s.kit={}; s.kit[el.getAttribute('data-kk')]=parseFloat(el.value)||0;
       var kw=document.querySelector('[data-kitrem-wrap="'+jid+'"]'); if(kw) kw.style.display=kitExcess(s)?'block':'none'; }
@@ -336,6 +345,9 @@
         }
         if(_ft==='IPTV' && !(Array.isArray(s.iptv)&&s.iptv.some(function(x){return !!x;})))
           return 'WIMS: select the installed IPTV box — required for IPTV add-on JOs';
+        // REPLACEMENT RULE: bagong CPE sa SLR ticket = required ang pulled serial
+        if(_ft==='SLR-TICKET' && (!!s.modem || (Array.isArray(s.iptv)&&s.iptv.some(function(x){return !!x;}))) && !(s.pulled||'').trim())
+          return 'WIMS: ideklara ang serial ng BINUNOT/pinalitang CPE — required kapag may bagong CPE (replacement)';
         var declared = !!s.modem || (Array.isArray(s.iptv)&&s.iptv.some(function(x){return !!x;}))
           || anyPos(s.kit) || anyPos(s.mats) || (hasS&&hasE);
         if(!declared) return 'Declare at least one material used for this job (WIMS section)';
@@ -431,10 +443,17 @@
           p_foc_end: thE?parseFloat(s.focEnd):null,
           p_foc2_reel: (s.foc2On&&s.foc2Reel)?s.foc2Reel:null,
           p_foc2_end: (s.foc2On&&!isNaN(parseFloat(s.foc2End)))?parseFloat(s.foc2End):null,
-          p_kit_remarks: (s.kitRemarks||'').trim()||null
+          p_kit_remarks: (s.kitRemarks||'').trim()||null,
+          p_pulled_serials: (function(){ var a=(s.pulled||'').split(/[,\s]+/).filter(function(x){return !!x;}); return a.length?a:null; })(),
+          p_pulled_note: null
         };
         _rpc='ticket_usage'; _args=targs; _jo=targs.p_jo;
         var tr=await W().schema('wims').rpc('ticket_usage',targs);
+        // fallback: LUMA pa ang backend (walang pulled params) → alisin at subukan ulit
+        if(tr&&tr.error&&/could not find the function|schema cache/i.test(String(tr.error.message||''))){
+          delete targs.p_pulled_serials; delete targs.p_pulled_note;
+          tr=await W().schema('wims').rpc('ticket_usage',targs);
+        }
         if(tr&&tr.error) throw tr.error;
         cpeCache=null;
         say('📦 WIMS usage filed — deducted from your inventory');
