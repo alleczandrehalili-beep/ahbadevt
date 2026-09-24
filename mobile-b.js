@@ -40,7 +40,18 @@
         }
         const m={}; rows.forEach(r=>{(m[r.job_id]=m[r.job_id]||[]).push({path:r.path,label:r.label||''})}); photoData=m;
       }catch(e){ /* keep previous counts */ }
+      // Validator/Dispatcher remarks (owner 2026-09-24): AHBA technicians na lang ang
+      // pwedeng makakita sa SARILING assigned JOs (RLS ang tunay na bakod; sales at
+      // subcon ay walang makukuha — empty lang ang sagot).
+      try{
+        if(myRole!=='sales_agent'){
+          const {data:nts}=await sb.from('jo_approver_notes').select('job_id,note').in('job_id',ids);
+          const nm={}; (nts||[]).forEach(r=>{ if((r.note||'').trim()) nm[r.job_id]=r.note.trim(); });
+          gcNotes=nm;
+        }
+      }catch(e){ /* keep previous notes */ }
     }
+    let gcNotes={};   // jobId -> Validator/Dispatcher internal remark (AHBA techs only)
     const jobPhotos = id => (photoData[id]||[]);
     const labelsDone = id => new Set(jobPhotos(id).map(p=>p.label).filter(Boolean));
     // Per-load-type photo checklist: Transfer/IPTV = 3 lang; lahat ng iba = buong 12.
@@ -596,6 +607,7 @@
         const svc=(j.plan||j.play_type)?`<div class="row">${svg('note')}<span>${[j.plan,j.play_type].filter(Boolean).join(' · ')}</span></div>`:'';
         const src=(j.source_of_sales||j.referral_name)?`<div class="row">${svg('note')}<span>${[j.source_of_sales,j.referral_name&&('Ref: '+j.referral_name)].filter(Boolean).join(' · ')}</span></div>`:'';
         const drem=j.dispatched_remarks?`<div class="row" style="color:#107b5e;font-weight:700">${svg('note')}<span>Dispatcher: ${j.dispatched_remarks}</span></div>`:'';
+        const vnote=gcNotes[j.id]?`<div class="row" style="color:#8a6400;font-weight:700;background:#fff6e0;border:1px solid #eedca8;border-radius:9px;padding:7px 9px">${svg('note')}<span>📝 Validator/Dispatcher: ${String(gcNotes[j.id]).replace(/</g,'&lt;')}</span></div>`:'';
         const note=j.special_note?`<div class="row" style="color:#c2503a">${svg('note')}<span>${j.special_note}</span></div>`:'';
         const negRemark=(j.status==='negative'&&j.negative_remark)?`<div class="row" style="color:#c2503a;font-weight:700">${svg('note')}<span>${j.negative_remark}</span></div>`:'';
         const activeJob=!['completed','negative'].includes(j.status);
@@ -612,7 +624,7 @@
         <div class="job-meta"><div class="row" style="color:#a4690f;font-weight:700">${svg('note')}<span>Update your current job order first. Finish it — Completed, Incomplete, or Cancelled — before you can view and start your next job order.</span></div></div></div>`;
         }
         return `<div class="job"><div class="job-head"><div><span class="job-id" data-info="${j.id}" style="cursor:pointer;text-decoration:underline">${j.id} ℹ︎</span><h3>${j.subscriber||'—'}${prio}</h3><p class="plan">${j.service_type||''} · ${j.plan||''}</p></div><span class="badge b-${j.status}">${statusLabel(j.status)}</span></div>
-        <div class="job-meta"><div class="row">${svg('pin')}<span>${addr||'—'}</span></div><div class="row">${svg('clock')}<span>${(j.schedule||'Today').replace('Today, ','Today · ')}</span></div>${contact}${acct}${svc}${src}${drem}${note}${negRemark}</div>
+        <div class="job-meta"><div class="row">${svg('pin')}<span>${addr||'—'}</span></div><div class="row">${svg('clock')}<span>${(j.schedule||'Today').replace('Today, ','Today · ')}</span></div>${contact}${acct}${svc}${src}${drem}${vnote}${note}${negRemark}</div>
         ${extra}${actions}${expBtn}${negBtn}${cancelBtn}</div>`;
       }).join('');
       const _tkb=$('#tkOpen'); if(_tkb) _tkb.onclick=openTicket;
