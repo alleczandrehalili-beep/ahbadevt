@@ -4,6 +4,7 @@
   else root.QaApi = factory(root.QaCore);
 })(typeof self !== 'undefined' ? self : this, function (Core) {
   var BUCKET = 'qa-photos', PUBLIC_PHOTOS = 'job-photos';
+  // opts: { username, supaUrl, anonKey } — supaUrl + anonKey are needed by the Edge Function calls (syncNow) and public photo URLs.
   function create(client, opts) {
     opts = opts || {};
     var qa = function () { return client.schema('qa'); };
@@ -98,6 +99,27 @@
       saveContractor: function (c) { var b = Object.assign({}, c); delete b.created_at; delete b.updated_at; return unwrap(qa().from('contractors').upsert(b, { onConflict: 'sheet_name' }).select().single()); },
       saveSetting: function (k, v) { return unwrap(qa().from('settings').upsert({ key: k, value: String(v) }, { onConflict: 'key' }).select().single()); },
       syncStatus: function () { return rpc('sync_status'); },
+      // "Sync now" — asks the qa-sheet-sync Edge Function to pull the Google Sheet right now (mode 'tail' = last 60 days,
+      // 'full' = the whole tab). The function checks qa.is_head() with THIS session's JWT, so the token must travel:
+      // Verify JWT is off on that function (the Apps Script push path uses a shared secret instead).
+      syncNow: function (mode) {
+        // Without supaUrl the fetch would hit the console's own origin, and without anonKey the gateway rejects us before our code
+        // runs — both show up as a baffling 404/401. Fail with the real reason instead.
+        if (!opts.supaUrl || !opts.anonKey) return Promise.reject(new Error('Sync not configured (supaUrl/anonKey missing)'));
+        return Promise.resolve(client.auth.getSession()).then(function (s) {
+          var token = (s && s.data && s.data.session && s.data.session.access_token) || '';
+          return fetch((opts.supaUrl || '') + '/functions/v1/qa-sheet-sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: opts.anonKey || '', Authorization: 'Bearer ' + token },
+            body: JSON.stringify({ action: 'pull', mode: mode || 'tail' })
+          });
+        }).then(function (res) {
+          return Promise.resolve(res.json()).catch(function () { return {}; }).then(function (j) {
+            if (!res.ok || !j || j.ok !== true) throw new Error((j && j.error) || ('Sync failed (HTTP ' + res.status + ')'));
+            return j;
+          });
+        });
+      },
       importRows: function (rows) {
         var norm = (rows || []).map(function (r) { var n = Core.normalizeSheetRow(r); if (n) n.raw = r; return n; }).filter(Boolean);
         var chunks = []; for (var i = 0; i < norm.length; i += 500) chunks.push(norm.slice(i, i + 500));

@@ -99,7 +99,7 @@
         '<select id="qf_district">' + districtOpts() + '</select>' +
         '<select id="qf_brgy"><option value="">All barangays</option></select>' +
         '<input type="date" id="qf_from" title="JO closed from"><input type="date" id="qf_to" title="JO closed to"><input id="qf_q" placeholder="Search name / address / JO / acct" style="min-width:220px"><button class="cq-btn ghost" id="qf_go">Filter</button>' +
-        (canEdit ? '<span style="flex:1"></span><button class="cq-btn" id="q_assign" disabled>Assign / redispatch selected</button><button class="cq-btn ghost" id="q_pick" disabled>Queue selected (manual pick)</button><button class="cq-btn ghost" id="q_unassign" disabled>Unassign selected</button><button class="cq-btn ghost" id="q_sample">Random sample in-house…</button>' : '') +
+        (canEdit ? '<span style="flex:1"></span><button class="cq-btn" id="q_assign" disabled>Assign / redispatch selected</button><button class="cq-btn ghost" id="q_pick" disabled>Queue selected (manual pick)</button><button class="cq-btn ghost" id="q_unassign" disabled>Unassign selected</button><button class="cq-btn ghost" id="q_sample">Random sample in-house…</button>' + (api.syncNow ? '<button class="cq-btn ghost" id="q_sync" title="Pull everything newly entered in the Google Sheet into the queue right now, without waiting for the 15-minute timer">🔄 Sync sheet now</button>' : '') : '') +
         '</div><div id="cqQTable"></div><div class="cq-bar" style="justify-content:flex-end"><button class="cq-btn ghost" id="q_prev">‹ Prev</button><span id="q_page"></span><button class="cq-btn ghost" id="q_next">Next ›</button></div>';
       $('#qf_status').value = f.status.join(','); if (f.contractor) $('#qf_contractor').value = f.contractor; if (f.kind) $('#qf_kind').value = f.kind; if (f.from) $('#qf_from').value = f.from; if (f.to) $('#qf_to').value = f.to; if (f.q) $('#qf_q').value = f.q;
       if (f.district) $('#qf_district').value = f.district;
@@ -109,7 +109,7 @@
       $('#qf_q').onkeydown = function (e) { if (e.key === 'Enter') $('#qf_go').click(); };
       $('#q_prev').onclick = function () { if (S.filter.page > 1) { S.filter.page--; loadQueue(); } };
       $('#q_next').onclick = function () { S.filter.page++; loadQueue(); };
-      if (canEdit) { $('#q_assign').onclick = function () { assignDialog(); }; $('#q_pick').onclick = function () { act(api.queuePool(selIds(), { by: user.username }), 'queued'); }; $('#q_unassign').onclick = function () { var ids = selIds(); if (!ids.length) return; api.unassignAudits(ids, { by: user.username }).then(function (n) { toast(n ? (n + ' audit(s) unassigned') : 'Nothing unassigned (ticket already moved)'); S.sel = {}; loadQueue(); loadQueueStats(); }).catch(function (e) { toast('Failed: ' + e.message); }); }; $('#q_sample').onclick = sampleDialog; }
+      if (canEdit) { $('#q_assign').onclick = function () { assignDialog(); }; $('#q_pick').onclick = function () { act(api.queuePool(selIds(), { by: user.username }), 'queued'); }; $('#q_unassign').onclick = function () { var ids = selIds(); if (!ids.length) return; api.unassignAudits(ids, { by: user.username }).then(function (n) { toast(n ? (n + ' audit(s) unassigned') : 'Nothing unassigned (ticket already moved)'); S.sel = {}; loadQueue(); loadQueueStats(); }).catch(function (e) { toast('Failed: ' + e.message); }); }; $('#q_sample').onclick = sampleDialog; if ($('#q_sync')) $('#q_sync').onclick = function () { doSync('tail', $('#q_sync'), '🔄 Sync sheet now'); }; }
       loadQueue(); loadQueueStats();
     }
     // Populates the barangay select from the chosen district (all six districts' barangays, sorted, when none is chosen).
@@ -122,6 +122,30 @@
     }
     function selIds() { return Object.keys(S.sel).filter(function (k) { return S.sel[k]; }); }
     function act(p, verb) { p.then(function (n) { toast(n + ' audit(s) ' + verb); S.sel = {}; loadQueue(); loadQueueStats(); }).catch(function (e) { toast('Failed: ' + e.message); }); }
+    // "Sync now" (Queue bar + Settings). Asks the Edge Function to pull the Google Sheet through the Apps Script web app
+    // and waits for the result, so the head never has to wait for the 15-minute trigger. 'full' re-reads the whole tab.
+    function doSync(mode, btn, label) {
+      if (!canEdit || !api.syncNow) return;
+      if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
+      var restore = function () { if (btn && btn.parentNode) { btn.disabled = false; btn.textContent = label; } };
+      api.syncNow(mode).then(function (r) {
+        r = r || {};
+        toast('Sync done: ' + (r.sent || 0) + ' rows sent · ' + (r.created || 0) + ' new audits' + (r.more ? ' · more pending, run again' : ''));
+        // The sync already succeeded — a failing reload is a UI problem, not a sync problem. Catch it here so it can never
+        // reach the outer handler and tell the head "Sync failed" about rows that are already in.
+        return load().then(function () { if (S.tab === 'queue') { loadQueue(); loadQueueStats(); } else render(); })   // load() already refreshes the banner + Last sync
+          .catch(function (e) { toast('Synced, but refresh failed: ' + ((e && e.message) || String(e))); });
+      }).catch(function (e) {
+        toast(syncErrorText((e && e.message) || String(e)));
+      }).then(restore, restore);
+    }
+    // The sheet script's own error words are useless to a head ("busy", "unauthorized"); say what to do about them.
+    function syncErrorText(m) {
+      if (m.indexOf('QA_SHEET_WEBAPP_URL') >= 0) return 'Sync button not configured yet — set QA_SHEET_WEBAPP_URL';
+      if (/\bbusy\b/i.test(m)) return 'A sync is already running — try again in a minute.';
+      if (/unauthorized/i.test(m)) return 'Sheet script rejected the secret — check QA_SYNC_SECRET on both sides.';
+      return 'Sync failed: ' + m;
+    }
     // Assignment hook — host (console) uses it to fire the push notification. Never let a failing hook break the UI.
     function fireAssigned(inspector, date, count) { try { if (o.onAssigned && inspector && date) o.onAssigned({ inspector: inspector, date: date, count: count }); } catch (e) { } }
     function loadQueueStats() {
@@ -616,6 +640,7 @@
       var c = S.cfg, s = c.settings || {};
       var lastSync = S.sync && S.sync.last_sync_at ? fmtWhen(S.sync.last_sync_at) + ' · ' + S.sync.last_sync_rows + ' rows' : 'never';
       $('#cqBody').innerHTML = '<div class="cq-sec">Sheet sync</div><div class="cq-stats"><div class="cq-stat"><span>Last sync</span><strong style="font-size:13px">' + esc(lastSync) + '</strong></div><div class="cq-stat' + (S.sync && S.sync.unmapped.length ? ' warn' : '') + '"><span>Unmapped contractor names</span><strong style="font-size:13px">' + esc((S.sync && S.sync.unmapped.join(', ')) || 'none') + '</strong></div></div>' +
+        (canEdit && api.syncNow ? '<div class="cq-bar"><button class="cq-btn" id="st_sync">🔄 Sync now (last 60 days)</button><button class="cq-btn ghost" id="st_syncFull">Full re-scan (whole sheet)…</button><span class="cq-age">Pulls everything newly entered in the sheet into the queue right away instead of waiting for the 15-minute trigger. The full re-scan reads the whole tab (20k+ rows) — slow, and it eats the sheet account\'s daily script quota, so use it only for rows older than 60 days.</span></div>' : '') +
         (canEdit ? '<div class="cq-bar"><label>CSV fallback (same columns as the sheet: COMP, JODATECLOSED, ACCTNO, JONO, …) <input type="file" id="st_csv" accept=".csv"></label><button class="cq-btn ghost" id="st_csvGo">Import CSV</button></div>' : '') +
         '<div class="cq-sec">General</div><div class="cq-bar"><label>In-house sample % <input type="number" id="st_pct" value="' + esc(s.inhouse_sample_pct || '10') + '" min="0" max="100" style="width:70px"' + (canEdit ? '' : ' disabled') + '></label><label>Initial cutoff (rows closed before this are never auto-queued) <input type="date" id="st_cut" value="' + esc(s.initial_cutoff || '') + '"' + (canEdit ? '' : ' disabled') + '></label><label>Rectification deadline (days) <input type="number" id="st_rect" value="' + esc(s.rect_default_days || '7') + '" min="1" max="60" style="width:70px"' + (canEdit ? '' : ' disabled') + '></label>' + (canEdit ? '<button class="cq-btn" id="st_save">Save</button>' : '') + '</div>' +
         (canEdit ? '<div class="cq-sec">Maintenance</div><div class="cq-bar"><button class="cq-btn ghost" id="st_recompute">Recompute offense levels (one-time after Phase C)</button><span class="cq-age">Re-derives offense no. + catalog penalty for every done inspection in date order. Overrides are kept.</span></div>' : '') +
@@ -629,6 +654,8 @@
       wireRows('[data-ci]', function (tr) { return c.checklist.filter(function (x) { return String(x.id) === tr.dataset.ci; })[0]; }, api.saveChecklistItem);
       if (!canEdit) { rootEl.querySelectorAll('#cqBody input, #cqBody select').forEach(function (el) { if (el.id !== 'vc_q') el.disabled = true; }); return; }
       $('#st_save').onclick = function () { Promise.all([api.saveSetting('inhouse_sample_pct', $('#st_pct').value), api.saveSetting('initial_cutoff', $('#st_cut').value), api.saveSetting('rect_default_days', $('#st_rect').value)]).then(function () { toast('Saved'); return load(); }); };
+      if ($('#st_sync')) $('#st_sync').onclick = function () { doSync('tail', $('#st_sync'), '🔄 Sync now (last 60 days)'); };
+      if ($('#st_syncFull')) $('#st_syncFull').onclick = function () { if (!confirm('Reads the ENTIRE sheet (20k+ rows) and creates audit records for every historical JO not yet in the system (most land in Pool / Results, not the Queue). Use only if something older than 60 days is missing. Continue?')) return; doSync('full', $('#st_syncFull'), 'Full re-scan (whole sheet)…'); };
       $('#st_recompute').onclick = function () { if (!confirm('Recompute offense levels for ALL done inspections? Overrides are kept.')) return; api.recomputeOffenses().then(function (r) { toast('Recomputed ' + r.audits + ' audits · ' + r.violations + ' violations'); }).catch(function (e) { toast('Failed: ' + e.message); }); };
       $('#ct_add').onclick = function () { var n = ($('#ct_new').value || '').trim().toUpperCase(); if (!n) return; api.saveContractor({ sheet_name: n, display_name: n, kind: 'subcon', coverage: 'all', active: true }).then(function () { toast('Added'); load().then(renderSettings); }); };
       $('#ci_add').onclick = function () { var l = ($('#ci_label').value || '').trim(); if (!l) return; api.saveChecklistItem({ section: $('#ci_sec').value, label: l, sort_order: c.checklist.length + 1, active: true, photo_required: false }).then(function () { toast('Added'); load().then(renderSettings); }); };

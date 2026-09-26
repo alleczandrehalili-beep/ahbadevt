@@ -145,8 +145,9 @@
         created_at: iso(), updated_at: iso(), deleted_at: null, deleted_by: null }, base);
       db.audits.push(a); return a;
     }
+    var ingestedRows = 0;   // sheet rows consumed by the LAST ingest() (linked or turned into an audit) — what "Sync now" honestly reports as sent
     function ingest() {
-      var n = 0;
+      var n = 0; ingestedRows = 0;
       Object.keys(db.sheetRows).sort().forEach(function (jo) {
         var r = db.sheetRows[jo];
         // a sheet row is still pending while no audit carries its JONO *with* a sheet link (a FieldOps audit with that JONO must still be linked + blank-filled)
@@ -169,7 +170,7 @@
           linked.installers_text = linked.installers_text || [r.driver, r.tech, r.tech2].filter(Boolean).join(' / ') || null; linked.jo_date_closed = linked.jo_date_closed || r.jo_date_closed;
           linked.sheet_latlong = linked.sheet_latlong || r.sheet_latlong;
           linked.subscriber = linked.subscriber || r.subscriber_name; linked.mobile_no = linked.mobile_no || r.mobile_no; linked.address = linked.address || r.complete_address; linked.barangay = linked.barangay || r.barangay;
-          log(linked.id, 'sheet_linked', { jo_no: jo }); return;
+          log(linked.id, 'sheet_linked', { jo_no: jo }); ingestedRows++; return;
         }
         var legacy = Core.hasLegacyQa(r);
         var status = legacy ? 'done' : Core.initialStatus(r, c, db.settings.initial_cutoff);
@@ -182,7 +183,7 @@
           qa_gc: legacy && Core.QAGC.indexOf(r.sheet_qa_gc) >= 0 ? r.sheet_qa_gc : null, wire: legacy && Core.WIRE.indexOf(r.sheet_wire) >= 0 ? r.sheet_wire : null,
           assessment: legacy && (ASSESS.indexOf(r.sheet_assessment) >= 0 || r.sheet_assessment === 'RECTIFIED') ? r.sheet_assessment : null,
           remarks: legacy ? ([r.sheet_others, r.sheet_remarks].filter(Boolean).join(' · ') || null) : null });
-        syncJob(a); log(a.id, legacy ? 'imported_legacy' : 'created', { source: 'sheet', status: status, comp: r.comp }); emit(a); n++;
+        syncJob(a); log(a.id, legacy ? 'imported_legacy' : 'created', { source: 'sheet', status: status, comp: r.comp }); emit(a); n++; ingestedRows++;
       });
       return n;
     }
@@ -353,6 +354,14 @@
       saveContractor: function (c) { var ex = contractor(c.sheet_name); if (ex) Object.assign(ex, c); else db.contractors.push(Object.assign({ active: true, kind: 'subcon', coverage: 'all', org_id: null, display_name: c.sheet_name }, c)); return Promise.resolve(clone(ex || c)); },
       saveSetting: function (k, v) { db.settings[k] = String(v); return Promise.resolve({ key: k, value: String(v) }); },
       syncStatus: function () { var un = {}; db.audits.forEach(function (a) { if (a.unmapped && !a.deleted_at) un[a.contractor_name] = 1; }); return Promise.resolve({ last_sync_at: db.settings.last_sync_at, last_sync_rows: db.settings.last_sync_rows, unmapped: Object.keys(un) }); },
+      // "Sync now": the demo has no sheet behind it, so this just re-runs the ingest over whatever rows were seeded/imported.
+      // `sent` is what this run actually ingested — not every row ever seeded — so the demo's toast and "Last sync" cannot
+      // claim work that did not happen. Pressing it twice with nothing new therefore reports 0 rows, which is the truth.
+      syncNow: function (mode) {
+        var n = ingest(), sent = ingestedRows;
+        db.settings.last_sync_at = iso(); db.settings.last_sync_rows = String(sent);
+        return Promise.resolve({ ok: true, mode: mode || 'tail', sent: sent, created: n, more: false });
+      },
       importRows: function (rows) {
         var up = 0; (rows || []).forEach(function (raw) { var r = Core.normalizeSheetRow(raw); if (!r) return; var ex = db.sheetRows[r.jo_no]; db.sheetRows[r.jo_no] = Object.assign(ex || { first_seen_at: iso() }, r, { raw: raw, updated_at: iso() }); up++; });
         var n = ingest(); db.settings.last_sync_at = iso(); db.settings.last_sync_rows = String(up);
@@ -501,7 +510,7 @@
       // getConfig/listInspectors are special-cased below (labels-only / empty, mirroring the narrowed config RLS);
       // getChecklist, listRectifications, getRectification, noticesUnseen, markNoticesSeen, subscribeNotices and photoUrl stay as-is.
       var DENIED = ['listMyAudits', 'startAudit', 'uploadPhoto', 'uploadSignature', 'submitAudit', 'getInstallPhotos', 'listAudits', 'assignAudits', 'unassignAudits',
-        'scheduleAudit', 'queuePool', 'sampleInhouse', 'getAudit', 'reopenAudit', 'board', 'weeklyReport', 'saveChecklistItem', 'saveCode', 'saveContractor', 'saveSetting', 'syncStatus',
+        'scheduleAudit', 'queuePool', 'sampleInhouse', 'getAudit', 'reopenAudit', 'board', 'weeklyReport', 'saveChecklistItem', 'saveCode', 'saveContractor', 'saveSetting', 'syncStatus', 'syncNow',
         'importRows', 'setRectDeadline', 'assignReinspection', 'closeRectification', 'overridePenalty', 'offensePreview', 'recomputeOffenses', 'monthlyScorecard',
         'monthViolations', 'subscribe'];
       DENIED.forEach(function (k) { api[k] = function () { return Promise.reject(new Error('Not allowed for a subcontractor console user')); }; });

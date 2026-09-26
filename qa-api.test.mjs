@@ -5,7 +5,7 @@ const Api = (await import('./qa-api.js')).default ?? require('./qa-api.js');
 
 const PUBLIC = ['listMyAudits','startAudit','uploadPhoto','uploadSignature','submitAudit','getInstallPhotos','listAudits','assignAudits','unassignAudits','queuePool',
   'sampleInhouse','getAudit','reopenAudit','listInspectors','board','weeklyReport','getConfig','getChecklist','saveChecklistItem','saveCode','saveContractor','saveSetting',
-  'syncStatus','importRows','subscribe','photoUrl','scheduleAudit',
+  'syncStatus','syncNow','importRows','subscribe','photoUrl','scheduleAudit',
   'listRectifications','getRectification','setRectDeadline','assignReinspection','closeRectification','overridePenalty','offensePreview','recomputeOffenses','monthlyScorecard','monthViolations','noticesUnseen','markNoticesSeen','subscribeNotices'];
 
 function fakeClient() {
@@ -15,7 +15,8 @@ function fakeClient() {
   return { calls, schema: (s) => ({ from: (t) => { calls.push(['from', s, t]); return q(t); }, rpc: (n, a) => { calls.push(['rpc', s, n, a]); return Promise.resolve({ data: 0, error: null }); } }),
     from: (t) => { calls.push(['from', 'public', t]); return q(t); },
     storage: { from: (b) => ({ upload: (p, blob) => { calls.push(['upload', b, p]); return Promise.resolve({ error: null }); }, createSignedUrl: (p) => Promise.resolve({ data: { signedUrl: 'https://x/' + p } }) }) },
-    channel: () => ({ on() { return this; }, subscribe() { return this; } }), removeChannel: () => {} };
+    channel: () => ({ on() { return this; }, subscribe() { return this; } }), removeChannel: () => {},
+    auth: { getSession: () => Promise.resolve({ data: { session: { access_token: 'jwt-123' } }, error: null }) } };
 }
 
 test('qa-api exposes exactly the QaApi method set (same as the sim)', () => {
@@ -63,6 +64,44 @@ test('qa-api final-review additions: month_violations RPC and the labels-only ch
   // getChecklist is a plain table read (the one config table a subcon console user may select from), not an RPC
   await api.getChecklist();
   assert.deepEqual(c.calls.pop(), ['from', 'qa', 'checklist_items']);
+});
+
+test('qa-api: syncNow posts the head-authenticated pull to the qa-sheet-sync Edge Function', async () => {
+  const c = fakeClient(); const api = Api.create(c, { username: 'HEAD', supaUrl: 'https://p.supabase.co', anonKey: 'anon-key' });
+  const seen = []; const realFetch = globalThis.fetch;
+  globalThis.fetch = (url, init) => { seen.push([url, init]); return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, mode: 'full', sent: 12, created: 3, more: false }) }); };
+  try {
+    const r = await api.syncNow('full');
+    assert.deepEqual(r, { ok: true, mode: 'full', sent: 12, created: 3, more: false });
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0][0], 'https://p.supabase.co/functions/v1/qa-sheet-sync');
+    assert.equal(seen[0][1].method, 'POST');
+    assert.equal(seen[0][1].headers.Authorization, 'Bearer jwt-123');
+    assert.equal(seen[0][1].headers.apikey, 'anon-key');
+    assert.deepEqual(JSON.parse(seen[0][1].body), { action: 'pull', mode: 'full' });
+    // no mode → tail
+    await api.syncNow();
+    assert.deepEqual(JSON.parse(seen[1][1].body), { action: 'pull', mode: 'tail' });
+    // a failing pull surfaces the function's own error text (the console shows it in a toast)
+    globalThis.fetch = () => Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({ error: 'QA_SHEET_WEBAPP_URL not set' }) });
+    await assert.rejects(api.syncNow('tail'), /QA_SHEET_WEBAPP_URL not set/);
+    // no supaUrl/anonKey → say so instead of firing a request at the console's own origin (or being bounced by the gateway)
+    const bare = Api.create(fakeClient(), { username: 'HEAD' });
+    let fired = 0; globalThis.fetch = () => { fired++; return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) }); };
+    await assert.rejects(bare.syncNow('tail'), /Sync not configured \(supaUrl\/anonKey missing\)/);
+    assert.equal(fired, 0);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+// The Edge Function answers 200 with {ok:false,error} for a script-level failure (Apps Script "busy", a bad secret): the HTTP
+// status is fine, so only the body says it failed. syncNow must still reject, with that text, or the console toasts "Sync done".
+test('qa-api: syncNow rejects a 200 OK whose body is {ok:false,error}', async () => {
+  const api = Api.create(fakeClient(), { username: 'HEAD', supaUrl: 'https://p.supabase.co', anonKey: 'anon-key' });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: false, error: 'busy' }) });
+  try {
+    await assert.rejects(api.syncNow('tail'), (e) => e instanceof Error && e.message === 'busy');
+  } finally { globalThis.fetch = realFetch; }
 });
 
 test('qa-api: scheduleAudit routes to the qa-05f schedule_audit RPC', async () => {
