@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-09-24.1';
+    const APP_VERSION = '2026-09-26.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -926,12 +926,14 @@
           <span style="font-size:11px">${chip(m.same_name,'name '+m.name_pct+'%')}${chip(m.bday,'birthday')}${chip(m.contact,'contact')}${chip(m.email,'email')}${chip(m.same_address,'address '+m.addr_pct+'%')}</span>
         </div>`;
       const blocked=!!dup.blocked;
+      // Owner 2026-09-26: ang SALES ay laging pwedeng mag-Proceed anyway — ang Validator
+      // ang magdedesisyon (approve/reject); 100% duplicate = superadmin approval sa console.
       const head=blocked
-        ? '🚫 <b>Duplicate found — encoding not allowed.</b> This subscriber already exists in the system.'
+        ? '🚫 <b>Duplicate found.</b> This subscriber already exists in the system. You may still submit — the VALIDATOR will review and approve or reject it.'
         : '⚠️ <b>Possible duplicate found.</b> Review the match below before proceeding.';
       p.innerHTML=`<div style="border:1px solid ${blocked?'#c2503a':'#b8860b'};background:${blocked?'#fdf0ee':'#fdf6e3'};border-radius:10px;padding:10px 12px;font-size:12px;margin-bottom:10px">
           ${head}${(dup.matches||[]).slice(0,3).map(row).join('')}
-          ${blocked?'':'<div style="margin-top:9px"><button type="button" class="btn-ghost" id="saDupProceed">Proceed anyway</button></div>'}
+          <div style="margin-top:9px"><button type="button" class="btn-ghost" id="saDupProceed">${blocked?'⚠ Proceed anyway — send to Validator':'Proceed anyway'}</button></div>
         </div>`;
       p.style.display='';
       const go=$('#saDupProceed');
@@ -1048,7 +1050,7 @@
         if(dup && dup.matches && dup.matches.length){
           saDupRender(dup);
           showErr('#saErr', dup.blocked
-            ? 'Encoding blocked — this subscriber already exists (see the details above).'
+            ? 'Duplicate found — review the match above, then press "Proceed anyway — send to Validator" if this is a legitimate order.'
             : 'Possible duplicate — review the match above, then press "Proceed anyway" or correct the details.');
           btn.disabled=false; btn.textContent='Submit for validation'; return;
         }
@@ -1072,7 +1074,9 @@
           jobId='WO-'+new Date().getFullYear()+'-'+Date.now().toString().slice(-6)+Math.random().toString(36).slice(2,5);
           const ins=Object.assign({id:jobId,service_type:'Installation',wait_time:'Just now',priority:'Normal',schedule:manilaDate()+', 9:00 AM',team:null,created_by:myTeam},fields);
           // Leave a trace for the Validator when a warned duplicate was pushed through.
-          if(saDupAck) ins.history=appendHist('', 'Encoded with duplicate warning: '+saDupAck.pct+'% match with '+saDupAck.id+' (by '+myTeam+')');
+          if(saDupAck) ins.history=appendHist('', (saDupAck.level==='block'
+            ? '🚨 DUPLICATE '+saDupAck.pct+'% — match with '+saDupAck.id+' (sales proceeded; VALIDATOR DECISION REQUIRED)'
+            : 'Encoded with duplicate warning: '+saDupAck.pct+'% match with '+saDupAck.id)+' (by '+myTeam+')');
           const {error}=await sb.from('jobs').insert(ins); if(error) throw error;
         }
         for(const cat of ['id','billing','premise']){
