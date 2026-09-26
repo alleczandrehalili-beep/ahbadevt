@@ -192,6 +192,12 @@
       var isTkt = slot.getAttribute('data-ticket')==='1';
       var wlt = slot.getAttribute('data-lt')||'';
       if(isTkt && !s._tkInit){ s._tkInit=1; s.kit={conn:0,patch:0,tbox:0,sar:0,saf:0}; }
+      // 🧱 DOCSIS (owner 2026-09-26): coax install — WALANG fiber, kaya walang
+      // FOC section, kit defaults ZERO; CPE lang ang required, lahat ng drops
+      // OPTIONAL (ideklara lang ang aktwal na nagamit, kung meron).
+      var isDx = !isTkt && /DOCSIS/i.test(dwellRaw);
+      if(isDx && !s._dxInit){ s._dxInit=1; s.kit={conn:0,patch:0,tbox:0,sar:0,saf:0};
+        s.focReel=''; s.focStart=''; s.focEnd=''; s.foc2On=false; s.foc2Reel=''; s.foc2End=''; }
       if(!Array.isArray(s.iptv)) s.iptv=[];
       if(!is2) s.iptv=[];
       slot.setAttribute('data-mounted','1');
@@ -205,7 +211,7 @@
       var kitRows = KIT.map(function(k){ var q=(s.kit&&s.kit[k[0]]!=null)?s.kit[k[0]]:k[2]; return '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #eef4f1"><span style="flex:1;font-size:11px;color:#4a5c56">'+k[1]+'</span><input type="number" inputmode="numeric" min="0" value="'+q+'" data-wf="kitq" data-kk="'+k[0]+'" data-j="'+jid+'" style="width:54px;padding:5px;text-align:center"></div>'; }).join('');
       slot.innerHTML=
         '<div style="border:1.5px solid #bfe6d5;background:#f6fcf9;border-radius:14px;padding:12px;margin-top:10px">'+
-          '<div style="font-weight:800;font-size:12px;color:#0e6f52;margin-bottom:8px">📦 WIMS material report <span style="font-weight:600;color:#c2503a">'+(isTkt?(wlt==='Transfer'?'· 🔀 Transfer · declare the materials USED':wlt==='IPTV'?'· 📺 IPTV add-on · select the installed IPTV + materials USED':'· 🎫 SLR ticket · declare the materials USED'):'· REQUIRED · '+(is2?'2-PLAY':'1-PLAY'))+'</span></div>'+
+          '<div style="font-weight:800;font-size:12px;color:#0e6f52;margin-bottom:8px">📦 WIMS material report <span style="font-weight:600;color:#c2503a">'+(isTkt?(wlt==='Transfer'?'· 🔀 Transfer · declare the materials USED':wlt==='IPTV'?'· 📺 IPTV add-on · select the installed IPTV + materials USED':'· 🎫 SLR ticket · declare the materials USED'):(isDx?'· 🧱 DOCSIS · CPE lang ang required':'· REQUIRED · '+(is2?'2-PLAY':'1-PLAY')))+'</span></div>'+
           '<div class="field"><label>'+(isTkt?'Modem (optional — only if you installed/swapped a modem from your inventory)':'Installed MODEM *')+'</label>'+
           (s.modem
             ? '<div style="display:flex;gap:8px;align-items:center;border:1.5px solid #bfe6d5;background:#f3fbf7;border-radius:10px;padding:9px 11px">'+
@@ -225,7 +231,9 @@
               '<div style="font-size:10px;color:#8a9a94;margin-top:2px">Isasauli ang binunot na unit sa warehouse — naka-track ito sa pangalan ng team.</div></div>'
             : '')+
           iptvBlock+
-          (function(){
+          (isDx
+            ? '<div style="border:1px solid #d9e3f0;background:#f5f8fc;border-radius:10px;padding:9px 10px;margin:6px 0 8px;font-size:11px;color:#1d4f8a"><b>🧱 DOCSIS install</b> — coax, walang FOC drop fiber. CPE lang ang required; ideklara lang ang kit/materials na AKTWAL na nagamit (kung meron).</div>'
+            : (function(){
             var ls=lockedStart(s);
             if(ls!=null && !s._focInit){ s._focInit=1; if(!s.focReel) s.focReel=(focPrev.reel_no||''); if(!s.focStart) s.focStart=ls; }
             var lock=false;   // FOC continuity lock REMOVED (owner 2026-09-02) — prefill lang ang prev end, EDITABLE lahat; ibabalik kapag stable na ang teams
@@ -254,8 +262,8 @@
             '<button type="button" data-wf="foc2toggle" data-j="'+jid+'" style="margin-top:7px;font:700 10.5px system-ui;border:1px dashed #d8c58e;background:#fff;color:#8a6a24;border-radius:8px;padding:6px 10px">'+(s.foc2On?'✕ Remove reel 2':'➕ Reel emptied — used a 2nd reel')+'</button>'+
             '<div data-focused-for="'+jid+'" style="font-size:11px;font-weight:700;color:#0e6f52;margin-top:5px">'+(focUsed(s)!=null?('Used: '+focUsed(s)+' m'):'&nbsp;')+'</div>'+
           '</div>';
-          })()+
-          '<div style="font-weight:700;font-size:11px;color:#4a5c56;margin:8px 0 2px">🧰 Standard kit used <span style="font-weight:600;color:#8a9a94">· edit if less than a full kit was used</span></div>'+
+          })())+
+          '<div style="font-weight:700;font-size:11px;color:#4a5c56;margin:8px 0 2px">🧰 Standard kit used <span style="font-weight:600;color:#8a9a94">'+(isDx?'· optional sa DOCSIS — ideklara lang ang aktwal na ginamit':'· edit if less than a full kit was used')+'</span></div>'+
           '<div style="margin-bottom:4px">'+kitRows+'</div>'+
           '<div data-kitrem-wrap="'+jid+'" style="display:'+(kitExcess(s)?'block':'none')+';margin-bottom:10px;border:1px solid #f4c4b7;background:#fdf2ef;border-radius:8px;padding:7px 9px">'+
             '<div style="font-weight:700;font-size:10.5px;color:#8a2013;margin-bottom:4px">⚠ MORE than the standard kit — remarks REQUIRED</div>'+
