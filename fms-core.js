@@ -29,7 +29,7 @@
   // ---- people ----
   var ROLES = ['superadmin', 'admin', 'technician', 'viewer'];
   var ROLE_TITLES = ['Fleet admin', 'Chief Operation Officer', 'CEO/President', 'Procurement Officer', 'Admin Officer', 'Property Custodian'];
-  var APPROVER_TITLES = ['Chief Operation Officer', 'CEO/President', 'Procurement Officer'];
+  var APPROVER_TITLES = ['Chief Operation Officer', 'Procurement Officer'];   // owner 2026-09-30: CEO/President no longer signs (notify only)
   var TECH_TABLES = ['daily_checks', 'repair_requests'];
   // ---- other vocab ----
   var REPAIR_KINDS = ['pms', 'repair', 'body', 'tire', 'battery', 'electrical', 'other'];
@@ -106,10 +106,10 @@
   }
   function canOverride(from, to, role) { return isAdminRole(role) && !!(OVERRIDES[from] && OVERRIDES[from].indexOf(to) >= 0); }
   function canWrite(role, table) { if (isAdminRole(role)) return true; if (role === 'technician') return TECH_TABLES.indexOf(table) >= 0; return false; }
-  // Two signatures: CEO/President + (Chief Operation Officer or Procurement Officer). approvals = [{role_title}]
+  // Two signatures (owner 2026-09-30): Chief Operation Officer (superadmin) AND Procurement Officer — both required. approvals = [{role_title}]
   function approvalSatisfied(approvals) {
     var t = (approvals || []).map(function (a) { return a.role_title; });
-    return t.indexOf('CEO/President') >= 0 && (t.indexOf('Chief Operation Officer') >= 0 || t.indexOf('Procurement Officer') >= 0);
+    return t.indexOf('Chief Operation Officer') >= 0 && t.indexOf('Procurement Officer') >= 0;
   }
   function approvalProgress(approvals) { return Math.min((approvals || []).length, 2) + ' of 2'; }
   // ---- queue helpers ----
