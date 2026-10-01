@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-10-01.1';
+    const APP_VERSION = '2026-10-01.2';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -915,6 +915,7 @@
     // Same server-side RPC as the console — scans ALL JOs all-time (any status,
     // soft-deleted excluded). Fails OPEN kung wala pa ang RPC / network error.
     let saDupAck=null;   // set by "Proceed anyway" on a WARN-level match
+    let saSubmitBusy=false;   // in-flight guard — see saSubmit
     function saDupClear(){ saDupAck=null; const p=$('#saDupPanel'); if(p){p.style.display='none';p.innerHTML='';} }
     function saDupRender(dup){
       const p=$('#saDupPanel'); if(!p) return;
@@ -939,7 +940,7 @@
         </div>`;
       p.style.display='';
       const go=$('#saDupProceed');
-      if(go) go.onclick=()=>{ saDupAck=(dup.matches&&dup.matches[0])||{pct:0,id:'?'}; saSubmit(); };
+      if(go) go.onclick=()=>{ go.disabled=true; go.textContent='Submitting…'; saDupAck=(dup.matches&&dup.matches[0])||{pct:0,id:'?'}; saSubmit(); };
       try{ p.scrollIntoView({block:'center'}); }catch(e){}
     }
     // History lines "[Aug 5, 2:14 PM] Rejected by X: reason" / "Approved at intake by X (...)" →
@@ -1018,6 +1019,13 @@
         }).subscribe();
     }
     async function saSubmit(){
+      // DOUBLE-SUBMIT GUARD (owner 2026-10-01): isang pindot = isang JO. Habang may
+      // submission na tumatakbo, bawat sumunod na tawag (double-tap, Proceed anyway
+      // habang nag-a-upload) ay binabalewala — ito ang gumagawa ng kambal na JO dati.
+      if(saSubmitBusy) return; saSubmitBusy=true;
+      try{ await saSubmitInner(); } finally { saSubmitBusy=false; }
+    }
+    async function saSubmitInner(){
       clearErr('#saErr');
       // ALL CAPS lahat ng ini-encode — pantay sa console at sa extraction.
       const v=id=>($('#'+id)?$('#'+id).value.trim().toUpperCase():'');
@@ -1037,8 +1045,10 @@
       if(v('sa_play_type')==='2-PLAY' && !v('sa_addon_count')){ showErr('#saErr','For 2-PLAY, select how many add-ons are included.'); return; }
       if(!editing && !saDocs.id.length){ showErr('#saErr','A Valid ID photo is required.'); return; }
       const btn=$('#saSubmit'); btn.disabled=true; btn.textContent=editing?'Resubmitting…':'Submitting…';
-      // Duplicate check — NEW encodes only, skipped once after "Proceed anyway" on a warning.
-      if(!editing && !saDupAck){
+      // Duplicate check — NEW encodes AT edit/resubmit (owner 2026-10-01: dati NEW lang,
+      // pero nagiging butas ang resubmit para makalusot ang duplicate). Ang sariling JO
+      // ay excluded sa paghahambing. Skipped once after "Proceed anyway" on a warning.
+      if(!saDupAck){
         btn.textContent='Checking for duplicates…';
         let dup=null;
         try{
@@ -1046,7 +1056,7 @@
             p_first:fn,p_middle:v('sa_middle_name'),p_last:ln,p_birth:bday||null,
             p_primary:pno,p_ocn:ono,p_email:email,
             p_house:v('sa_house_no'),p_street:v('sa_street_name'),p_village:v('sa_village'),
-            p_brgy:brgy,p_district:dist,p_order_type:'SLI',p_exclude_id:null});
+            p_brgy:brgy,p_district:dist,p_order_type:'SLI',p_exclude_id:(editing?saEditingId:null)});
           if(!error) dup=data; else console.warn('duplicate check unavailable:',error.message);
         }catch(e){ console.warn('duplicate check unavailable:',e); }
         if(dup && dup.matches && dup.matches.length){
@@ -1054,7 +1064,7 @@
           showErr('#saErr', dup.blocked
             ? 'Duplicate found — this subscriber was already encoded. Encoding is blocked; contact the office if this is a legitimate new order.'
             : 'Possible duplicate — review the match above, then press "Proceed anyway" or correct the details.');
-          btn.disabled=false; btn.textContent='Submit for validation'; return;
+          btn.disabled=false; btn.textContent=editing?'Resubmit for validation':'Submit for validation'; return;
         }
         saDupClear();
       }
@@ -1072,6 +1082,11 @@
         if(editing){
           jobId=saEditingId;
           const {error}=await sb.from('jobs').update(fields).eq('id',jobId); if(error) throw error;
+          // Trace for the Validator when a warned duplicate was pushed through on a RESUBMIT.
+          if(saDupAck){ try{
+            const {data:h}=await sb.from('jobs').select('history').eq('id',jobId).single();
+            await sb.from('jobs').update({history:appendHist((h&&h.history)||'','Resubmitted with duplicate warning: '+saDupAck.pct+'% match with '+saDupAck.id+' (by '+myTeam+')')}).eq('id',jobId);
+          }catch(e){} }
         } else {
           jobId='WO-'+new Date().getFullYear()+'-'+Date.now().toString().slice(-6)+Math.random().toString(36).slice(2,5);
           const ins=Object.assign({id:jobId,service_type:'Installation',wait_time:'Just now',priority:'Normal',schedule:manilaDate()+', 9:00 AM',team:null,created_by:myTeam},fields);
