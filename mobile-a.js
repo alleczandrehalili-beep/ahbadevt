@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-10-01.2';
+    const APP_VERSION = '2026-10-03.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -929,10 +929,11 @@
       const blocked=!!dup.blocked;
       // Owner 2026-10-01: BINAWI ang "Proceed anyway" sa BLOCK-level duplicates (NABOR
       // incident — naunahan ang unang encoder). Sales can no longer push a blocked
-      // duplicate through; only the Superadmin can allow a re-encode (🔓 exempt sa console).
+      // duplicate through; a DISPATCHER/VALIDATOR (or Superadmin) can allow a re-encode
+      // upon the sales agent's request (🔓 sa console — encode form o JO detail view).
       // WARN-level matches (ibang address, mababang %) ay pwede pa ring i-Proceed.
       const head=blocked
-        ? '🚫 <b>Duplicate found.</b> This subscriber was already encoded in the system — encoding is BLOCKED. If you believe this is a legitimate new order, contact the office: only the Superadmin can allow a re-encode.'
+        ? '🚫 <b>Duplicate found.</b> This subscriber was already encoded in the system — encoding is BLOCKED. If this is a legitimate new order, ask your DISPATCHER or VALIDATOR to allow a re-encode — quote the matching WO number shown below.'
         : '⚠️ <b>Possible duplicate found.</b> Review the match below before proceeding.';
       p.innerHTML=`<div style="border:1px solid ${blocked?'#c2503a':'#b8860b'};background:${blocked?'#fdf0ee':'#fdf6e3'};border-radius:10px;padding:10px 12px;font-size:12px;margin-bottom:10px">
           ${head}${(dup.matches||[]).slice(0,3).map(row).join('')}
@@ -1062,7 +1063,7 @@
         if(dup && dup.matches && dup.matches.length){
           saDupRender(dup);
           showErr('#saErr', dup.blocked
-            ? 'Duplicate found — this subscriber was already encoded. Encoding is blocked; contact the office if this is a legitimate new order.'
+            ? 'Duplicate found — this subscriber was already encoded. Encoding is blocked; ask your dispatcher or validator to allow a re-encode if this is a legitimate new order.'
             : 'Possible duplicate — review the match above, then press "Proceed anyway" or correct the details.');
           btn.disabled=false; btn.textContent=editing?'Resubmit for validation':'Submit for validation'; return;
         }
