@@ -212,8 +212,11 @@
       for(const it of items){
         try{
           const {error}=await sb.storage.from('job-photos').upload(it.path, it.blob, {contentType:'image/jpeg', upsert:false});
-          if(error) throw error;
-          await sb.from('job_photos').insert({job_id:it.jobId, team:myTeam, path:it.path, label:it.label||''});
+          // Phase 2B: kapag ang file ay NAKA-UPLOAD NA pala (queue replay pagkatapos mag-insert-fail),
+          // ituloy sa DB row sa halip na ma-ipit ang buong queue sa "already exists".
+          if(error && !/exist|duplicate/i.test(error.message||'')) throw error;
+          const {error:ie}=await sb.from('job_photos').insert({job_id:it.jobId, team:myTeam, path:it.path, label:it.label||''});
+          if(ie && !/duplicate/i.test(ie.message||'')) throw ie;
           await pqDel(it.key);
           (photoData[it.jobId]=photoData[it.jobId]||[]).push({path:it.path,label:it.label||''});
           changed=true;
@@ -228,7 +231,10 @@
       try{
         const {error}=await sb.storage.from('job-photos').upload(path, blob, {contentType:'image/jpeg', upsert:false});
         if(error) throw error;
-        await sb.from('job_photos').insert({job_id:jobId, team:myTeam, path, label:label||''});
+        // Phase 2B: chine-check na rin ang DB row — kapag pumalya ito, HINDI bibilangin ang
+        // photo (dati ay bilang agad kahit invisible pala sa console) at mapupunta sa queue.
+        const {error:e2}=await sb.from('job_photos').insert({job_id:jobId, team:myTeam, path, label:label||''});
+        if(e2) throw e2;
         (photoData[jobId]=photoData[jobId]||[]).push({path,label:label||''});
       }catch(e){
         // Persist the photo so a flaky connection can't lose it; it retries on reconnect.

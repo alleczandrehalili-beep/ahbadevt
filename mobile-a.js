@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-10-03.1';
+    const APP_VERSION = '2026-10-04.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -145,7 +145,7 @@
         if(error) throw error;
         attendanceId = data?.id || null;
         if(data?.time_in) toast('Timed in at '+manilaTime(data.time_in));
-      }catch(e){ console.warn('clockIn',e.message); toast('Timed in'); }
+      }catch(e){ console.warn('clockIn',e.message); toast('⚠ Time-in NOT saved — weak signal? Close and reopen the app to retry.'); }   // Phase 2B: huwag magpanggap na pumasok ang time-in
     }
     async function findOpenAttendance(){
       try{
@@ -372,7 +372,7 @@
       if(chatThread.kind==='dm'){ const [a,b]=dmPair(chatThread.code); row.dm_a=a; row.dm_b=b; }
       if(chatPhotoFile){ try{ row.image_path=await uploadChatPhoto(chatPhotoFile); }catch(e){ toast('Photo upload failed'); return; } }
       $('#chatInput').value=''; setChatPhoto(null); if($('#chat_photo_cam'))$('#chat_photo_cam').value=''; if($('#chat_photo_alb'))$('#chat_photo_alb').value='';
-      try{ await sb.from('team_messages').insert(row); }catch(e){ toast('Send failed'); }
+      try{ const {error}=await sb.from('team_messages').insert(row); if(error) throw error; }catch(e){ toast('❌ Message NOT sent — '+(e.message||'network error')); }   // Phase 2B: supabase-js doesn't throw on {error}
     }
     function recomputeChatBadge(){ chatUnread=Object.values(chatUnreadBy).reduce((a,b)=>a+(b||0),0); updateChatBadge(); }
     function updateChatBadge(){ [['#chatBadge'],['#chatFabBadge']].forEach(([id])=>{const b=$(id); if(b){ b.textContent=chatUnread; b.classList.toggle('hidden', chatUnread<=0); }}); }
@@ -1097,15 +1097,23 @@
             : 'Encoded with duplicate warning: '+saDupAck.pct+'% match with '+saDupAck.id)+' (by '+myTeam+')');
           const {error}=await sb.from('jobs').insert(ins); if(error) throw error;
         }
-        for(const cat of ['id','billing','premise']){
-          for(let i=0;i<saDocs[cat].length;i++){
-            const blob=await compressImage(saDocs[cat][i],1000,90,await buildStamp());
-            const path=`${jobId}/docs/${cat}_${Date.now()}_${i}.jpg`;
-            const {error:e2}=await sb.storage.from('job-photos').upload(path,blob,{contentType:'image/jpeg',upsert:false}); if(e2) throw e2;
-            await sb.from('job_docs').insert({job_id:jobId, category:cat, path});
+        // Phase 2B: HIWALAY na try ang documents — naka-save na ang JO sa puntong ito.
+        // Ang palyadong document ay HINDI na "Submit failed" (nakaliligaw iyon — nag-dodoble
+        // tuloy ng submit ang sales); malinaw na partial-failure na may susunod na hakbang.
+        let docFail=0;
+        try{
+          for(const cat of ['id','billing','premise']){
+            for(let i=0;i<saDocs[cat].length;i++){
+              const blob=await compressImage(saDocs[cat][i],1000,90,await buildStamp());
+              const path=`${jobId}/docs/${cat}_${Date.now()}_${i}.jpg`;
+              const {error:e2}=await sb.storage.from('job-photos').upload(path,blob,{contentType:'image/jpeg',upsert:false}); if(e2) throw e2;
+              const {error:e3}=await sb.from('job_docs').insert({job_id:jobId, category:cat, path}); if(e3) throw e3;
+            }
           }
-        }
-        toast(editing?'Order resubmitted for validation':'Job order submitted for validation'); saEditingId=null; saDupClear(); $('#saSubmit').textContent='Submit for validation'; saReset(); saSwitch('mine');
-      }catch(e){ showErr('#saErr','Submit failed: '+e.message); }
+        }catch(de){ docFail++; console.warn('doc upload failed:',de.message||de); }
+        if(docFail) toast('⚠ Order was submitted, BUT a document failed to upload. Open it in MINE, then Edit & Resubmit to re-attach the documents.');
+        else toast(editing?'Order resubmitted for validation':'Job order submitted for validation');
+        saEditingId=null; saDupClear(); $('#saSubmit').textContent='Submit for validation'; saReset(); saSwitch('mine');
+      }catch(e){ showErr('#saErr','Submit failed — the order was NOT saved: '+e.message); }
       btn.disabled=false; btn.textContent= saEditingId?'Resubmit for validation':'Submit for validation';
     }
