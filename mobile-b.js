@@ -82,7 +82,7 @@
       try{
         jobs=await loadJobs();
         // Keep not-yet-synced (queued) job changes visible so a poll can't flicker them back to old state.
-        try{ syncQLoad().forEach(it=>{ if((it.table||'jobs')!=='jobs')return; const id=(it.match&&it.match.id)||it.id; const j=jobs.find(x=>x.id===id); if(j) Object.assign(j, it.payload||it.patch); }); }catch(e){}
+        try{ syncQLoad().forEach(it=>{ if(!_qMine(it))return; if((it.table||'jobs')!=='jobs')return; const id=(it.match&&it.match.id)||it.id; const j=jobs.find(x=>x.id===id); if(j) Object.assign(j, it.payload||it.patch); }); }catch(e){}   // 4B-3 P4: sariling pending changes LANG ang pinapatong sa view (_qMine: UUID o username ng PAREHONG account)
         await loadPhotos();
         // Detect brand-new load(s) for this team → distinct sound + notification
         const ids=new Set(jobs.map(j=>j.id));
@@ -122,7 +122,8 @@
       // Never roll back / lose the action: on failure it is queued and retried automatically.
       const ok=await saveJobPatch(id, {status:next, history:hist, updated_at:new Date().toISOString()});
       if(ok){ setSync('live','Synced'); toast(`${id} → ${statusLabel(next)}`); }
-      else { setSync('syncing', syncQCount()+' pending sync'); toast('Saved — will sync when back online'); }
+      else if(saveWrite.queued){ setSync('syncing', syncQCount()+' pending sync'); toast('Saved — will sync when back online'); }
+      // 4B-3: permanent failure → ang saveWrite na ang nagpakita ng ❌; walang pekeng "saved" kahit saglit
       logTrack('status:'+next, job.area||job.city);
     }
     // Compress/resize a photo to the smallest readable size (~60 KB) to save cloud space + data.
@@ -340,13 +341,17 @@
         if(mode!=='cancel' && shiftAccount){ patch.work_account=shiftAccount; patch.crew_driver=shiftDriver; patch.crew_tech1=shiftTech1; patch.crew_tech2=shiftTech2; }
         const synced=await saveJobPatch(jobId, patch);
         // Phone push sa encoder (sales agent) — banner kahit sarado ang app niya.
-        try{ if(j&&j.created_by&&typeof pushNotify==='function') pushNotify(mode==='cancel'
+        // 4B-3: ang push ay para sa KUMPIRMADONG saved state LANG — kapag queued/permanent/
+        // 0-row ang write, WALANG ipapadalang state-change push (mas mabuti ang walang push
+        // kaysa sinungaling na push). Ang replay ng pila ay WALANG deferred push — dokumentado.
+        try{ if(synced && j&&j.created_by&&typeof pushNotify==='function') pushNotify(mode==='cancel'
           ? {team:j.created_by,title:'🚫 JO cancelled',body:(j.subscriber||jobId)+' — '+remark}
           : {team:j.created_by,title:'⚠ JO incomplete',body:(j.subscriber||jobId)+' — '+remark}); }catch(e){}
         if(j){ Object.assign(j, patch); logTrack('status:'+patch.status, j.area||j.city); }
         closeNegative(); viewMode = mode==='cancel'?'todo':'negative'; render();
-        toast(synced ? (mode==='cancel'?'Job cancelled':'Marked as Incomplete') : 'Saved — will sync when back online');
-        if(!synced) setSync('syncing', syncQCount()+' pending sync');
+        // 4B-3: "will sync" LANG kapag talagang naka-pila; permanent → ❌ na ng saveWrite ang nakikita
+        if(synced) toast(mode==='cancel'?'Job cancelled':'Marked as Incomplete');
+        else if(saveWrite.queued){ toast('Saved — will sync when back online'); setSync('syncing', syncQCount()+' pending sync'); }
       }catch(e){ showErr('#negErr','Failed: '+e.message); }
       btn.disabled=false; btn.textContent = ($('#negModal').dataset.mode==='cancel'?'Cancel job':'Save as Negative');
     }
@@ -369,8 +374,9 @@
         const ok=await saveJobPatch(id, patch);
         Object.assign(job, patch);
         render(); logTrack('status:cancelled', job.area||job.city);
-        toast(ok?'Job cancelled':'Cancelled — will sync when back online');
-        setSync(ok?'live':'syncing', ok?'Synced':(syncQCount()+' pending sync'));
+        // 4B-3: "will sync" LANG kapag naka-pila; permanent → ❌ na ng saveWrite
+        if(ok){ toast('Job cancelled'); setSync('live','Synced'); }
+        else if(saveWrite.queued){ toast('Cancelled — will sync when back online'); setSync('syncing', syncQCount()+' pending sync'); }
       }catch(e){ toast('Failed: '+e.message); }
     }
 
@@ -431,7 +437,9 @@
       // Never lose the completion/payment: queued + retried automatically if the write fails.
       const ok=await saveJobPatch(id, patch);
       // Phone push sa encoder (sales agent) — banner kahit sarado ang app niya.
-      try{ if(job.created_by&&typeof pushNotify==='function') pushNotify({team:job.created_by,title:'✔ JO completed',body:(job.subscriber||id)}); }catch(e){}
+      // 4B-3: push LANG kapag kumpirmadong nai-save ang completion — hindi sa queued/
+      // permanent/0-row. Walang deferred push sa replay (dokumentadong limitasyon).
+      try{ if(ok && job.created_by&&typeof pushNotify==='function') pushNotify({team:job.created_by,title:'✔ JO completed',body:(job.subscriber||id)}); }catch(e){}
       // (WIMS submit lumipat sa ITAAS ng completion save — file-first, 2026-09-18)
       // Upload the Gcash Proof of Remittance (best-effort) so it appears with the load's photos.
       if(mode==='Gcash' && payProofFile){ try{ await uploadOne(id, payProofFile, 'Proof of Remittance'); }catch(e){ console.warn('proof upload',e.message); } }
@@ -439,7 +447,8 @@
       Object.assign(job, patch);
       closeComplete(); render(); logTrack('status:completed', job.area||job.city);
       if(ok){ toast('Job completed'); setSync('live','Synced'); }
-      else { toast('Completed — will sync when back online'); setSync('syncing', syncQCount()+' pending sync'); }
+      else if(saveWrite.queued){ toast('Completed — will sync when back online'); setSync('syncing', syncQCount()+' pending sync'); }
+      // 4B-3: permanent failure → nananatili ang ❌ ng saveWrite; walang pekeng "Completed"
     }
     // ---------- 🎫 Tech-created SLR ticket (AHBA teams) ----------
     // Simpleng 5-field na ticket: agad naka-assign sa sariling team, walang approval.

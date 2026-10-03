@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-10-04.1';
+    const APP_VERSION = '2026-10-06.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -96,41 +96,124 @@
 
     // ---- Durable write queue: a job status/payment write is NEVER silently lost. ----
     // If a write fails (offline / server down) it persists in localStorage and retries
-    // on reconnect and on every 15s poll, so the optimistic UI is always eventually true.
+    // on reconnect and on every 30s poll, so the optimistic UI is always eventually true.
+    // 4B-3 (owner 2026-10-06):
+    //  P1 — ang UPDATE ay success LANG kapag may kumpirmadong naapektuhang row mula sa
+    //       server (.select('id')); ang 0-row ay HINDI success (dati, tahimik na "nai-save").
+    //  P2 — transient failures LANG ang pumapasok sa pila; ang deterministic na 4xx/RLS/
+    //       validation ay tahasang ibinabalita at HINDI nire-retry nang walang pag-asa.
+    //  P3 — sa replay, ang permanent/0-row na item ay agad dinodrop nang may malinaw na
+    //       mensahe at hindi na humaharang sa mga item sa likod nito.
+    //  P4 — bawat bagong item ay may owner (Supabase auth user id); ang items ng ibang
+    //       user sa shared na device ay HAWAK lang — hindi kailanman ire-replay o
+    //       ipapakita sa overlay ng ibang naka-login.
+    // DOKUMENTADONG LIMITASYON: ang payment fields (mode/amount/AR) ng naka-queue na
+    // completion ay plaintext sa localStorage habang nakapila — hindi sakop ng 4B-3.
     const SYNC_Q_KEY='ahba_syncq_v1';
     function syncQLoad(){ try{ return JSON.parse(localStorage.getItem(SYNC_Q_KEY)||'[]'); }catch(e){ return []; } }
     function syncQSave(q){ try{ localStorage.setItem(SYNC_Q_KEY, JSON.stringify(q)); }catch(e){} }
-    function syncQCount(){ return syncQLoad().length; }
+    // Bilangin LANG ang pila ng kasalukuyang user — ang sa iba ay nakahawak, hindi "pending".
+    function syncQCount(){ return syncQLoad().filter(_qMine).length; }
+    // (P4) Stable owner id = Supabase auth user id (hindi display name); fallback ang
+    // login username bago pa dumating ang session callback.
+    let _qUid='';
+    try{
+      sb.auth.onAuthStateChange((_e,s)=>{ _qUid=(s&&s.user&&s.user.id)||''; });
+      sb.auth.getSession().then(r=>{ const s=r&&r.data&&r.data.session; if(s&&s.user) _qUid=s.user.id; }).catch(()=>{});
+    }catch(e){}
+    function _qOwner(){ return _qUid || (myTeam?('u:'+myTeam):''); }
+    // (P4) Kabilang ba sa KASALUKUYANG naka-login na account ang item? Tinatanggap ang
+    // alinmang anyo ng PAREHONG account (auth UUID o login username) para hindi ma-strand
+    // ang item na na-enqueue bago pa dumating ang session callback (owner='u:<username>'
+    // noon, UUID na ngayon). HINDI nito nililipat ang item sa ibang user — pagkilala lang;
+    // ang ibang username/UUID ay hinding-hindi magma-match.
+    function _qMine(item){
+      if(!item || (!item.owner && !item.ouser)) return false;   // legacy/unowned — kahit kanino, hindi
+      if(_qUid && item.owner===_qUid) return true;              // canonical: auth UUID
+      if(myTeam && item.owner===('u:'+myTeam)) return true;     // fallback-owner, parehong login username
+      if(myTeam && item.ouser===myTeam) return true;            // na-enqueue bago ang UUID — parehong account
+      return false;
+    }
     // Queue ANY write: {table, op:'update'|'insert', match, payload}. Old job items {id,patch} still work.
-    function enqueueWrite(table, op, match, payload){ const q=syncQLoad(); q.push({qid:Date.now()+'_'+Math.random().toString(36).slice(2,6), table, op, match, payload, attempts:0, at:Date.now()}); syncQSave(q); }
+    // ouser = login username sa oras ng enqueue — pang-ugnay kapag nagpalit-anyo ang owner id.
+    function enqueueWrite(table, op, match, payload){ const q=syncQLoad(); q.push({qid:Date.now()+'_'+Math.random().toString(36).slice(2,6), table, op, match, payload, attempts:0, at:Date.now(), owner:_qOwner(), ouser:myTeam||''}); syncQSave(q); }
     function enqueueJob(id, patch){ enqueueWrite('jobs','update',{id}, patch); }
-    // Apply one queued item to Supabase. Returns true on success (false on a returned error).
+    // (P2) Structured status/code muna bago ang anumang hula: alin ang sulit i-retry?
+    function _classifyErr(error, status){
+      const code=error&&error.code?String(error.code):'';
+      if(code==='23505') return 'duplicate';       // unique violation (dumarating bilang HTTP 409) = PATUNAY na naisulat na — huwag doblehin
+      const st=Number(status||(error&&error.status)||0);
+      if(st===408||st===429||st>=500) return 'transient';
+      if(st===401) return 'transient';            // session-refresh window; sakop ng 25-attempt backstop
+      if(st>=400&&st<500) return 'permanent';      // 400/403/404/409/422 — deterministic, walang pag-asa ang retry
+      if(/^(22|23|42)/.test(code)||/^PGRST/.test(code)) return 'permanent';   // data/constraint/permission/PostgREST
+      return 'transient';                          // walang structured code/status → network/offline/timeout
+    }
+    function _opLabel(table,op,match){
+      if(table==='jobs'&&match&&match.id) return 'Change to '+match.id;
+      if(table==='attendance') return 'Attendance update';
+      if(table==='gate_logs') return 'Gate log';
+      return (table||'record')+' '+(op||'update');
+    }
+    // Apply one queued item. (P1) update = kailangang may kumpirmadong row mula sa server.
     async function _applyItem(item){
       const table=item.table||'jobs', op=item.op||'update', match=item.match||{id:item.id}, payload=item.payload||item.patch;
-      if(op==='insert'){ const {error}=await sb.from(table).insert(payload); return !error; }
+      if(op==='insert'){
+        const r=await sb.from(table).insert(payload);
+        return r.error?{ok:false,kind:_classifyErr(r.error,r.status)}:{ok:true};
+      }
       let q=sb.from(table).update(payload); for(const k in match) q=q.eq(k, match[k]);
-      const {error}=await q; return !error;
+      const r=await q.select('id');
+      if(r.error) return {ok:false,kind:_classifyErr(r.error,r.status)};
+      const n=Array.isArray(r.data)?r.data.length:0;
+      return n>=1?{ok:true}:{ok:false,kind:'zero'};   // 0 rows = wala na ang record / hindi na writable
     }
-    // Try a write now; if it fails (offline/server), queue it for retry — never lost, never throws.
+    // Try a write now. Transient failure → queue (never lost). Permanent/0-row → TAHASANG
+    // bigo, HINDI ipi-pila ang walang pag-asa. Never throws; parehong true/false pa rin
+    // ang nakikita ng lahat ng caller.
     async function saveWrite(table, op, match, payload){
-      try{ if(!await _applyItem({table, op, match, payload})) throw 0; return true; }
-      catch(e){ enqueueWrite(table, op, match, payload); return false; }
+      saveWrite.queued=false;   // itinatakda bawat tawag: na-pila ba ang failure na ito?
+      let v; try{ v=await _applyItem({table,op,match,payload}); }catch(e){ v={ok:false,kind:'transient'}; }
+      if(v.ok||v.kind==='duplicate') return true;   // duplicate = pinatunayan ng server na naisulat na — success iyon
+      if(v.kind==='transient'){ enqueueWrite(table,op,match,payload); saveWrite.queued=true; return false; }
+      // Permanent/0-row sa UNANG attempt: sabihin agad ang totoo (2B). Ang mga caller ay
+      // naka-guard na sa saveWrite.queued kaya WALANG "will sync" na lalabas dito kahit saglit.
+      const msg='❌ '+_opLabel(table,op,match)+' was NOT saved — '+(v.kind==='zero'?'the record was not found or is no longer editable':'the server rejected it')+'. Please review and redo it.';
+      try{ toast(msg); setSync('error','Save failed'); }catch(_){}
+      console.error('[AHBA saveWrite] permanent failure, NOT queued:', table, op, JSON.stringify(match), v.kind);
+      return false;
     }
     async function saveJobPatch(id, patch){ return saveWrite('jobs','update',{id}, patch); }
     let _flushing=false;
     async function flushQueue(){
       if(_flushing) return; _flushing=true;
       try{
-        while(true){
-          const q=syncQLoad(); if(!q.length) break;
-          const item=q[0];
-          let ok=false;
-          try{ ok=await _applyItem(item); }catch(e){ ok=false; }
-          if(ok){ syncQSave(syncQLoad().filter(x=>x.qid!==item.qid)); continue; }
-          // Failed → bump attempts; drop as poison after many tries so one bad item can't block the queue.
+        if(!_qOwner()) return;                     // walang naka-login — walang ire-replay
+        const pass=syncQLoad().map(x=>x.qid);      // snapshot: bawat item, isang tingin per pass
+        for(const qid of pass){
+          const q0=syncQLoad(); const item=q0.find(x=>x.qid===qid); if(!item) continue;
+          if(!item.owner && !item.ouser){
+            // Legacy item (bago ang 4B-3): walang may-ari — HUWAG i-replay sa kahit sino,
+            // baka hindi kanya. Hawak + isang beses na paalala per session.
+            if(!flushQueue._legacyWarned){ flushQueue._legacyWarned=1; try{ toast('⚠ An older unsynced change (from a previous app version) needs review — it will not auto-sync. Please re-check your recent jobs/attendance.'); }catch(_){} console.warn('AHBA sync: unowned legacy item held:', item); }
+            continue;
+          }
+          if(!_qMine(item)) continue;              // (P4) sa ibang user — hawak lang
+          let v; try{ v=await _applyItem(item); }catch(e){ v={ok:false,kind:'transient'}; }
+          if(v.ok||v.kind==='duplicate'){ syncQSave(syncQLoad().filter(x=>x.qid!==item.qid)); continue; }   // duplicate sa replay = naisulat na — tapos
+          if(v.kind==='permanent'||v.kind==='zero'){
+            // (P3) walang-pag-asang item: agad alisin para hindi makaharang; malinaw na mensahe.
+            syncQSave(syncQLoad().filter(x=>x.qid!==item.qid));
+            try{ toast('⚠ '+_opLabel(item.table,item.op,item.match)+' could not be saved — '+(v.kind==='zero'?'it was changed or removed by the office':'the server rejected it')+'. Please review and redo it if still needed.'); }catch(_){}
+            console.error('AHBA sync dropped (permanent):', item);
+            continue;
+          }
+          // transient → bump attempts; 25 = backstop na may TIYAK na mensahe
           const cur=syncQLoad(); const it=cur.find(x=>x.qid===item.qid);
-          if(it){ it.attempts=(it.attempts||0)+1; if(it.attempts>=25){ syncQSave(cur.filter(x=>x.qid!==item.qid)); try{ toast('⚠ A saved change could not sync — please redo it.'); }catch(_){} console.error('AHBA sync dropped after retries:', it); } else syncQSave(cur); }
-          break;   // stop this pass; retry on next poll / 'online'
+          if(it){ it.attempts=(it.attempts||0)+1;
+            if(it.attempts>=25){ syncQSave(cur.filter(x=>x.qid!==item.qid)); try{ toast('⚠ '+_opLabel(it.table,it.op,it.match)+' could not sync after many retries — please redo it in the app.'); }catch(_){} console.error('AHBA sync dropped after retries:', it); }
+            else syncQSave(cur); }
+          if(!navigator.onLine) break;             // offline — walang silbing ituloy ang pila
         }
       } finally { _flushing=false; }
     }
@@ -661,8 +744,13 @@
         if(!isIn){ Object.assign(row,{crew_driver:m.dataset.driver, crew_tech1:m.dataset.t1, crew_tech2:m.dataset.t2, crew_ok:crewok, crew_remarks:rem}); }
         else { Object.assign(row,{vehicle_remarks:vehRem, photo_path:photoPath}); }
         const gateOk=await saveWrite('gate_logs','insert',{},row);   // queued if offline
+        const gateQueued=saveWrite.queued;   // 4B-3: hulihin bago ang susunod na saveWrite
         if(!isIn){ await saveWrite('attendance','update',{username:team, work_date:manilaDate()},{deployed_verified:true, verified_by:myTeam, verified_at:now}); }
-        toast((isIn?'Incoming':'Outgoing')+' SVC recorded for '+team+(gateOk?'':' — will sync when online')); closeSec(); loadSecTeams();
+        // 4B-3: "will sync" LANG kapag talagang naka-pila; sa permanent failure ang
+        // saveWrite na mismo ang nagpakita ng ❌ — huwag itong patungan ng "recorded".
+        if(gateOk) toast((isIn?'Incoming':'Outgoing')+' SVC recorded for '+team);
+        else if(gateQueued) toast((isIn?'Incoming':'Outgoing')+' SVC recorded for '+team+' — will sync when online');
+        closeSec(); loadSecTeams();
       }catch(e){ showErr('#secErr','Failed: '+e.message); }
       btn.disabled=false; btn.textContent= isIn?'Record Incoming SVC':'Record Outgoing SVC';
     }
@@ -907,7 +995,9 @@
       const now=new Date().toISOString();
       const ok=await saveWrite('jobs','update',{id:jobId},{deleted_at:now, deleted_by:myTeam, updated_at:now});
       delete saStatus[jobId];
-      toast(ok?'Job order deleted':'Deleted — will sync when online'); saRenderMine();
+      // 4B-3: "will sync" LANG kapag naka-pila; sa permanent failure, ang ❌ ng saveWrite ang mananatili.
+      if(ok) toast('Job order deleted'); else if(saveWrite.queued) toast('Deleted — will sync when online');
+      saRenderMine();
     }
     // Edit a REJECTED order and resubmit it for validation (loads info back into the form)
     let saEditingId=null;
