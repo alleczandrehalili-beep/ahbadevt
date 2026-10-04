@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-10-06.1';
+    const APP_VERSION = '2026-10-06.2';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -1172,7 +1172,24 @@
         let jobId;
         if(editing){
           jobId=saEditingId;
-          const {error}=await sb.from('jobs').update(fields).eq('id',jobId); if(error) throw error;
+          // 4B-4 A2 (owner 2026-10-06): ang resubmit ay tatanggapin LANG habang
+          // Sales-editable pa ang order sa SERVER (for_validation o rejected, hindi
+          // deleted). Kung inaprubahan/na-assign/binago na ito habang nakabukas ang edit
+          // form, HINDI ito mahihila pabalik sa for_validation at HINDI mapapatungan ang
+          // fields — 4B-2 pattern: eksaktong ISANG kumpirmadong row ang success.
+          const _r=await sb.from('jobs').update(fields).eq('id',jobId)
+            .in('status',['for_validation','rejected']).is('deleted_at',null).select('id');
+          if(_r.error) throw _r.error;
+          const _n=Array.isArray(_r.data)?_r.data.length:0;
+          if(_n===0){
+            // Conflict — hindi na editable. WALANG docs upload, walang success, walang overwrite.
+            showErr('#saErr','This order was already reviewed or changed and can no longer be edited. Check MINE for its current status.');
+            saEditingId=null; saDupClear(); $('#saSubmit').textContent='Submit for validation';
+            btn.disabled=false; btn.textContent='Submit for validation';
+            saSwitch('mine'); try{ saRenderMine(); }catch(_e){}
+            return;
+          }
+          if(_n!==1) throw new Error('server reported '+_n+' rows changed for one order — refusing to treat as success');
           // Trace for the Validator when a warned duplicate was pushed through on a RESUBMIT.
           if(saDupAck){ try{
             const {data:h}=await sb.from('jobs').select('history').eq('id',jobId).single();
@@ -1188,20 +1205,25 @@
           const {error}=await sb.from('jobs').insert(ins); if(error) throw error;
         }
         // Phase 2B: HIWALAY na try ang documents — naka-save na ang JO sa puntong ito.
-        // Ang palyadong document ay HINDI na "Submit failed" (nakaliligaw iyon — nag-dodoble
-        // tuloy ng submit ang sales); malinaw na partial-failure na may susunod na hakbang.
-        let docFail=0;
-        try{
-          for(const cat of ['id','billing','premise']){
-            for(let i=0;i<saDocs[cat].length;i++){
+        // 4B-4 A1 (owner 2026-10-06): bawat file ay HIWALAY nang sinusubukan — ang isang
+        // palyadong document ay hindi na pumipigil sa natitirang files/categories (dating
+        // abort-all ang buong loop sa unang failure). Document = successful LANG kapag
+        // nag-succeed PAREHO ang storage upload at ang job_docs insert; kapag upload ok
+        // pero insert palya, failed ang bilang (orphan object sa storage — kilalang
+        // limitasyon, walang cleanup architecture sa phase na ito).
+        let docTotal=0, docFail=0;
+        for(const cat of ['id','billing','premise']){
+          for(let i=0;i<saDocs[cat].length;i++){
+            docTotal++;
+            try{
               const blob=await compressImage(saDocs[cat][i],1000,90,await buildStamp());
               const path=`${jobId}/docs/${cat}_${Date.now()}_${i}.jpg`;
               const {error:e2}=await sb.storage.from('job-photos').upload(path,blob,{contentType:'image/jpeg',upsert:false}); if(e2) throw e2;
               const {error:e3}=await sb.from('job_docs').insert({job_id:jobId, category:cat, path}); if(e3) throw e3;
-            }
+            }catch(de){ docFail++; console.warn('doc upload failed ('+cat+' #'+(i+1)+'):', de.message||de); }
           }
-        }catch(de){ docFail++; console.warn('doc upload failed:',de.message||de); }
-        if(docFail) toast('⚠ Order was submitted, BUT a document failed to upload. Open it in MINE, then Edit & Resubmit to re-attach the documents.');
+        }
+        if(docFail) toast('⚠ Order was submitted, BUT '+docFail+' of '+docTotal+' document photo(s) failed to upload. Open it in MINE → Edit before validation to re-attach only the missing ones.');
         else toast(editing?'Order resubmitted for validation':'Job order submitted for validation');
         saEditingId=null; saDupClear(); $('#saSubmit').textContent='Submit for validation'; saReset(); saSwitch('mine');
       }catch(e){ showErr('#saErr','Submit failed — the order was NOT saved: '+e.message); }
