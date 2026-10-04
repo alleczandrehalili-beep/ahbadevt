@@ -533,7 +533,14 @@
       // NETWORK/JWT lang ang dahilan → i-QUEUE at payagan ang completion
       // (ang jobs patch mismo ay naka-offline-queue rin, magkasabay silang aabot)
       if(_rpc && isNetErr(e)){
-        var q=qAll(); q.push({rpc:_rpc,args:_args,jo:_jo,ts:Date.now()}); qSave(q);
+        var q=qAll();
+        // 4C F4 (owner 2026-10-07): kapag puno na ang offline queue, HUWAG magpanggap na
+        // "QUEUED" — dati, ang slice(0,50) sa qSave ay TAHIMIK na nagtatapon ng bagong
+        // report. Ngayon: tapat na error → hinaharang ng file-first ang completion.
+        if(q.length>=50){
+          return '⚠ WIMS offline queue is full (50 pending reports) — this report was NOT queued. Please reconnect or contact the warehouse.';
+        }
+        q.push({rpc:_rpc,args:_args,jo:_jo,ts:Date.now()}); qSave(q);
         say('📴 Walang signal — WIMS report QUEUED, isesend automatic kapag online na');
         return null;
       }
