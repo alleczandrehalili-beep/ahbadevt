@@ -116,11 +116,14 @@
         if(photoCount(id)<REQ){ toast(`Attach ${REQ} photos first (${photoCount(id)}/${REQ})`); return; }
         openComplete(id); return;   // capture payment before completing
       }
-      const prev=job.status; job.status=next; render(); setSync('syncing','Saving…');
+      // P5: kunin ang pre-action state BAGO ang optimistic mutation — ito ang magiging
+      // replay precondition (sa sunud-sunod na offline advances, ang prev ng bawat isa ay
+      // ang naunang queued transition — tamang CHAIN ito dahil in-order ang flushQueue).
+      const prev=job.status, _preTeam=job.team; job.status=next; render(); setSync('syncing','Saving…');
       const hist=appendHist(await freshHist(id, job.history), `→ ${statusLabel(next)} (by ${myTeam})`);
       job.history=hist;
       // Never roll back / lose the action: on failure it is queued and retried automatically.
-      const ok=await saveJobPatch(id, {status:next, history:hist, updated_at:new Date().toISOString()});
+      const ok=await saveJobPatch(id, {status:next, history:hist, updated_at:new Date().toISOString()}, {status:prev, team:_preTeam});
       if(ok){ setSync('live','Synced'); toast(`${id} → ${statusLabel(next)}`); }
       else if(saveWrite.queued){ setSync('syncing', syncQCount()+' pending sync'); toast('Saved — will sync when back online'); }
       // 4B-3: permanent failure → ang saveWrite na ang nagpakita ng ❌; walang pekeng "saved" kahit saglit
@@ -339,7 +342,10 @@
           ? {status:'cancelled', cancel_remark:remark, updated_at:now, history:hist}
           : {status:'negative', negative_remark:remark, negative_at:now, updated_at:now, history:hist};
         if(mode!=='cancel' && shiftAccount){ patch.work_account=shiftAccount; patch.crew_driver=shiftDriver; patch.crew_tech1=shiftTech1; patch.crew_tech2=shiftTech2; }
-        const synced=await saveJobPatch(jobId, patch);
+        // P5: j ay server-derived at HINDI pa namu-mutate sa puntong ito (ang Object.assign
+        // ay pagkatapos pa ng await) — ito ang server-confirmed pre-action state.
+        const _pre={status:(j&&j.status)||'', team:(j&&j.team)||''};
+        const synced=await saveJobPatch(jobId, patch, _pre);
         // Phone push sa encoder (sales agent) — banner kahit sarado ang app niya.
         // 4B-3: ang push ay para sa KUMPIRMADONG saved state LANG — kapag queued/permanent/
         // 0-row ang write, WALANG ipapadalang state-change push (mas mabuti ang walang push
@@ -371,7 +377,9 @@
       const hist=appendHist(await freshHist(id, job.history), 'Cancelled (by '+myTeam+')'+(reason.trim()?': '+reason.trim():''));
       const patch={status:'cancelled', updated_at:now, history:hist};
       try{
-        const ok=await saveJobPatch(id, patch);
+        // P5: pre-action state bago ang anumang local mutation (Object.assign ay pagkatapos ng await)
+        const _pre={status:job.status||'', team:job.team||''};
+        const ok=await saveJobPatch(id, patch, _pre);
         Object.assign(job, patch);
         render(); logTrack('status:cancelled', job.area||job.city);
         // 4B-3: "will sync" LANG kapag naka-pila; permanent → ❌ na ng saveWrite
@@ -435,7 +443,10 @@
       if(svcRem) patch.service_remarks=svcRem;
       if(shiftAccount){ patch.work_account=shiftAccount; patch.crew_driver=shiftDriver; patch.crew_tech1=shiftTech1; patch.crew_tech2=shiftTech2; }
       // Never lose the completion/payment: queued + retried automatically if the write fails.
-      const ok=await saveJobPatch(id, patch);
+      // P5: pre-action state (job hindi pa namu-mutate — Object.assign ay pagkatapos ng await);
+      // ang stale completion ay hindi na papatungan ang redispatch/cancel ng office.
+      const _pre={status:job.status||'', team:job.team||''};
+      const ok=await saveJobPatch(id, patch, _pre);
       // Phone push sa encoder (sales agent) — banner kahit sarado ang app niya.
       // 4B-3: push LANG kapag kumpirmadong nai-save ang completion — hindi sa queued/
       // permanent/0-row. Walang deferred push sa replay (dokumentadong limitasyon).

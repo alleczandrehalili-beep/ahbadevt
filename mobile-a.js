@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-10-07.1';
+    const APP_VERSION = '2026-10-08.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -136,7 +136,10 @@
     }
     // Queue ANY write: {table, op:'update'|'insert', match, payload}. Old job items {id,patch} still work.
     // ouser = login username sa oras ng enqueue — pang-ugnay kapag nagpalit-anyo ang owner id.
-    function enqueueWrite(table, op, match, payload){ const q=syncQLoad(); q.push({qid:Date.now()+'_'+Math.random().toString(36).slice(2,6), table, op, match, payload, attempts:0, at:Date.now(), owner:_qOwner(), ouser:myTeam||''}); syncQSave(q); }
+    // P5 (owner 2026-10-08): `pre` = LAST SERVER-CONFIRMED state (status/team) na nakunan
+    // BAGO ang optimistic mutation ng aksyon — nagiging replay precondition para hindi
+    // mapatungan ng lumang queued write ang mas bagong dispatch state ng office.
+    function enqueueWrite(table, op, match, payload, pre){ const q=syncQLoad(); q.push({qid:Date.now()+'_'+Math.random().toString(36).slice(2,6), table, op, match, payload, attempts:0, at:Date.now(), owner:_qOwner(), ouser:myTeam||'', pre:pre||null}); syncQSave(q); }
     function enqueueJob(id, patch){ enqueueWrite('jobs','update',{id}, patch); }
     // (P2) Structured status/code muna bago ang anumang hula: alin ang sulit i-retry?
     function _classifyErr(error, status){
@@ -163,19 +166,29 @@
         return r.error?{ok:false,kind:_classifyErr(r.error,r.status)}:{ok:true};
       }
       let q=sb.from(table).update(payload); for(const k in match) q=q.eq(k, match[k]);
+      // P5: ang QUEUED item na may `pre` ay nagre-replay LANG kapag ang server ay nasa
+      // eksaktong pre-action state pa rin (status/team); ang jobs ay dagdag pang hindi
+      // dapat soft-deleted. 0 rows → existing 'zero' path: drop + "changed or removed by
+      // the office" — hindi na tahimik na mapapatungan ang mas bagong office state.
+      if(item.pre){
+        for(const k in item.pre){ const v=item.pre[k]; if(v!=null&&v!=='') q=q.eq(k, v); }
+        if((item.table||'jobs')==='jobs') q=q.is('deleted_at', null);
+      }
       const r=await q.select('id');
       if(r.error) return {ok:false,kind:_classifyErr(r.error,r.status)};
       const n=Array.isArray(r.data)?r.data.length:0;
-      return n>=1?{ok:true}:{ok:false,kind:'zero'};   // 0 rows = wala na ang record / hindi na writable
+      return n>=1?{ok:true}:{ok:false,kind:'zero'};   // 0 rows = wala na / binago na ng office / hindi na writable
     }
     // Try a write now. Transient failure → queue (never lost). Permanent/0-row → TAHASANG
     // bigo, HINDI ipi-pila ang walang pag-asa. Never throws; parehong true/false pa rin
     // ang nakikita ng lahat ng caller.
-    async function saveWrite(table, op, match, payload){
+    async function saveWrite(table, op, match, payload, pre){
       saveWrite.queued=false;   // itinatakda bawat tawag: na-pila ba ang failure na ito?
+      // P5: ang IMMEDIATE first attempt ay WALANG pre filters (online at sariwa ang state);
+      // ang `pre` ay itinatatak LANG sa queued item para sa replay preconditions.
       let v; try{ v=await _applyItem({table,op,match,payload}); }catch(e){ v={ok:false,kind:'transient'}; }
       if(v.ok||v.kind==='duplicate') return true;   // duplicate = pinatunayan ng server na naisulat na — success iyon
-      if(v.kind==='transient'){ enqueueWrite(table,op,match,payload); saveWrite.queued=true; return false; }
+      if(v.kind==='transient'){ enqueueWrite(table,op,match,payload,pre); saveWrite.queued=true; return false; }
       // Permanent/0-row sa UNANG attempt: sabihin agad ang totoo (2B). Ang mga caller ay
       // naka-guard na sa saveWrite.queued kaya WALANG "will sync" na lalabas dito kahit saglit.
       const msg='❌ '+_opLabel(table,op,match)+' was NOT saved — '+(v.kind==='zero'?'the record was not found or is no longer editable':'the server rejected it')+'. Please review and redo it.';
@@ -183,13 +196,30 @@
       console.error('[AHBA saveWrite] permanent failure, NOT queued:', table, op, JSON.stringify(match), v.kind);
       return false;
     }
-    async function saveJobPatch(id, patch){ return saveWrite('jobs','update',{id}, patch); }
+    async function saveJobPatch(id, patch, pre){ return saveWrite('jobs','update',{id}, patch, pre); }
     let _flushing=false;
     async function flushQueue(){
       if(_flushing) return; _flushing=true;
       try{
         if(!_qOwner()) return;                     // walang naka-login — walang ire-replay
         const pass=syncQLoad().map(x=>x.qid);      // snapshot: bawat item, isang tingin per pass
+        // P5-CHAIN (owner 2026-10-08): per-JOB dependency gating. Ang sunud-sunod na offline
+        // writes sa IISANG JO ay isang chain: kapag ang nauna ay (a) TRANSIENT — ang mga
+        // kasunod sa PAREHONG JO ay hindi susubukan sa pass na ito (hawak, hindi binibilang);
+        // (b) CONFLICT/PERMANENT/DROPPED — ang mga kasunod ay HINDI NA susubukan sa server
+        // kahit kailan (baka magkataong tumugma ang kanilang pre sa office-made na state —
+        // hindi iyon katuparan ng chain). Ang IBANG JO at ang attendance/gate_logs ay
+        // tuloy-tuloy — walang global head-of-line block (4B-3 P3 intact).
+        const _jid=it=>((it.table||'jobs')==='jobs'&&(it.op||'update')==='update')?String((it.match&&it.match.id)||it.id||''):'';
+        const heldJobs={};
+        const _dropDescendants=jid=>{
+          let n=0; const keep=syncQLoad().filter(x=>{ if(_jid(x)===jid && _qMine(x)){ n++; return false; } return true; });
+          if(n){ syncQSave(keep);
+            try{ toast('⚠ A previous offline change to '+jid+' could not be saved. '+n+' later offline change(s) for this job were not applied. Please review the job and redo them if still needed.'); }catch(_){}
+            console.error('AHBA sync: dropped '+n+' dependent item(s) for '+jid);
+          }
+          return n;
+        };
         for(const qid of pass){
           const q0=syncQLoad(); const item=q0.find(x=>x.qid===qid); if(!item) continue;
           if(!item.owner && !item.ouser){
@@ -199,6 +229,8 @@
             continue;
           }
           if(!_qMine(item)) continue;              // (P4) sa ibang user — hawak lang
+          const jid=_jid(item);
+          if(jid && heldJobs[jid]) continue;       // P5-CHAIN: may transient na nauna sa JO na ito — hawak muna, walang attempt/bilang
           let v; try{ v=await _applyItem(item); }catch(e){ v={ok:false,kind:'transient'}; }
           if(v.ok||v.kind==='duplicate'){ syncQSave(syncQLoad().filter(x=>x.qid!==item.qid)); continue; }   // duplicate sa replay = naisulat na — tapos
           if(v.kind==='permanent'||v.kind==='zero'){
@@ -206,13 +238,14 @@
             syncQSave(syncQLoad().filter(x=>x.qid!==item.qid));
             try{ toast('⚠ '+_opLabel(item.table,item.op,item.match)+' could not be saved — '+(v.kind==='zero'?'it was changed or removed by the office':'the server rejected it')+'. Please review and redo it if still needed.'); }catch(_){}
             console.error('AHBA sync dropped (permanent):', item);
+            if(jid) _dropDescendants(jid);         // P5-CHAIN: bawal nang lumaktaw ang mga descendant
             continue;
           }
           // transient → bump attempts; 25 = backstop na may TIYAK na mensahe
           const cur=syncQLoad(); const it=cur.find(x=>x.qid===item.qid);
           if(it){ it.attempts=(it.attempts||0)+1;
-            if(it.attempts>=25){ syncQSave(cur.filter(x=>x.qid!==item.qid)); try{ toast('⚠ '+_opLabel(it.table,it.op,it.match)+' could not sync after many retries — please redo it in the app.'); }catch(_){} console.error('AHBA sync dropped after retries:', it); }
-            else syncQSave(cur); }
+            if(it.attempts>=25){ syncQSave(cur.filter(x=>x.qid!==item.qid)); try{ toast('⚠ '+_opLabel(it.table,it.op,it.match)+' could not sync after many retries — please redo it in the app.'); }catch(_){} console.error('AHBA sync dropped after retries:', it); if(jid) _dropDescendants(jid); }
+            else { syncQSave(cur); if(jid) heldJobs[jid]=1; } }   // P5-CHAIN: hawakan ang kasunod ng JO na ito sa pass na ito
           if(!navigator.onLine) break;             // offline — walang silbing ituloy ang pila
         }
       } finally { _flushing=false; }
@@ -993,7 +1026,11 @@
       if(!confirm('Delete this job order?\nIt will be removed from your list. (The record is kept for the office / Superadmin.)')) return;
       // Soft-delete: keep the row + its docs so the office can still see it; hide it from the sales list.
       const now=new Date().toISOString();
-      const ok=await saveWrite('jobs','update',{id:jobId},{deleted_at:now, deleted_by:myTeam, updated_at:now});
+      // P5: pre.status = server-confirmed status mula sa MINE list/realtime (saStatus),
+      // kinunan BAGO ang local na delete — ang stale queued delete ay hindi na makakapatay
+      // ng order na inaprubahan/na-assign na habang offline.
+      const _pst=saStatus[jobId]||'';
+      const ok=await saveWrite('jobs','update',{id:jobId},{deleted_at:now, deleted_by:myTeam, updated_at:now}, _pst?{status:_pst}:undefined);
       delete saStatus[jobId];
       // 4B-3: "will sync" LANG kapag naka-pila; sa permanent failure, ang ❌ ng saveWrite ang mananatili.
       if(ok) toast('Job order deleted'); else if(saveWrite.queued) toast('Deleted — will sync when online');
