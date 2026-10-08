@@ -12,7 +12,8 @@
     '.qa-fail{margin-top:8px;border-top:1px dashed #e3b1a6;padding-top:8px}.qa-pick{display:flex;gap:6px;margin-top:6px}.qa-pick label{flex:1;text-align:center;cursor:pointer}.qa-thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.qa-thumbs img{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid #cfd8d3}.qa-chips{display:flex;gap:5px;flex-wrap:wrap;margin:5px 0}.qa-chips span{font-size:10px;border:1px solid #cfd8d3;border-radius:9px;padding:3px 7px;background:#fff}' +
     '.qa-seg{display:flex;gap:5px;flex-wrap:wrap}.qa-seg button{padding:8px 10px;border-radius:9px;border:1px solid #cfd8d3;background:#fff;font-weight:700;font-size:12px}.qa-seg button.on{background:#0d3b34;color:#fff;border-color:#0d3b34}' +
     '.qa-sig{border:1px solid #cfd8d3;border-radius:10px;background:#fff;width:100%;height:150px;touch-action:none}.qa-cert{font-size:11px;color:#3a4a45;background:#fff;border:1px solid #e3e8e2;border-radius:9px;padding:8px;margin:6px 0}.qa-footer{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #dfe7e2;padding:10px 12px;display:flex;gap:8px;z-index:9001}.qa-footer .qa-btn{flex:1;text-align:center}.qa-err{color:#c2503a;font-size:12px;margin:6px 0;white-space:pre-wrap}.qa-pend{font-size:11px;color:#9a6200;margin:4px 0}' +
-    '.qa-re{background:#fff3d6;border:1px solid #f0d28a;border-radius:11px;padding:9px 11px;margin-bottom:9px}.qa-re .t{font-weight:900;color:#9a6200}.qa-hint{font-size:11px;color:#9a6200;margin-top:4px}';
+    '.qa-re{background:#fff3d6;border:1px solid #f0d28a;border-radius:11px;padding:9px 11px;margin-bottom:9px}.qa-re .t{font-weight:900;color:#9a6200}.qa-hint{font-size:11px;color:#9a6200;margin-top:4px}' +
+    '.qa-retline{font-size:12px;border-radius:9px;padding:7px 9px;margin:6px 0}.qa-retline.warn{background:#fff4dc;color:#7a5200;border:1px solid #f0dca8}.qa-retline.ok{background:#e2f4ea;color:#0f6b4f;border:1px solid #bfe3cf}';
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function h(html) { var d = document.createElement('div'); d.innerHTML = html; return d.firstElementChild; }
@@ -262,7 +263,8 @@
         $('#qaBody').innerHTML = '<div class="qa-sec">Result</div><div class="qa-card"><div class="t">' + esc(r.audit.visit_status || '') + (r.audit.assessment ? ' · ' + esc(r.audit.assessment) : '') + '</div><div class="s">Wire ' + esc(r.audit.wire || '—') + ' · QA/GC ' + esc(r.audit.qa_gc || '—') + ' · Violations ' + r.audit.total_violations + ' · ₱' + Number(r.audit.total_penalty || 0).toLocaleString() + '</div><div class="s">Commercial: ' + (r.audit.found_business ? 'YES' : 'NO') + (r.audit.old_plan || r.audit.new_plan ? ' · old ' + esc(r.audit.old_plan || '—') + ' · new ' + esc(r.audit.new_plan || '—') : '') + '</div><div class="s">' + esc(r.audit.remarks || '') + '</div><div class="s">Submitted ' + fmtDate(r.audit.inspected_at) + '</div></div>' +
           (r.items.length ? '<div class="qa-sec">Checklist</div>' + r.items.map(function (i) { return '<div class="qa-item"><div class="lbl">' + esc(labels[i.item_id] || i.item_id) + ' <span class="qa-badge ' + (i.result === 'fail' ? 'prog' : '') + '">' + i.result.toUpperCase() + '</span></div>' + (i.remark ? '<div class="s">' + esc(i.remark) + '</div>' : '') + '</div>'; }).join('') : '') +
           (r.violations.length ? '<div class="qa-sec">Violations</div>' + r.violations.map(function (v) { return '<div class="qa-item"><div class="lbl">' + esc(v.code) + ' — ' + esc(v.category || '') + '</div><div class="s">' + esc(v.description || '') + (v.penalty_amount != null ? ' · ₱' + Number(v.penalty_amount).toLocaleString() : '') + '</div></div>'; }).join('') : '') +
-          '<div class="qa-sec">Photos</div><div class="qa-thumbs" id="qaRoThumbs"></div>';
+          '<div class="qa-sec">Photos</div><div class="qa-thumbs" id="qaRoThumbs"></div>' + installBlock(a);
+        wireInstall(a);
         // same generation guard as renderReBox: #qaRoThumbs may exist again for a DIFFERENT ticket by the time a
         // signed URL resolves (close → reopen another read-only sheet), so a stale thumb must not be appended.
         var gen = ++state.roGen;
@@ -312,7 +314,7 @@
             : '<div class="qa-sec">Subscriber acknowledgement</div><div class="qa-cert">Subscriber not around — no subscriber signature needed; the checklist still applies.</div>') +
           '<div class="qa-sec">Inspector certification</div><div class="qa-cert">I, the inspector, hereby certify that the inspection has been performed in a fair, professional, and honest way, and that I have not asked, nor received any favour, compensation or gifts from anyone.</div><canvas class="qa-sig" id="sigIns"></canvas><div style="display:flex;justify-content:space-between;align-items:center"><span class="qa-pend">' + ((d.sig_ins || d.sig_ins_path) ? '✓ signature captured' : '') + '</span><button class="qa-btn ghost" id="sigInsClear">Clear</button></div>';
       }
-      if (a.job_id) html += '<div class="qa-sec">Install close-out photos (technician)</div><div class="qa-thumbs" id="qaInstall">Loading…</div>';
+      html += installBlock(a);
       body.innerHTML = html;
       // wiring
       body.querySelectorAll('#qaVisit button').forEach(function (b) { b.onclick = function () {
@@ -347,8 +349,47 @@
         if (d.sig_ins) state.pads.ins.restore(d.sig_ins);
         $('#sigInsClear').onclick = function () { state.pads.ins.clear(); d.sig_ins = null; d.sig_ins_path = null; saveDraft(); };
       }
-      if (a.job_id) api.getInstallPhotos(a.job_id).then(function (ps) { if (state.destroyed) return; var el = $('#qaInstall'); if (!el) return; el.innerHTML = ps.length ? ps.map(function (p) { return '<a href="' + esc(p.url) + '" target="_blank" rel="noopener"><img src="' + esc(p.url) + '" alt="" title="' + esc(p.label || '') + '"></a>'; }).join('') : '<span class="qa-pend">No close-out photos uploaded by the technician.</span>'; });
+      wireInstall(a);
       if (inspected) loadOffenseHints();
+    }
+
+    // ---- install close-out photos + "return JO to the team (replace photo)" (qa-05h) — form AND read-only view ----
+    function installBlock(a) { return a.job_id ? '<div class="qa-sec">Install close-out photos (technician)</div><div class="qa-thumbs" id="qaInstall">Loading…</div><div id="qaRet"></div>' : ''; }
+    function wireInstall(a) {
+      if (!a.job_id) return;
+      api.getInstallPhotos(a.job_id).then(function (ps) { if (state.destroyed || state.open !== a) return; var el = $('#qaInstall'); if (!el) return; el.innerHTML = ps.length ? ps.map(function (p) { return '<a href="' + esc(p.url) + '" target="_blank" rel="noopener"><img src="' + esc(p.url) + '" alt="" title="' + esc(p.label || '') + '"></a>'; }).join('') : '<span class="qa-pend">No close-out photos uploaded by the technician.</span>'; })
+        .catch(function () { var el = $('#qaInstall'); if (el && state.open === a) el.innerHTML = '<span class="qa-pend">Could not load the close-out photos.</span>'; });
+      // the form re-renders on every tap — reuse the last status for this JO instead of re-reading public.jobs each time
+      if (state.ret && state.ret.job === a.job_id) renderRet(a, state.ret.st); else loadRet(a);
+    }
+    function loadRet(a) {
+      api.jobReturnStatus(a.job_id).then(function (st) { if (state.destroyed || state.open !== a) return; state.ret = { job: a.job_id, st: st || {} }; renderRet(a, state.ret.st); })
+        .catch(function () { var el = $('#qaRet'); if (el && state.open === a) el.innerHTML = '<span class="qa-pend">JO return status unavailable.</span>'; });
+    }
+    function renderRet(a, st) {
+      var el = $('#qaRet'); if (!el) return;
+      var draft = (state.retDraft && state.retDraft.job === a.job_id) ? state.retDraft : (state.retDraft = { job: a.job_id, open: false, text: '' });
+      var line = (st.qa_returned_at && !st.qa_return_resolved_at) ? '<div class="qa-retline warn">↩ Returned to ' + esc(st.team || '—') + ' on ' + fmtDate(st.qa_returned_at) + ' by ' + esc(st.qa_returned_by || '—') + ': ' + esc(st.qa_return_remarks || '') + '</div>'
+        : st.qa_return_resolved_at ? '<div class="qa-retline ok">Photo replaced by team on ' + fmtDate(st.qa_return_resolved_at) + '</div>' : '';
+      var can = st.status === 'completed';
+      el.innerHTML = line + '<button class="qa-btn warn" id="qaRetBtn" type="button"' + (can ? '' : ' disabled') + '>↩ Return to team (replace photo)</button>' +
+        (can ? '' : '<div class="qa-pend">Only a completed JO can be returned' + (st.status ? ' (JO is ' + esc(st.status) + ')' : '') + '.</div>') +
+        '<div id="qaRetBox" style="' + (can && draft.open ? '' : 'display:none;') + 'margin-top:6px"><div class="qa-field"><label>Which photo must the team replace? * (the team sees this)</label><textarea id="f_retremarks" rows="2">' + esc(draft.text) + '</textarea></div><button class="qa-btn" id="qaRetSend" type="button">Send back</button></div>';
+      var btn = $('#qaRetBtn'), box = $('#qaRetBox'), ta = $('#f_retremarks'), send = $('#qaRetSend');
+      btn.onclick = function () { if (btn.disabled) return; draft.open = !draft.open; box.style.display = draft.open ? '' : 'none'; if (draft.open) ta.focus(); };
+      ta.oninput = function () { draft.text = ta.value; };
+      send.onclick = function () {
+        var remarks = (ta.value || '').trim();
+        if (!remarks) { toast('Remarks required (which photo to replace)'); ta.focus(); return; }
+        send.disabled = true;
+        api.returnJobForPhotos(a.job_id, remarks).then(function (job) {
+          var team = (job && job.team) || st.team || '';
+          toast('JO returned to ' + (team || 'the team'));
+          try { if (deps.pushNotify && team) deps.pushNotify({ team: team, title: '↩ JO returned by QA', body: remarks.slice(0, 120), url: 'mobile.html' }); } catch (e) { }
+          state.retDraft = null; state.ret = null;
+          if (!state.destroyed && state.open === a) loadRet(a);
+        }).catch(function (e) { toast('Failed: ' + e.message); send.disabled = false; });
+      };
     }
 
     function addPhoto(file, itemId) {
