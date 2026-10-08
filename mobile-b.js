@@ -112,7 +112,7 @@
       const _ald=job.load_date?String(job.load_date).slice(0,10):'';
       if(_ald && _ald>manilaDate()){ toast('📅 Scheduled for '+_ald+' — locked until that day.'); return; }
       if(next==='completed'){
-        const REQ=photosReqFor(job);   // Transfer/IPTV = 3 lang; iba = 12
+        const REQ=photosReqFor(job);   // Transfer/IPTV = 3 lang; iba = 15
         if(photoCount(id)<REQ){ toast(`Attach ${REQ} photos first (${photoCount(id)}/${REQ})`); return; }
         openComplete(id); return;   // capture payment before completing
       }

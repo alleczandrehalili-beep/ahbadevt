@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-10-08.1';
+    const APP_VERSION = '2026-10-08.2';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -48,10 +48,28 @@
     let saDocs = {id:[], billing:[], premise:[]};
     const saStatus = {};   // jobId -> last known status (for sales realtime change detection)
     const headerName = () => myRole==='sales_agent' ? (myTeam+' · '+(myName||'Sales')) : (myName?(myTeam+' · '+myName):myTeam);
-    const PHOTO_LABELS = ['SUBS HOUSE','NAP QR CODE','NAP STENCIL','PORT LOCATION & TAGGING','S-CLAMP AT THE J-HOOK ABOVE THE NAP','MIDSPAN BEFORE THE HOUSE','HOUSE BRACKET','LAYOUT OF THE DROP CABLE ON SUBS PREMISES BEFORE CPE','NIU LOCATION WITH CORRECT TAGGING','INSIDE THE NIU BOX WITH PROPER LOOPING','ACTUAL LOCATION OF THE MODEM NIU','SAR'];
+    // Owner 2026-10-08: bagong 15-photo completion checklist (pinalitan ang dating 12).
+    // Ang ORDER dito ang order ng slots sa app (1→15) — sinusunod ang opisyal na listahan.
+    const PHOTO_LABELS = [
+      'SAR / SUBS ACCEPTANCE REPORT (ALL REQUIRED FIELDS FILLED)',
+      'MODEM SERIAL NUMBER (AT THE BOTTOM)',
+      'SPEED TEST WITH CLIENT / SUBSCRIBER',
+      'NAP STENCIL',
+      'NAP OPTICAL POWER READING (SC/APC/UPC PATCH CORD)',
+      'NAP CONDITION - BEFORE PATCHING',
+      'NAP CONDITION - AFTER PATCHING (THERMAL TAGGING VISIBLE)',
+      'NIU OPTICAL POWER READING (CLEAR OPM + THERMAL TAGGING VISIBLE)',
+      'NIU LOOPING (INSIDE)',
+      'OPTICAL POWER READING - GUI SCREENSHOT',
+      'MODEM & NIU LOCATION - CLOSE-UP VIEW',
+      'MODEM & NIU LOCATION - WIDE VIEW',
+      'SUBSCRIBER HOUSE / DOOR LATITUDE & LONGITUDE',
+      'HOUSE BRACKET / CABLE ATTACHMENT POINT',
+      'LAST POLE / MID-SPAN INSTALLATION POINT'
+    ];
     const PHOTOS_REQUIRED = PHOTO_LABELS.length;
     // Bawas-restriction para sa bagong console-encoded load types — hindi angkop sa kanila
-    // ang 12 SLI-install photo slots. 3 photos lang bawat isa; optional din ang payment.
+    // ang 15 SLI-install photo slots. 3 photos lang bawat isa; optional din ang payment.
     const PHOTO_LABELS_BY_TYPE = {
       'Transfer':   ['NEW ADDRESS / PREMISE','CPE INSTALLED AT NEW LOCATION','SAR'],
       'IPTV':       ['IPTV SETUP / LOCATION','IPTV WORKING (SCREEN ON)','SAR'],
