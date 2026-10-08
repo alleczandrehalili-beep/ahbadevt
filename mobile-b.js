@@ -7,15 +7,24 @@
     //   #2  Live-window: aktibong jobs (kahit anong petsa) + anumang nagalaw/na-load/naka-
     //       schedule sa nakaraang JOB_LIVE_WINDOW_DAYS. Nasa DB pa rin ang luma (Load History).
     const JOB_LIST_COLS = 'id,subscriber,service_type,plan,area,address,status,wait_time,priority,schedule,team,updated_at,validated,validated_at,load_date,dispatch_status,driver,tech1,mapping_team,mapping_remarks,dispatched_remarks,ibass_acct_no,job_order_no,vas_no,play_type,special_note,ref_no,new_ref,primary_no,other_contact_no,first_name,middle_name,last_name,house_no,street_name,village,brgy,city,in_charge,source_of_sales,referral_name,negative_remark,negative_at,dispatch_count,created_at,payment_mode,payment_amount,ar_no,work_account,crew_driver,crew_tech1,crew_tech2,remittance_received,remittance_received_by,remittance_received_at,dwelling_type,install_fee_type,amount_to_collect,completed_at,add_on,addon_count,scheduled_at,est_minutes,district,deleted_at,deleted_by,load_type,current_plan,ticket_no,created_by,new_address,cpe_option,birth_date,org_id,assigned_org_id,validated_by,lock_bypass,cancel_remark,email,qa_audit_id,qa_status,qa_assessment,qa_inspected_at';
+    // ↩ Returned-by-QA (2026-10-09): ang QA/GC ay pwedeng ibalik ang completed JO sa team para
+    // palitan ang isang picture (qa.return_job_for_photos). Hiwalay na listahan para may fallback
+    // kapag hindi pa na-apply ang SQL (42703 undefined column) — hindi masisira ang job list.
+    const JOB_QA_RETURN_COLS = 'qa_return_remarks,qa_returned_at,qa_returned_by,qa_return_resolved_at';
+    let _qaRetColsOk = true;
     const JOB_LIVE_WINDOW_DAYS = 14;
     async function loadJobs(){
       const cutoff = new Date(Date.now() - JOB_LIVE_WINDOW_DAYS*24*3600*1000).toISOString();
       const cutoffDate = cutoff.slice(0,10);
-      const {data,error} = await sb.from('jobs')
-        .select(JOB_LIST_COLS)
+      const q = cols => sb.from('jobs')
+        .select(cols)
         .eq('team',myTeam).is('deleted_at',null)
         .or(`status.not.in.(completed,cancelled,negative),updated_at.gte.${cutoff},load_date.gte.${cutoffDate},scheduled_at.gte.${cutoff}`)
         .order('updated_at',{ascending:false});
+      let {data,error} = await q(_qaRetColsOk ? JOB_LIST_COLS+','+JOB_QA_RETURN_COLS : JOB_LIST_COLS);
+      if(error && _qaRetColsOk && (error.code==='42703' || /qa_return/i.test(error.message||''))){
+        _qaRetColsOk=false; ({data,error} = await q(JOB_LIST_COLS));
+      }
       if(error) throw error; return data||[];
     }
     async function loadPhotos(){
@@ -56,6 +65,8 @@
     const labelsDone = id => new Set(jobPhotos(id).map(p=>p.label).filter(Boolean));
     // Per-load-type photo checklist: Transfer/IPTV = 3 lang; lahat ng iba = buong 12.
     const jobById = id => jobs.find(j=>j.id===id);
+    // ↩ Ibinalik ng QA at hindi pa na-re-complete (trigger ang nagse-set ng qa_return_resolved_at).
+    const isQaReturned = j => !!(j && j.qa_returned_at && !j.qa_return_resolved_at);
     const photoLabelsFor = job => (job&&PHOTO_LABELS_BY_TYPE[job.load_type])||PHOTO_LABELS;
     const photosReqFor = job => photoLabelsFor(job).length;
     const relaxedPay = job => !!(job&&PHOTO_LABELS_BY_TYPE[job.load_type]);   // Transfer/IPTV: optional ang payment
@@ -100,8 +111,9 @@
     function serialBlocked(id){
       const x=jobs.find(j=>j.id===id);
       if(x && x.load_type==='SLR-TICKET') return false;   // 🎫 tickets: exempt sa serial lock
+      if(isQaReturned(x)) return false;   // ↩ ibinalik ng QA: exempt (hindi dapat maipit ang re-complete)
       if(x && ['en-route','on-site','in-progress'].includes(x.status)) return false;   // acting on the active load — OK
-      const busy=jobs.find(j=>j.load_type!=='SLR-TICKET'&&['en-route','on-site','in-progress'].includes(j.status));
+      const busy=jobs.find(j=>j.load_type!=='SLR-TICKET'&&!isQaReturned(j)&&['en-route','on-site','in-progress'].includes(j.status));
       if(busy){ toast('⚠ Tapusin muna ang kasalukuyang load: '+busy.id+(busy.subscriber?' ('+busy.subscriber+')':'')+' — Complete, Cancel, o Incomplete bago mag-update ng iba.'); return true; }
       return false;
     }
@@ -456,6 +468,9 @@
       if(mode==='Gcash' && payProofFile){ try{ await uploadOne(id, payProofFile, 'Proof of Remittance'); }catch(e){ console.warn('proof upload',e.message); } }
       btn.disabled=false; btn.textContent='Complete job';
       Object.assign(job, patch);
+      // ↩ Ibinalik ng QA: ang DB trigger ang nagse-set ng qa_return_resolved_at; lokal din para
+      // mawala agad ang banner nang walang refetch.
+      if(ok && isQaReturned(job)) job.qa_return_resolved_at=now;
       closeComplete(); render(); logTrack('status:completed', job.area||job.city);
       if(ok){ toast('Job completed'); setSync('live','Synced'); }
       else if(saveWrite.queued){ toast('Completed — will sync when back online'); setSync('syncing', syncQCount()+' pending sync'); }
@@ -593,7 +608,7 @@
         return;
       }
       // serial lock: the one active LOAD (tickets are exempt — hindi sila nagla-lock at hindi nala-lock)
-      const busyId=(jobs.find(x=>!isTk(x)&&['en-route','on-site','in-progress'].includes(x.status))||{}).id;
+      const busyId=(jobs.find(x=>!isTk(x)&&!isQaReturned(x)&&['en-route','on-site','in-progress'].includes(x.status))||{}).id;
       el.innerHTML=tkBtnHtml+list.map(j=>{
         const f=FLOW[j.status]||{};
         const prio=j.priority?`<span class="prio" style="${j.priority!=='1st Load'?'color:#687974;background:#f1f3f1':''}">${j.priority}</span>`:'';
@@ -635,6 +650,13 @@
         const drem=j.dispatched_remarks?`<div class="row" style="color:#107b5e;font-weight:700">${svg('note')}<span>Dispatcher: ${j.dispatched_remarks}</span></div>`:'';
         const vnote=gcNotes[j.id]?`<div class="row" style="color:#8a6400;font-weight:700;background:#fff6e0;border:1px solid #eedca8;border-radius:9px;padding:7px 9px">${svg('note')}<span>📝 Validator/Dispatcher: ${String(gcNotes[j.id]).replace(/</g,'&lt;')}</span></div>`:'';
         const note=j.special_note?`<div class="row" style="color:#c2503a">${svg('note')}<span>${j.special_note}</span></div>`:'';
+        // ↩ Ibinalik ng QA: pulang banner sa itaas ng card hanggang ma-re-complete.
+        let qaRet='';
+        if(isQaReturned(j)){
+          const e=s=>(s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          let when=''; try{ when=new Date(j.qa_returned_at).toLocaleString('en-PH',{timeZone:TZ,month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}); }catch(_){}
+          qaRet=`<div style="background:#fdecea;border:1.5px solid #e0857a;color:#a3261a;border-radius:10px;padding:9px 11px;margin:2px 0 8px;font-size:12px;line-height:1.4"><div style="font-weight:800">↩ IBINALIK NG QA (${e(j.qa_returned_by||'QA')}${when?' · '+e(when):''}): ${e(j.qa_return_remarks||'')}</div><div style="font-weight:600;margin-top:3px">Palitan ang picture na nabanggit, tapos i-complete ulit ang JO.</div></div>`;
+        }
         const negRemark=(j.status==='negative'&&j.negative_remark)?`<div class="row" style="color:#c2503a;font-weight:700">${svg('note')}<span>${j.negative_remark}</span></div>`:'';
         const activeJob=!['completed','negative'].includes(j.status);
         const expBtn=activeJob?`<button class="addphoto" style="margin-top:10px;color:#a4690f;border-color:#f0d9a8;background:#fff8eb" data-exp="${j.id}">+ Add expense for this job</button>`:'';
@@ -644,12 +666,12 @@
         // details are hidden until the current one is updated (Completed / Incomplete / Cancelled).
         // A dispatcher can exempt one specific job order via lock_bypass
         // (console → job detail → "🔓 Unlock for technician").
-        const locked = busyId && j.id!==busyId && !isTk(j) && !['completed','negative','cancelled'].includes(j.status) && !j.lock_bypass;
+        const locked = busyId && j.id!==busyId && !isTk(j) && !isQaReturned(j) && !['completed','negative','cancelled'].includes(j.status) && !j.lock_bypass;
         if(locked){
           return `<div class="job"><div class="job-head"><div><span class="job-id">${j.id}</span><h3>🔒 Locked</h3></div><span class="badge b-${j.status}">${statusLabel(j.status)}</span></div>
         <div class="job-meta"><div class="row" style="color:#a4690f;font-weight:700">${svg('note')}<span>Update your current job order first. Finish it — Completed, Incomplete, or Cancelled — before you can view and start your next job order.</span></div></div></div>`;
         }
-        return `<div class="job"><div class="job-head"><div><span class="job-id" data-info="${j.id}" style="cursor:pointer;text-decoration:underline">${j.id} ℹ︎</span><h3>${j.subscriber||'—'}${prio}</h3><p class="plan">${j.service_type||''} · ${j.plan||''}</p></div><span class="badge b-${j.status}">${statusLabel(j.status)}</span></div>
+        return `<div class="job">${qaRet}<div class="job-head"><div><span class="job-id" data-info="${j.id}" style="cursor:pointer;text-decoration:underline">${j.id} ℹ︎</span><h3>${j.subscriber||'—'}${prio}</h3><p class="plan">${j.service_type||''} · ${j.plan||''}</p></div><span class="badge b-${j.status}">${statusLabel(j.status)}</span></div>
         <div class="job-meta"><div class="row">${svg('pin')}<span>${addr||'—'}</span></div><div class="row">${svg('clock')}<span>${(j.schedule||'Today').replace('Today, ','Today · ')}</span></div>${contact}${acct}${svc}${src}${drem}${vnote}${note}${negRemark}</div>
         ${extra}${actions}${expBtn}${negBtn}${cancelBtn}</div>`;
       }).join('');

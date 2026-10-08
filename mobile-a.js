@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-10-08.2';
+    const APP_VERSION = '2026-10-09.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -664,7 +664,7 @@
       if(_qaMount){ _qaMount.refresh(); return; }
       if(!window.QaApi||!window.MobileQA||!window.QaCore){ $('#qaView').innerHTML='<div style="padding:24px;text-align:center;color:#9aa6a2">QA module not loaded — i-refresh ang app.</div>'; return; }
       const api=QaApi.create(sb,{username:myTeam,supaUrl:SUPA_URL});
-      _qaMount=MobileQA.mount($('#qaView'),{api,user:{username:myTeam,display_name:myName},deps:{toast,compressImage,buildStamp,
+      _qaMount=MobileQA.mount($('#qaView'),{api,user:{username:myTeam,display_name:myName},deps:{toast,compressImage,buildStamp,pushNotify,
         getPos:()=>_getPos().then(p=>(p&&p.coords)?{lat:p.coords.latitude,lng:p.coords.longitude}:null).catch(()=>null)}});
     }
 
