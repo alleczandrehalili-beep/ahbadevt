@@ -170,6 +170,7 @@
       var a = state.audits.filter(function (x) { return x.id === id; })[0]; if (!a) return;
       state.open = a;
       state.ctx = null;
+      state.ret = null; state.retDraft = null;   // the JO return status / remarks draft never carry over from another sheet
       if (a.source === 'reinspection') {
         api.getAudit(id).then(function (r) {
           if (state.destroyed || state.open !== a) return;
@@ -198,7 +199,7 @@
       });
     }
     function saveDraft() { if (state.draft) lsSet(draftKey(state.draft.audit_id), state.draft); }
-    function closeSheet() { if (state.pads.sub) state.pads.sub.destroy(); if (state.pads.ins) state.pads.ins.destroy(); $('#qaSheet').innerHTML = ''; state.open = null; state.draft = null; state.pads = {}; state.ctx = null; state.offense = {}; state.offenseSig = null; refresh(); }
+    function closeSheet() { if (state.pads.sub) state.pads.sub.destroy(); if (state.pads.ins) state.pads.ins.destroy(); $('#qaSheet').innerHTML = ''; state.open = null; state.draft = null; state.pads = {}; state.ctx = null; state.offense = {}; state.offenseSig = null; state.ret = null; state.retDraft = null; refresh(); }
     function checklist() { return (state.cfg.checklist || []).filter(function (c) { return c.active; }); }
     function codeOptions(sel) { return state.cfg.codes.filter(function (c) { return c.active !== false; }).map(function (c) { return '<option value="' + esc(c.code) + '"' + (c.code === sel ? ' selected' : '') + '>' + esc(c.code + ' — ' + c.category) + '</option>'; }).join(''); }
     function renderOffenseHints() {
@@ -371,24 +372,28 @@
       var draft = (state.retDraft && state.retDraft.job === a.job_id) ? state.retDraft : (state.retDraft = { job: a.job_id, open: false, text: '' });
       var line = (st.qa_returned_at && !st.qa_return_resolved_at) ? '<div class="qa-retline warn">↩ Returned to ' + esc(st.team || '—') + ' on ' + fmtDate(st.qa_returned_at) + ' by ' + esc(st.qa_returned_by || '—') + ': ' + esc(st.qa_return_remarks || '') + '</div>'
         : st.qa_return_resolved_at ? '<div class="qa-retline ok">Photo replaced by team on ' + fmtDate(st.qa_return_resolved_at) + '</div>' : '';
-      var can = st.status === 'completed';
+      var can = st.status === 'completed', busy = state.retBusy === a.job_id;   // a send in flight survives the form's re-renders
       el.innerHTML = line + '<button class="qa-btn warn" id="qaRetBtn" type="button"' + (can ? '' : ' disabled') + '>↩ Return to team (replace photo)</button>' +
         (can ? '' : '<div class="qa-pend">Only a completed JO can be returned' + (st.status ? ' (JO is ' + esc(st.status) + ')' : '') + '.</div>') +
-        '<div id="qaRetBox" style="' + (can && draft.open ? '' : 'display:none;') + 'margin-top:6px"><div class="qa-field"><label>Which photo must the team replace? * (the team sees this)</label><textarea id="f_retremarks" rows="2">' + esc(draft.text) + '</textarea></div><button class="qa-btn" id="qaRetSend" type="button">Send back</button></div>';
+        '<div id="qaRetBox" style="' + (can && draft.open ? '' : 'display:none;') + 'margin-top:6px"><div class="qa-field"><label>Which photo must the team replace? * (the team sees this)</label><textarea id="f_retremarks" rows="2">' + esc(draft.text) + '</textarea></div><button class="qa-btn" id="qaRetSend" type="button"' + (busy ? ' disabled' : '') + '>' + (busy ? 'Sending…' : 'Send back') + '</button></div>';
       var btn = $('#qaRetBtn'), box = $('#qaRetBox'), ta = $('#f_retremarks'), send = $('#qaRetSend');
       btn.onclick = function () { if (btn.disabled) return; draft.open = !draft.open; box.style.display = draft.open ? '' : 'none'; if (draft.open) ta.focus(); };
       ta.oninput = function () { draft.text = ta.value; };
       send.onclick = function () {
         var remarks = (ta.value || '').trim();
+        if (state.retBusy) return;
         if (!remarks) { toast('Remarks required (which photo to replace)'); ta.focus(); return; }
-        send.disabled = true;
+        state.retBusy = a.job_id; send.disabled = true; send.textContent = 'Sending…';
         api.returnJobForPhotos(a.job_id, remarks).then(function (job) {
+          state.retBusy = null;
           var team = (job && job.team) || st.team || '';
           toast('JO returned to ' + (team || 'the team'));
           try { if (deps.pushNotify && team) deps.pushNotify({ team: team, title: '↩ JO returned by QA', body: remarks.slice(0, 120), url: 'mobile.html' }); } catch (e) { }
-          state.retDraft = null; state.ret = null;
-          if (!state.destroyed && state.open === a) loadRet(a);
-        }).catch(function (e) { toast('Failed: ' + e.message); send.disabled = false; });
+          if (!state.destroyed && state.open === a) { state.retDraft = null; state.ret = null; loadRet(a); }   // never wipe another sheet's state
+        }).catch(function (e) {
+          state.retBusy = null; toast('Failed: ' + e.message);
+          if (!state.destroyed && state.open === a) renderRet(a, state.ret && state.ret.job === a.job_id ? state.ret.st : st);   // re-enable on the live DOM, not a stale node
+        });
       };
     }
 

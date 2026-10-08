@@ -126,6 +126,7 @@
       if(next==='completed'){
         const REQ=photosReqFor(job);   // Transfer/IPTV = 3 lang; iba = 15
         if(photoCount(id)<REQ){ toast(`Attach ${REQ} photos first (${photoCount(id)}/${REQ})`); return; }
+        if(isQaReturned(job)){ recompleteReturned(id); return; }   // ↩ ibinalik ng QA: picture lang — light path
         openComplete(id); return;   // capture payment before completing
       }
       // P5: kunin ang pre-action state BAGO ang optimistic mutation — ito ang magiging
@@ -400,6 +401,33 @@
       }catch(e){ toast('Failed: '+e.message); }
     }
 
+    // ---------- ↩ re-complete a JO the QA returned (photo replacement only) ----------
+    // Owner decision: ang team ay PICTURE LANG ang pinapalitan. Walang payment modal, walang
+    // WIMS gate/submit, walang push sa sales agent, at HINDI ginagalaw ang completed_at
+    // (ang orihinal na petsa ng completion ang nananatili). Ang DB trigger (qa.on_job_completed)
+    // ang nag-i-stamp ng qa_return_resolved_at at nagbabalik ng qa_status.
+    const _recompBusy=new Set();
+    async function recompleteReturned(id){
+      const job=jobs.find(j=>j.id===id); if(!job || _recompBusy.has(id)) return;
+      if(!confirm('Napalitan na ang picture? I-complete ulit ang JO.')) return;
+      _recompBusy.add(id);
+      try{
+        const now=new Date().toISOString();
+        const patch={status:'completed', history:appendHist(await freshHist(id, job.history), '→ Re-completed after QA photo replacement (by '+myTeam+')'), updated_at:now};
+        // P5: pre-action state bago ang anumang local mutation (Object.assign ay pagkatapos ng await)
+        const _pre={status:job.status||'', team:job.team||''};
+        setSync('syncing','Saving…');
+        const ok=await saveJobPatch(id, patch, _pre);
+        if(ok || saveWrite.queued) job.qa_return_resolved_at=now;   // lokal: mawala agad ang banner (trigger ang source of truth)
+        Object.assign(job, patch);
+        render(); logTrack('status:completed', job.area||job.city);
+        if(ok){ toast('JO re-completed'); setSync('live','Synced'); }
+        else if(saveWrite.queued){ toast('Re-completed — will sync when back online'); setSync('syncing', syncQCount()+' pending sync'); }
+        // 4B-3: permanent failure → nananatili ang ❌ ng saveWrite; walang pekeng "re-completed"
+      }catch(e){ toast('Failed: '+e.message); }
+      finally{ _recompBusy.delete(id); }
+    }
+
     // ---------- complete with payment ----------
     let payProofFile=null;   // Proof of Remittance photo (required when Gcash)
     function togglePayProof(){ const g=$('#pay_mode').value==='Gcash'; $('#payProofWrap').classList.toggle('hidden',!g); }
@@ -660,8 +688,9 @@
         const negRemark=(j.status==='negative'&&j.negative_remark)?`<div class="row" style="color:#c2503a;font-weight:700">${svg('note')}<span>${j.negative_remark}</span></div>`:'';
         const activeJob=!['completed','negative'].includes(j.status);
         const expBtn=activeJob?`<button class="addphoto" style="margin-top:10px;color:#a4690f;border-color:#f0d9a8;background:#fff8eb" data-exp="${j.id}">+ Add expense for this job</button>`:'';
-        const negBtn=activeJob?`<button class="addphoto" style="margin-top:8px;color:#c2503a;border-color:#f0c4b9;background:#fff3f0" data-neg="${j.id}">⚠ Mark as Negative</button>`:'';
-        const cancelBtn=activeJob?`<button class="addphoto" style="margin-top:8px;color:#7a7f7d;border-color:#d8dcd9;background:#f5f6f5" data-cancel="${j.id}">✖ Cancel job</button>`:'';
+        // ↩ ibinalik ng QA: picture lang ang papalitan — walang Negative / Cancel habang naka-return
+        const negBtn=(activeJob&&!isQaReturned(j))?`<button class="addphoto" style="margin-top:8px;color:#c2503a;border-color:#f0c4b9;background:#fff3f0" data-neg="${j.id}">⚠ Mark as Negative</button>`:'';
+        const cancelBtn=(activeJob&&!isQaReturned(j))?`<button class="addphoto" style="margin-top:8px;color:#7a7f7d;border-color:#d8dcd9;background:#f5f6f5" data-cancel="${j.id}">✖ Cancel job</button>`:'';
         // Serial lock: while another load is active, the NEXT job order stays LOCKED — its full
         // details are hidden until the current one is updated (Completed / Incomplete / Cancelled).
         // A dispatcher can exempt one specific job order via lock_bypass
