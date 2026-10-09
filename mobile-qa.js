@@ -395,14 +395,14 @@
         if (state.retBusy) return;
         if (!confirm('Verify: the requested photo was replaced correctly? This closes the return.')) return;
         state.retBusy = a.job_id; okb.disabled = true; okb.textContent = 'Closing…';
-        api.closeReturn(a.job_id, st.qa_returned_at, true, '').then(function (job) { finish(job, 'Return closed — photo replacement verified'); }).catch(fail);
+        api.closeReturn(a.job_id, st.qa_returned_at, true, '', { by: user.username }).then(function (job) { finish(job, 'Return closed — photo replacement verified'); }).catch(fail);
       };
       send.onclick = function () {
         var remarks = (ta.value || '').trim();
         if (state.retBusy) return;
         if (!remarks) { toast(sub ? 'Remarks required (what is still wrong with the photo)' : 'Remarks required (which photo to replace)'); ta.focus(); return; }
         state.retBusy = a.job_id; send.disabled = true; send.textContent = 'Sending…';
-        var p = sub ? api.closeReturn(a.job_id, st.qa_returned_at, false, remarks) : api.returnJobForPhotos(a.job_id, remarks);
+        var p = sub ? api.closeReturn(a.job_id, st.qa_returned_at, false, remarks, { by: user.username }) : api.returnJobForPhotos(a.job_id, remarks, { by: user.username });
         p.then(function (job) {
           var team = (job && job.team) || st.team || '';
           try { if (deps.pushNotify && team) deps.pushNotify({ team: team, title: sub ? '↩ JO returned again by QA' : '↩ JO returned by QA', body: remarks.slice(0, 120), url: 'mobile.html' }); } catch (e) { }
