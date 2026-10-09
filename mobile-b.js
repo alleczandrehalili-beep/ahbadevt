@@ -16,10 +16,11 @@
     async function loadJobs(){
       const cutoff = new Date(Date.now() - JOB_LIVE_WINDOW_DAYS*24*3600*1000).toISOString();
       const cutoffDate = cutoff.slice(0,10);
+      // ↩ Gate B: a JO with an OPEN QA return stays visible past the live window and across midnight (its photo/Re-complete is pending).
       const q = cols => sb.from('jobs')
         .select(cols)
         .eq('team',myTeam).is('deleted_at',null)
-        .or(`status.not.in.(completed,cancelled,negative),updated_at.gte.${cutoff},load_date.gte.${cutoffDate},scheduled_at.gte.${cutoff}`)
+        .or(`status.not.in.(completed,cancelled,negative),updated_at.gte.${cutoff},load_date.gte.${cutoffDate},scheduled_at.gte.${cutoff}`+(_qaRetColsOk?',and(qa_returned_at.not.is.null,qa_return_resolved_at.is.null)':''))
         .order('updated_at',{ascending:false});
       let {data,error} = await q(_qaRetColsOk ? JOB_LIST_COLS+','+JOB_QA_RETURN_COLS : JOB_LIST_COLS);
       if(error && _qaRetColsOk && (error.code==='42703' || /qa_return/i.test(error.message||''))){

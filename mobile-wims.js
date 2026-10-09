@@ -432,32 +432,52 @@
     var u=''; try{ u=(typeof myTeam!=='undefined'&&myTeam)||''; }catch(e){}
     return (_wUid&&it.owner===_wUid)||(u&&(it.owner===('u:'+u)||it.ouser===u)); }
   function qDrop(qid){ qSave(qAll().filter(function(x){ return x.qid!==qid; })); }
+  function qPatch(qid, fn){ var q=qAll(); q.forEach(function(x){ if(x.qid===qid) fn(x); }); qSave(q); }
   function isDeclaredAlready(e){ return /^DECLARED_ALREADY/.test(String(e&&e.message||'')); }
+  function isMissingFn(e){ return /could not find the function|schema cache/i.test(String(e&&e.message||'')); }
+  // Legacy items (bago ang Phase 1) ay walang qid: bigyan ng stable na id mula sa nilalaman para hindi mabago ang susi ng queue
+  function qidOf(it, i){ if(it.qid) return it.qid; var k='legacy_'+(it.ts||0)+'_'+(it.jo||'')+'_'+i; qPatchLegacy(i, k); return k; }
+  function qPatchLegacy(i, k){ var q=qAll(); if(q[i]&&!q[i].qid){ q[i].qid=k; qSave(q); } }
+  // Replay signature fallbacks = parehong hagdan ng interactive na tawag: LUMANG backend na walang p_job_id / pulled / kit_remarks / FOC2 / FOC params
+  var FALLBACK_KEYS=[['p_job_id'],['p_pulled_serials','p_pulled_note'],['p_kit_remarks'],['p_foc2_reel','p_foc2_end'],['p_foc_reel','p_foc_start','p_foc_end']];
+  async function rpcWithFallback(rpc, args){
+    var a=Object.assign({}, args||{});
+    var r=await W().schema('wims').rpc(rpc, a);
+    for(var i=0;i<FALLBACK_KEYS.length && r&&r.error&&isMissingFn(r.error);i++){
+      var had=false; FALLBACK_KEYS[i].forEach(function(k){ if(k in a){ delete a[k]; had=true; } });
+      if(!had) continue;
+      r=await W().schema('wims').rpc(rpc, a);
+    }
+    return r;
+  }
   var flushing=false;
+  // Hinahawakan (hindi tinatapon) ang report na tinanggihan ng server (validation / DECLARED_ALREADY conflict): nakikita sa
+  // wimsHeldReports() at maaaring i-release ulit; ang NETWORK error ay nananatili at inuulit; ang tagumpay lang ang tinatanggal.
   async function flushWims(){
     var a=qAll(); if(flushing||!a.length) return; flushing=true;
     try{
       for(var i=0;i<a.length;i++){
-        var it=a[i]; if(!it||!it.qid){ it=it||{}; it.qid=it.qid||('legacy_'+i); }
-        if(!_wMine(it)) continue;                       // sa ibang login — hawak lang
+        var it=a[i]; if(!it) continue;
+        var qid=qidOf(it, i);
+        if(it.held) continue;                             // naghihintay ng review — hindi inuulit nang kusa
+        if(!_wMine(it)) continue;                         // sa ibang login — hawak lang
         try{
-          var r=await W().schema('wims').rpc(it.rpc, it.args);
-          if(r&&r.error&&/could not find the function|schema cache/i.test(String(r.error.message||''))&&it.args&&('p_job_id' in it.args)){
-            var a2={}; Object.keys(it.args).forEach(function(k){ if(k!=='p_job_id') a2[k]=it.args[k]; });   // LUMA pa ang backend
-            r=await W().schema('wims').rpc(it.rpc, a2);
-          }
+          var r=await rpcWithFallback(it.rpc, it.args);
           if(r&&r.error) throw r.error;
-          cpeCache=null; qDrop(it.qid);
+          cpeCache=null; qDrop(qid);
           say('📦 Queued WIMS report filed — JO '+(it.jo||'?'));
         }catch(e){
-          if(isNetErr(e)) continue;                      // offline pa rin — mananatili, susubukan ulit
-          qDrop(it.qid);
-          if(isDeclaredAlready(e)) say('⚠ JO '+(it.jo||'?')+': may WIMS declaration NA ang JO na ito — hindi binago ang inventory. '+(e.message||''));
-          else say('⚠ WIMS report for JO '+(it.jo||'?')+' FAILED: '+(e.message||e)+' — ipaalam sa warehouse');
+          if(isNetErr(e)) continue;                       // offline pa rin — mananatili, susubukan ulit
+          var msg=String(e&&e.message||e);
+          qPatch(qid, function(x){ x.held=msg; x.heldAt=Date.now(); x.kind=isDeclaredAlready(e)?'conflict':'rejected'; });
+          if(isDeclaredAlready(e)) say('⚠ JO '+(it.jo||'?')+': may WIMS declaration NA ang JO na ito — hindi binago ang inventory; naka-hold ang report para sa warehouse review.');
+          else say('⚠ WIMS report for JO '+(it.jo||'?')+' was NOT accepted: '+msg+' — naka-hold para sa warehouse review');
         }
       }
     }finally{ flushing=false; }
   }
+  window.wimsHeldReports=function(){ return qAll().filter(function(x){ return !!x.held; }); };
+  window.wimsReleaseHeld=function(qid){ qPatch(qid, function(x){ delete x.held; delete x.heldAt; delete x.kind; }); return flushWims(); };
   try{ window.addEventListener('online', function(){ setTimeout(flushWims, 2000); }); }catch(e){}
   setInterval(flushWims, 60000);
   setTimeout(flushWims, 8000);
