@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 const C = (await import('./qa-core.js')).default ?? require('./qa-core.js');
+const Core = C; // alias — Task 2 brief's tests refer to the module as `Core`
 
 const CHECK = [{id:1,label:'A'},{id:2,label:'B'}];
 
@@ -39,12 +40,49 @@ test('validateSubmission enforces the form rules', () => {
   assert.deepEqual(C.validateSubmission(failOk, CHECK), []);
   const failGood = {...failOk, assessment:'GOOD'};
   assert.ok(C.validateSubmission(failGood, CHECK).some(e=>/assessment/i.test(e)));
-  const npa = { submit_key:'k2', visit_status:'VISITED / NPA', remarks:'walang tao', photos:[{path:'p'}] };
-  assert.deepEqual(C.validateSubmission(npa, CHECK), []);
-  const npaNoPhoto = { submit_key:'k3', visit_status:'UNLOCATED', remarks:'x', photos:[] };
-  assert.ok(C.validateSubmission(npaNoPhoto, CHECK).some(e=>/photo/i.test(e)));
+  const closed = { submit_key:'k2', visit_status:'H.CLOSED', remarks:'sarado', photos:[{path:'p'}] };
+  assert.deepEqual(C.validateSubmission(closed, CHECK), []);
+  const closedNoPhoto = { submit_key:'k3', visit_status:'UNLOCATED', remarks:'x', photos:[] };
+  assert.ok(C.validateSubmission(closedNoPhoto, CHECK).some(e=>/photo/i.test(e)));
   const noSig = {...base, subscriber_signature_path:null};
   assert.ok(C.validateSubmission(noSig, CHECK).some(e=>/signature/i.test(e)));
+});
+
+test('VISITED / NPA is an inspected visit: full checklist, no subscriber name or signature', () => {
+  const npa = { submit_key:'n1', visit_status:'VISITED / NPA', assessment:'GOOD', wire:'STANDARD', qa_gc:'COMPLETED',
+    items:[{item_id:1,result:'pass'},{item_id:2,result:'pass'}], violations:[], photos:[], inspector_signature_path:'qa/x/i.png' };
+  assert.deepEqual(C.INSPECTED, ['VISITED','VISITED / NPA']);
+  assert.deepEqual(C.validateSubmission(npa, CHECK), []);                                   // no subscriber, no location photo, no remarks
+  assert.ok(C.validateSubmission({...npa, inspector_signature_path:null}, CHECK).some(e=>/inspector/i.test(e)));
+  assert.ok(C.validateSubmission({...npa, items:[{item_id:1,result:'pass'}]}, CHECK).some(e=>/no answer/i.test(e)));
+  assert.ok(C.validateSubmission({...npa, wire:''}, CHECK).some(e=>/wire/i.test(e)));
+  const npaFail = {...npa, items:[{item_id:1,result:'fail'},{item_id:2,result:'pass'}], assessment:'FOR RECTIFY', photos:[{path:'p',item_id:1}]};
+  assert.ok(C.validateSubmission(npaFail, CHECK).some(e=>/violation code/i.test(e)));
+  assert.ok(C.validateSubmission({...npaFail, assessment:'GOOD', violations:[{code:'HA001',item_id:1}]}, CHECK).some(e=>/GOOD/i.test(e)));
+  assert.deepEqual(C.validateSubmission({...npaFail, violations:[{code:'HA001',item_id:1}]}, CHECK), []);
+  // the other three statuses keep the short form: location photo + remarks, no checklist
+  assert.ok(C.validateSubmission({submit_key:'n2', visit_status:'UNLOCATED', remarks:'x', photos:[]}, CHECK).some(e=>/photo/i.test(e)));
+  assert.ok(C.validateSubmission({submit_key:'n3', visit_status:'UNLOCATED', remarks:'', photos:[{path:'p'}]}, CHECK).some(e=>/[Rr]emarks/.test(e)));
+  assert.deepEqual(C.validateSubmission({submit_key:'n4', visit_status:'UNLOCATED', remarks:'hindi mahanap', photos:[{path:'p'}]}, CHECK), []);
+});
+
+test('Commercial is Yes/No only: found_business allows yes (and the legacy willing/not_willing) but rejects junk', () => {
+  const base = { submit_key:'c1', visit_status:'VISITED', assessment:'GOOD', wire:'STANDARD', qa_gc:'COMPLETED',
+    items:[{item_id:1,result:'pass'},{item_id:2,result:'pass'}], violations:[], photos:[],
+    subscriber_signed_name:'JUAN', subscriber_signature_path:'qa/x/s.png', inspector_signature_path:'qa/x/i.png' };
+  assert.deepEqual(C.validateSubmission(base, CHECK), []);                                       // absent = Commercial No
+  assert.deepEqual(C.validateSubmission({...base, found_business:null}, CHECK), []);
+  assert.deepEqual(C.validateSubmission({...base, found_business:'yes'}, CHECK), []);
+  assert.deepEqual(C.validateSubmission({...base, found_business:'willing'}, CHECK), []);         // legacy rows still valid
+  assert.deepEqual(C.validateSubmission({...base, found_business:'not_willing'}, CHECK), []);
+  assert.deepEqual(C.validateSubmission({...base, found_business:'bogus'}, CHECK), ['Invalid found_business.']);
+  // NPA is inspected too, so the same rule applies there
+  const npa = { submit_key:'c2', visit_status:'VISITED / NPA', assessment:'GOOD', wire:'STANDARD', qa_gc:'COMPLETED',
+    items:[{item_id:1,result:'pass'},{item_id:2,result:'pass'}], violations:[], photos:[], inspector_signature_path:'i', found_business:'bogus' };
+  assert.deepEqual(C.validateSubmission(npa, CHECK), ['Invalid found_business.']);
+  assert.deepEqual(C.validateSubmission({...npa, found_business:'yes'}, CHECK), []);
+  // a non-inspected visit never reaches the found_business rule
+  assert.deepEqual(C.validateSubmission({submit_key:'c3', visit_status:'H.CLOSED', remarks:'x', photos:[{path:'p'}], found_business:'bogus'}, CHECK), []);
 });
 
 test('normalizeSheetRow maps headers, dates, blanks; rejects rows without JONO', () => {
@@ -107,3 +145,187 @@ test('weeklySummary groups by contractor, item, code, inspector and coverage', (
   assert.equal(s.coverage.find(c=>c.contractor==='RIA').pct, 50);   // 1 done of 2 closed
 });
 
+
+test('offenseNo counts distinct prior done audits of same contractor+code within 12 months, excluding the current audit and legacy rows', () => {
+  const now = '2026-09-09T00:00:00Z';
+  const rows = [
+    { audit_id: 'A1', code: 'HA001', contractor_name: 'J2', status: 'done', source: 'sheet', deleted_at: null, inspected_at: '2026-08-01T00:00:00Z' },
+    { audit_id: 'A1', code: 'HA001', contractor_name: 'J2', status: 'done', source: 'sheet', deleted_at: null, inspected_at: '2026-08-01T00:00:00Z' }, // same audit twice → one offense
+    { audit_id: 'A2', code: 'HA001', contractor_name: 'J2', status: 'done', source: 'fieldops', deleted_at: null, inspected_at: '2026-07-01T00:00:00Z' },
+    { audit_id: 'A3', code: 'HA001', contractor_name: 'J2', status: 'done', source: 'sheet', deleted_at: null, inspected_at: '2025-08-01T00:00:00Z' }, // > 12 months
+    { audit_id: 'A4', code: 'HA001', contractor_name: 'RIA', status: 'done', source: 'sheet', deleted_at: null, inspected_at: '2026-08-01T00:00:00Z' }, // other contractor
+    { audit_id: 'A5', code: 'HA001', contractor_name: 'J2', status: 'in_progress', source: 'sheet', deleted_at: null, inspected_at: null },
+    { audit_id: 'A6', code: 'HA001', contractor_name: 'J2', status: 'done', source: 'sheet_legacy', deleted_at: null, inspected_at: '2026-08-15T00:00:00Z' }, // legacy never counts
+    { audit_id: 'A7', code: 'HA001', contractor_name: 'J2', status: 'done', source: 'sheet', deleted_at: '2026-08-20T00:00:00Z', inspected_at: '2026-08-15T00:00:00Z' },
+    { audit_id: 'CUR', code: 'HA001', contractor_name: 'J2', status: 'done', source: 'sheet', deleted_at: null, inspected_at: '2026-09-09T00:00:00Z' }
+  ];
+  assert.equal(Core.offenseNo(rows, 'J2', 'HA001', 'CUR', now), 3);
+  assert.equal(Core.offenseNo(rows, 'J2', 'PR003', 'CUR', now), 1);
+  assert.equal(Core.offenseNo([], 'J2', 'HA001', null, now), 1);
+});
+
+test('offenseNo window: rows at/after the as-of time never count; the floor clamps on a leap day', () => {
+  const now = '2026-09-09T00:00:00Z';
+  const afterRows = [
+    { audit_id: 'A2', code: 'HA001', contractor_name: 'J2', status: 'done', source: 'sheet', deleted_at: null, inspected_at: '2026-09-10T00:00:00Z' } // one day AFTER nowIso → must not count
+  ];
+  assert.equal(Core.offenseNo(afterRows, 'J2', 'HA001', 'CUR', now), 1);
+
+  const leapNow = '2024-02-29T12:00:00Z';
+  const onFloorRows = [
+    { audit_id: 'A3', code: 'HA001', contractor_name: 'J2', status: 'done', source: 'sheet', deleted_at: null, inspected_at: '2023-02-28T12:00:00Z' } // SQL floor: 2023-02-28
+  ];
+  assert.equal(Core.offenseNo(onFloorRows, 'J2', 'HA001', 'CUR', leapNow), 2);
+
+  const belowFloorRows = [
+    { audit_id: 'A4', code: 'HA001', contractor_name: 'J2', status: 'done', source: 'sheet', deleted_at: null, inspected_at: '2023-02-27T12:00:00Z' } // one day before the floor → must not count
+  ];
+  assert.equal(Core.offenseNo(belowFloorRows, 'J2', 'HA001', 'CUR', leapNow), 1);
+
+  const inclusiveNow = '2026-09-09T00:00:00Z';
+  const inclusiveFloorRows = [
+    { audit_id: 'A5', code: 'HA001', contractor_name: 'J2', status: 'done', source: 'sheet', deleted_at: null, inspected_at: '2025-09-09T00:00:00Z' } // exactly at the floor → inclusive, counts
+  ];
+  assert.equal(Core.offenseNo(inclusiveFloorRows, 'J2', 'HA001', 'CUR', inclusiveNow), 2);
+});
+
+test('effectivePenalty: override wins, null override falls back, nothing → 0', () => {
+  assert.equal(Core.effectivePenalty({ penalty_amount: 500, penalty_override: 0 }), 0);
+  assert.equal(Core.effectivePenalty({ penalty_amount: 500, penalty_override: null }), 500);
+  assert.equal(Core.effectivePenalty({ penalty_amount: null }), 0);
+});
+
+test('rectNext: first fail opens, GOOD re-inspection rectifies, failed re-inspection cycles, NPA never moves the loop', () => {
+  assert.deepEqual(Core.rectNext(null, { type: 'submit', visit_status: 'VISITED', fails: 2 }), { status: 'FOR RECTIFICATION', cycle: 1, rectified: false });
+  assert.equal(Core.rectNext(null, { type: 'submit', visit_status: 'VISITED', fails: 0 }), null);
+  assert.equal(Core.rectNext(null, { type: 'submit', visit_status: 'VISITED / NPA', fails: 0 }), null);
+  const open = { status: 'FOR RE-INSPECTION', cycle: 1 };
+  assert.deepEqual(Core.rectNext(open, { type: 'submit', visit_status: 'VISITED', fails: 0, reinspection: true }), { status: 'RECTIFIED', cycle: 1, rectified: true });
+  assert.deepEqual(Core.rectNext(open, { type: 'submit', visit_status: 'VISITED', fails: 1, reinspection: true }), { status: 'FOR RECTIFICATION', cycle: 2, rectified: false });
+  assert.equal(Core.rectNext(open, { type: 'submit', visit_status: 'VISITED', fails: 0, reinspection: false }), null, 'a reopened original never rectifies');
+  assert.equal(Core.rectNext(open, { type: 'submit', visit_status: 'UNLOCATED', fails: 0, reinspection: true }), null);
+  assert.deepEqual(Core.rectNext({ status: 'FOR RECTIFICATION', cycle: 1 }, { type: 'assign' }), { status: 'FOR RE-INSPECTION', cycle: 1, rectified: false });
+  assert.deepEqual(Core.rectNext(open, { type: 'unassign' }), { status: 'FOR RECTIFICATION', cycle: 1, rectified: false });
+  assert.deepEqual(Core.rectNext(open, { type: 'close' }), { status: 'CLOSED', cycle: 1, rectified: false });
+  assert.equal(Core.rectNext({ status: 'RECTIFIED', cycle: 1 }, { type: 'close' }), null);
+  assert.equal(Core.rectNext({ status: 'CLOSED', cycle: 2 }, { type: 'submit', visit_status: 'VISITED', fails: 1, reinspection: true }), null);
+});
+
+test('rectNext: an NPA inspection opens and advances the loop exactly like VISITED', () => {
+  assert.deepEqual(Core.rectNext(null, { type:'submit', visit_status:'VISITED / NPA', fails:1 }), { status:'FOR RECTIFICATION', cycle:1, rectified:false });
+  const open = { status:'FOR RE-INSPECTION', cycle:1 };
+  assert.deepEqual(Core.rectNext(open, { type:'submit', visit_status:'VISITED / NPA', fails:0, reinspection:true }), { status:'RECTIFIED', cycle:1, rectified:true });
+  assert.deepEqual(Core.rectNext(open, { type:'submit', visit_status:'VISITED / NPA', fails:2, reinspection:true }), { status:'FOR RECTIFICATION', cycle:2, rectified:false });
+  assert.deepEqual(Core.rectNext({ status:'RECTIFIED', cycle:1 }, { type:'submit', visit_status:'VISITED / NPA', fails:1, reinspection:true, sameAudit:true }),
+    { status:'FOR RECTIFICATION', cycle:1, rectified:false, reopened:true });
+  // the three uninspected statuses still never touch a loop
+  assert.equal(Core.rectNext(null, { type:'submit', visit_status:'UNLOCATED', fails:1 }), null);
+  assert.equal(Core.rectNext(open, { type:'submit', visit_status:'H.CLOSED', fails:0, reinspection:true }), null);
+  assert.equal(Core.rectNext(open, { type:'submit', visit_status:'NOT EXIST', fails:2, reinspection:true }), null);
+});
+
+test('rectNext: a reopened RECTIFIED re-inspection resubmitted with fails reopens the loop in place; every other terminal read stays null', () => {
+  const rectified = { status: 'RECTIFIED', cycle: 3 };
+  const ev = (o) => Object.assign({ type: 'submit', visit_status: 'VISITED', reinspection: true }, o);
+  // the audit that rectified the loop was reopened and now fails → back to FOR RECTIFICATION, SAME cycle
+  assert.deepEqual(Core.rectNext(rectified, ev({ sameAudit: true, fails: 1 })),
+    { status: 'FOR RECTIFICATION', cycle: 3, rectified: false, reopened: true });
+  // a DIFFERENT (late) audit submitting against a rectified loop changes nothing
+  assert.equal(Core.rectNext(rectified, ev({ sameAudit: false, fails: 1 })), null);
+  // CLOSED is terminal even for the loop's own last audit — only the head reopens a closed loop
+  assert.equal(Core.rectNext({ status: 'CLOSED', cycle: 3 }, ev({ sameAudit: true, fails: 1 })), null);
+  // a corrected resubmit that is still GOOD leaves the loop RECTIFIED
+  assert.equal(Core.rectNext(rectified, ev({ sameAudit: true, fails: 0 })), null);
+  // and the guards still hold: not a re-inspection, or not actually visited
+  assert.equal(Core.rectNext(rectified, ev({ sameAudit: true, fails: 1, reinspection: false })), null);
+  assert.equal(Core.rectNext(rectified, ev({ sameAudit: true, fails: 1, visit_status: 'UNLOCATED' })), null);
+});
+
+test('isOverdue / passRate / trend', () => {
+  assert.equal(Core.isOverdue({ status: 'FOR RECTIFICATION', deadline: '2026-09-08' }, '2026-09-09'), true);
+  assert.equal(Core.isOverdue({ status: 'FOR RECTIFICATION', deadline: '2026-09-09' }, '2026-09-09'), false);
+  assert.equal(Core.isOverdue({ status: 'RECTIFIED', deadline: '2026-09-01' }, '2026-09-09'), false);
+  assert.equal(Core.passRate(9, 1), 90); assert.equal(Core.passRate(0, 0), null);
+  assert.deepEqual(Core.trend(90, 80), { delta: 10, dir: 'up' });
+  assert.deepEqual(Core.trend(80, 90), { delta: -10, dir: 'down' });
+  assert.deepEqual(Core.trend(80, 80), { delta: 0, dir: 'flat' });
+  assert.deepEqual(Core.trend(80, null), { delta: null, dir: null });
+});
+
+test('districtOf / barangaysOf use the QC district table (uppercase, case-insensitive lookup)', () => {
+  assert.equal(Core.districtOf('Payatas'), '2'); assert.equal(Core.districtOf('PAYATAS'), '2'); assert.equal(Core.districtOf('Bagbag'), '5');
+  assert.equal(Core.districtOf('NOWHERE'), null); assert.equal(Core.districtOf(''), null);
+  assert.deepEqual(Core.barangaysOf('2'), ['BAGONG SILANGAN', 'BATASAN HILLS', 'COMMONWEALTH', 'HOLY SPIRIT', 'PAYATAS']);
+  assert.deepEqual(Core.barangaysOf('9'), []);
+  assert.equal(Object.keys(Core.QC_DISTRICTS).length, 6);
+});
+
+// ---------------- Task 14: Dispatch board (Clicksoft-style lanes) ----------------
+const r2 = (n) => Math.round(n * 100) / 100;
+
+test('dispatch grid: TL window, snapHour clamps to half hours, hourToTime/timeToHour round-trip', () => {
+  assert.deepEqual(Core.TL, { start: 7, hours: 11 });                 // 07:00 → 18:00
+  assert.equal(Core.snapHour(0), 7);
+  assert.equal(Core.snapHour(1), 17.5);                               // last droppable slot, not 18:00
+  assert.equal(Core.snapHour(0.5), 12.5);
+  assert.equal(Core.snapHour(0.28), 10);                              // 7 + 3.08 → 10.0
+  assert.equal(Core.snapHour(0.3), 10.5);                             // 7 + 3.30 → 10.5
+  assert.equal(Core.snapHour(-3), 7);                                 // dropped left of the track
+  assert.equal(Core.snapHour(9), 17.5);                               // dropped right of the track
+  assert.equal(Core.hourToTime(9.5), '09:30');
+  assert.equal(Core.hourToTime(7), '07:00');
+  assert.equal(Core.hourToTime(17.5), '17:30');
+  assert.equal(Core.hourToTime(null), null);
+  assert.equal(Core.timeToHour('09:30'), 9.5);
+  assert.equal(Core.timeToHour('07:00:00'), 7);                       // Postgres `time` comes back with seconds
+  assert.equal(Core.timeToHour(null), null);
+  assert.equal(Core.timeToHour(''), null);
+  assert.equal(Core.timeToHour('nonsense'), null);
+  assert.equal(Core.hourToTime(Core.snapHour(0.28)), '10:00');        // the drop path the console uses
+});
+
+test('laneBlocks positions 1-hour blocks, stacks overlaps into rows, and buckets the untimed ones', () => {
+  const rows = [
+    { id: 'A', scheduled_time: '09:00', sequence: 2, status: 'assigned' },
+    { id: 'B', scheduled_time: '09:30', sequence: 3, status: 'in_progress' },
+    { id: 'C', scheduled_time: '10:00', sequence: 4, status: 'done' },
+    { id: 'D', scheduled_time: null, sequence: 9, status: 'assigned' },
+    { id: 'E', scheduled_time: null, sequence: 1, status: 'assigned' }
+  ];
+  const bl = Core.laneBlocks(rows);
+  assert.deepEqual(bl.map(b => b.id), ['A', 'B', 'C', 'E', 'D']);     // timed by hour, then untimed by sequence
+  assert.equal(r2(bl[0].left), r2(2 / 11 * 100));                     // 09:00 → (9-7)/11
+  assert.equal(r2(bl[1].left), r2(2.5 / 11 * 100));
+  assert.equal(r2(bl[2].left), r2(3 / 11 * 100));
+  assert.equal(r2(bl[0].width), r2(1 / 11 * 100));                    // every block is one hour wide
+  assert.equal(r2(bl[2].width), r2(1 / 11 * 100));
+  assert.equal(bl[0].row, 0);
+  assert.equal(bl[1].row, 1);                                         // 09:30 still inside A's hour → second row
+  assert.equal(bl[2].row, 0);                                         // 10:00 = A has ended → back to row 0
+  assert.equal(bl[3].left, null); assert.equal(bl[4].left, null);     // "no time" bucket
+  assert.equal(bl[0].status, 'assigned'); assert.equal(bl[2].status, 'done');   // the audit's own fields ride along
+  assert.deepEqual(Core.laneBlocks([]), []);
+  assert.deepEqual(rows.map(r => r.id), ['A', 'B', 'C', 'D', 'E']);   // input untouched
+});
+
+test('sortForInspector: date, then time (nulls last), then sequence, then id', () => {
+  const rows = [
+    { id: 'A2', scheduled_date: '2026-09-11', scheduled_time: null, sequence: 1 },
+    { id: 'A1', scheduled_date: '2026-09-11', scheduled_time: '08:30', sequence: 5 },
+    { id: 'B1', scheduled_date: '2026-09-10', scheduled_time: '17:00', sequence: 2 },
+    { id: 'A3', scheduled_date: '2026-09-11', scheduled_time: null, sequence: 1 }
+  ];
+  assert.deepEqual(Core.sortForInspector(rows).map(r => r.id), ['B1', 'A1', 'A2', 'A3']);
+  assert.deepEqual(rows.map(r => r.id), ['A2', 'A1', 'B1', 'A3']);    // pure: returns a new array
+  assert.deepEqual(Core.sortForInspector([]), []);
+});
+
+test('sortForInspector: a null sequence sorts LAST, matching the SQL nulls-last order', () => {
+  const rows = [
+    { id: 'C', scheduled_date: '2026-09-11', scheduled_time: null, sequence: null },
+    { id: 'A', scheduled_date: '2026-09-11', scheduled_time: null, sequence: 1 },
+    { id: 'D', scheduled_date: '2026-09-11', scheduled_time: null, sequence: null },
+    { id: 'B', scheduled_date: '2026-09-11', scheduled_time: null, sequence: 2 }
+  ];
+  assert.deepEqual(Core.sortForInspector(rows).map(r => r.id), ['A', 'B', 'C', 'D']);   // and two nulls tie-break on id
+});

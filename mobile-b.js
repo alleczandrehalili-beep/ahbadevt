@@ -10,7 +10,7 @@
     // ↩ Returned-by-QA (2026-10-09): ang QA/GC ay pwedeng ibalik ang completed JO sa team para
     // palitan ang isang picture (qa.return_job_for_photos). Hiwalay na listahan para may fallback
     // kapag hindi pa na-apply ang SQL (42703 undefined column) — hindi masisira ang job list.
-    const JOB_QA_RETURN_COLS = 'qa_return_remarks,qa_returned_at,qa_returned_by,qa_return_resolved_at';
+    const JOB_QA_RETURN_COLS = 'qa_return_remarks,qa_returned_at,qa_returned_by,qa_return_resolved_at,qa_return_submitted_at,qa_return_checked_by';
     let _qaRetColsOk = true;
     const JOB_LIVE_WINDOW_DAYS = 14;
     async function loadJobs(){
@@ -67,6 +67,8 @@
     const jobById = id => jobs.find(j=>j.id===id);
     // ↩ Ibinalik ng QA at hindi pa na-re-complete (trigger ang nagse-set ng qa_return_resolved_at).
     const isQaReturned = j => !!(j && j.qa_returned_at && !j.qa_return_resolved_at);
+    // ↩ Gate B (2026-10-09): re-submitted by the team, waiting for the QA reviewer to verify (the return is still open).
+    const isQaSubmitted = j => isQaReturned(j) && !!j.qa_return_submitted_at;
     const photoLabelsFor = job => (job&&PHOTO_LABELS_BY_TYPE[job.load_type])||PHOTO_LABELS;
     const photosReqFor = job => photoLabelsFor(job).length;
     const relaxedPay = job => !!(job&&PHOTO_LABELS_BY_TYPE[job.load_type]);   // Transfer/IPTV: optional ang payment
@@ -333,6 +335,7 @@
     function closeNegative(){ $('#negBack').classList.add('hidden'); $('#negModal').classList.add('hidden'); }
     async function saveNegative(){
       const m=$('#negModal'); const jobId=m.dataset.job; const mode=m.dataset.mode==='cancel'?'cancel':'negative';
+      if(isQaReturned(jobById(jobId))){ showErr('#negErr','Ibinalik ng QA ang JO na ito — picture lang ang papalitan; hindi pwedeng i-Negative/Cancel habang naka-return.'); return; }
       const sel=$('#neg_remark').value, other=$('#neg_other').value.trim();
       if(sel==='OTHERS'&&!other){ showErr('#negErr','Please specify the reason.'); return; }
       if(!negPhotoFiles.length){ showErr('#negErr', mode==='cancel'?'At least one reference photo is required to cancel this load.':'At least one reference photo is required to mark Incomplete.'); return; }
@@ -384,6 +387,7 @@
     // ---------- cancel job (→ Cancelled column on dashboard) ----------
     async function cancelJob(id){
       const job=jobs.find(j=>j.id===id); if(!job)return;
+      if(isQaReturned(job)){ toast('Ibinalik ng QA ang JO na ito — picture lang ang papalitan; hindi pwedeng i-cancel habang naka-return.'); return; }
       const reason=prompt('Cancel this job order?\nIt will go to Cancelled on the dashboard.\n\nReason (optional):');
       if(reason===null) return;   // dismissed
       const now=new Date().toISOString();
@@ -402,30 +406,54 @@
     }
 
     // ---------- ↩ re-complete a JO the QA returned (photo replacement only) ----------
-    // Owner decision: ang team ay PICTURE LANG ang pinapalitan. Walang payment modal, walang
-    // WIMS gate/submit, walang push sa sales agent, at HINDI ginagalaw ang completed_at
-    // (ang orihinal na petsa ng completion ang nananatili). Ang DB trigger (qa.on_job_completed)
-    // ang nag-i-stamp ng qa_return_resolved_at at nagbabalik ng qa_status.
+    // Owner decision: ang team ay PICTURE LANG ang pinapalitan. Walang payment modal, walang WIMS gate/submit, walang push, at
+    // HINDI ginagalaw ang completed_at. Phase 1 / Gate B (2026-10-09): dumadaan sa qa.recomplete_returned_job gamit ang RETURN
+    // TOKEN (qa_returned_at, eksaktong string mula sa server) — kailangan ng BAGONG litrato pagkatapos ng return; ang JO ay
+    // bumabalik sa completed pero NAKABUKAS pa rin ang return hanggang i-verify ng QA (FOR QA CHECK). Kapag offline: naka-queue
+    // ang mismong RPC (idempotent sa parehong token). Lumang backend (wala pa ang RPC): dating light PATCH.
     const _recompBusy=new Set();
     async function recompleteReturned(id){
       const job=jobs.find(j=>j.id===id); if(!job || _recompBusy.has(id)) return;
-      if(!confirm('Napalitan na ang picture? I-complete ulit ang JO.')) return;
+      if(isQaSubmitted(job)){ toast('Naipasa na sa QA — hinihintay ang pag-verify ng kapalit na litrato.'); return; }
+      if(!confirm('Napalitan na ang picture? Ipapasa ang JO sa QA para i-check ang kapalit na litrato.')) return;
       _recompBusy.add(id);
+      const token=job.qa_returned_at;   // string as PostgREST returned it — never a Date (microseconds would be lost)
+      const args={p_job_id:id, p_expected_returned_at:token};
+      setSync('syncing','Saving…');
       try{
-        const now=new Date().toISOString();
-        const patch={status:'completed', history:appendHist(await freshHist(id, job.history), '→ Re-completed after QA photo replacement (by '+myTeam+')'), updated_at:now};
-        // P5: pre-action state bago ang anumang local mutation (Object.assign ay pagkatapos ng await)
-        const _pre={status:job.status||'', team:job.team||''};
-        setSync('syncing','Saving…');
-        const ok=await saveJobPatch(id, patch, _pre);
-        if(ok || saveWrite.queued) job.qa_return_resolved_at=now;   // lokal: mawala agad ang banner (trigger ang source of truth)
-        Object.assign(job, patch);
+        let r=null; try{ r=await sb.schema('qa').rpc('recomplete_returned_job', args); }catch(e){ r={error:e}; }
+        if(r&&r.error&&/could not find the function|schema cache/i.test(String(r.error.message||''))){ await _recompleteLegacy(id, job); return; }
+        if(r&&r.error){
+          const kind=_classifyErr(r.error, r.status);
+          if(kind==='transient'){
+            enqueueWrite('recomplete_returned_job','rpc',{id},args,null,'qa');
+            toast('Re-complete queued — will sync when back online'); setSync('syncing', syncQCount()+' pending sync'); return;
+          }
+          const m=String(r.error.message||'');
+          toast(/NO_NEW_PHOTO/.test(m)?'⚠ I-upload muna ang KAPALIT na litrato — walang bagong litrato pagkatapos ng return.'
+               :/RETURN_TOKEN_MISMATCH/.test(m)?'⚠ Binalik ULIT ng QA ang JO — i-refresh at basahin ang bagong remarks.'
+               :'❌ Re-complete was NOT saved — '+m);
+          setSync('error','Save failed'); await refresh(); return;
+        }
+        const row=(Array.isArray(r.data)?r.data[0]:r.data)||{};
+        Object.assign(job, {status:'completed', qa_return_submitted_at:row.qa_return_submitted_at||new Date().toISOString(), qa_status:row.qa_status||'FOR QA CHECK', updated_at:row.updated_at||new Date().toISOString()});
+        if(row.history!=null) job.history=row.history;
         render(); logTrack('status:completed', job.area||job.city);
-        if(ok){ toast('JO re-completed'); setSync('live','Synced'); }
-        else if(saveWrite.queued){ toast('Re-completed — will sync when back online'); setSync('syncing', syncQCount()+' pending sync'); }
-        // 4B-3: permanent failure → nananatili ang ❌ ng saveWrite; walang pekeng "re-completed"
+        toast('Naipasa sa QA para i-check ang kapalit na litrato'); setSync('live','Synced');
       }catch(e){ toast('Failed: '+e.message); }
       finally{ _recompBusy.delete(id); }
+    }
+    // pre-Gate-B light re-complete (plain status PATCH) — only when the server does not have the RPC yet
+    async function _recompleteLegacy(id, job){
+      const now=new Date().toISOString();
+      const patch={status:'completed', history:appendHist(await freshHist(id, job.history), '→ Re-completed after QA photo replacement (by '+myTeam+')'), updated_at:now};
+      const _pre={status:job.status||'', team:job.team||''};
+      const ok=await saveJobPatch(id, patch, _pre);
+      if(ok || saveWrite.queued) job.qa_return_resolved_at=now;
+      Object.assign(job, patch);
+      render(); logTrack('status:completed', job.area||job.city);
+      if(ok){ toast('JO re-completed'); setSync('live','Synced'); }
+      else if(saveWrite.queued){ toast('Re-completed — will sync when back online'); setSync('syncing', syncQCount()+' pending sync'); }
     }
 
     // ---------- complete with payment ----------
@@ -452,6 +480,8 @@
     async function confirmComplete(){
       const id=$('#payModal').dataset.job, mode=$('#pay_mode').value, amtRaw=$('#pay_amount').value.trim(), ar=$('#pay_ar').value.trim();
       const job=jobs.find(j=>j.id===id); if(!job)return;
+      // ↩ Phase 1: a payment modal opened before the QA return must not file WIMS / payment / crew — picture lang (server freeze too)
+      if(isQaReturned(job)){ closeComplete(); toast('Ibinalik ng QA ang JO na ito — picture lang ang papalitan, tapos Re-complete.'); recompleteReturned(id); return; }
       const isTkJob=job.load_type==='SLR-TICKET';
       // SLR ticket: REQUIRED ang remarks kung anong serbisyo ang ginawa.
       const svcRem=isTkJob?(($('#pay_service_remarks')&&$('#pay_service_remarks').value.trim())||''):'';
@@ -496,9 +526,6 @@
       if(mode==='Gcash' && payProofFile){ try{ await uploadOne(id, payProofFile, 'Proof of Remittance'); }catch(e){ console.warn('proof upload',e.message); } }
       btn.disabled=false; btn.textContent='Complete job';
       Object.assign(job, patch);
-      // ↩ Ibinalik ng QA: ang DB trigger ang nagse-set ng qa_return_resolved_at; lokal din para
-      // mawala agad ang banner nang walang refetch.
-      if(ok && isQaReturned(job)) job.qa_return_resolved_at=now;
       closeComplete(); render(); logTrack('status:completed', job.area||job.city);
       if(ok){ toast('Job completed'); setSync('live','Synced'); }
       else if(saveWrite.queued){ toast('Completed — will sync when back online'); setSync('syncing', syncQCount()+' pending sync'); }
@@ -651,8 +678,8 @@
         if(j.status==='in-progress'){
           const REQ=photosReqFor(j);
           const canDone=n>=REQ;
-          extra=photoSlots(j.id)+'<div class="wims-slot" data-wjob="'+j.id+'" data-ticket="'+(['SLR-TICKET','Transfer','IPTV'].includes(j.load_type)?'1':'')+'" data-lt="'+(j.load_type||'')+'" data-dwell="'+(j.dwelling_type||'')+'" data-iptvn="'+((j.play_type==='2-PLAY'||j.load_type==='IPTV')?Math.max(1,parseInt(j.addon_count,10)||1):0)+'"></div>';
-          actions=`<div class="job-actions">${mapLink}<button class="act done" data-next="completed" data-id="${j.id}" ${canDone?'':'disabled'}>${svg('check')}Mark complete${canDone?'':` (${n}/${REQ})`}</button></div>`;
+          extra=photoSlots(j.id)+'<div class="wims-slot" data-wjob="'+j.id+'" data-returned="'+(isQaReturned(j)?'1':'')+'" data-ticket="'+(['SLR-TICKET','Transfer','IPTV'].includes(j.load_type)?'1':'')+'" data-lt="'+(j.load_type||'')+'" data-dwell="'+(j.dwelling_type||'')+'" data-iptvn="'+((j.play_type==='2-PLAY'||j.load_type==='IPTV')?Math.max(1,parseInt(j.addon_count,10)||1):0)+'"></div>';
+          actions=`<div class="job-actions">${mapLink}<button class="act done" data-next="completed" data-id="${j.id}" ${canDone?'':'disabled'}>${svg('check')}${isQaReturned(j)?'Re-complete (photo replaced)':'Mark complete'}${canDone?'':` (${n}/${REQ})`}</button></div>`;
         } else if(j.status==='completed'){
           extra=allPhotos.length?`<div class="photos"><div class="photos-head"><span>Proof photos</span><span class="count ok">${allPhotos.length}</span></div><div class="thumbs">${thumbs}</div></div>`:'';
           actions=`<div class="job-actions">${mapLink}<span class="act ghost" style="flex:1;justify-content:center">Completed ${j.updated_at?manilaTime(j.updated_at):''}</span></div>`;
@@ -683,11 +710,13 @@
         if(isQaReturned(j)){
           const e=s=>(s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
           let when=''; try{ when=new Date(j.qa_returned_at).toLocaleString('en-PH',{timeZone:TZ,month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}); }catch(_){}
-          qaRet=`<div style="background:#fdecea;border:1.5px solid #e0857a;color:#a3261a;border-radius:10px;padding:9px 11px;margin:2px 0 8px;font-size:12px;line-height:1.4"><div style="font-weight:800">↩ IBINALIK NG QA (${e(j.qa_returned_by||'QA')}${when?' · '+e(when):''}): ${e(j.qa_return_remarks||'')}</div><div style="font-weight:600;margin-top:3px">Palitan ang picture na nabanggit, tapos i-complete ulit ang JO.</div></div>`;
+          qaRet=isQaSubmitted(j)
+            ?`<div style="background:#e8f1fb;border:1.5px solid #9dbfe6;color:#1d4f8a;border-radius:10px;padding:9px 11px;margin:2px 0 8px;font-size:12px;line-height:1.4"><div style="font-weight:800">⏳ NAIPASA NA SA QA — hinihintay ang pag-verify ng kapalit na litrato</div><div style="font-weight:600;margin-top:3px">Return (${e(j.qa_returned_by||'QA')}${when?' · '+e(when):''}): ${e(j.qa_return_remarks||'')}</div></div>`
+            :`<div style="background:#fdecea;border:1.5px solid #e0857a;color:#a3261a;border-radius:10px;padding:9px 11px;margin:2px 0 8px;font-size:12px;line-height:1.4"><div style="font-weight:800">↩ IBINALIK NG QA (${e(j.qa_returned_by||'QA')}${when?' · '+e(when):''}): ${e(j.qa_return_remarks||'')}</div><div style="font-weight:600;margin-top:3px">Palitan ang picture na nabanggit (bagong upload), tapos pindutin ang Re-complete. Naka-lock ang WIMS, bayad at crew — picture lang.</div></div>`;
         }
         const negRemark=(j.status==='negative'&&j.negative_remark)?`<div class="row" style="color:#c2503a;font-weight:700">${svg('note')}<span>${j.negative_remark}</span></div>`:'';
         const activeJob=!['completed','negative'].includes(j.status);
-        const expBtn=activeJob?`<button class="addphoto" style="margin-top:10px;color:#a4690f;border-color:#f0d9a8;background:#fff8eb" data-exp="${j.id}">+ Add expense for this job</button>`:'';
+        const expBtn=(activeJob&&!isQaReturned(j))?`<button class="addphoto" style="margin-top:10px;color:#a4690f;border-color:#f0d9a8;background:#fff8eb" data-exp="${j.id}">+ Add expense for this job</button>`:'';   // ↩ returned: expenses locked (server too)
         // ↩ ibinalik ng QA: picture lang ang papalitan — walang Negative / Cancel habang naka-return
         const negBtn=(activeJob&&!isQaReturned(j))?`<button class="addphoto" style="margin-top:8px;color:#c2503a;border-color:#f0c4b9;background:#fff3f0" data-neg="${j.id}">⚠ Mark as Negative</button>`:'';
         const cancelBtn=(activeJob&&!isQaReturned(j))?`<button class="addphoto" style="margin-top:8px;color:#7a7f7d;border-color:#d8dcd9;background:#f5f6f5" data-cancel="${j.id}">✖ Cancel job</button>`:'';

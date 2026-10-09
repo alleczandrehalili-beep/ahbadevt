@@ -95,7 +95,8 @@ test('assign → inspector sees it → start → submit VISITED with a fail; job
     subscriber_signed_name: 'TEST SUB', subscriber_signature_path: s1.path, inspector_signature_path: s2.path, lat: 14.7, lng: 121.05 };
   const r = await api.submitAudit(id, payload);
   assert.equal(r.ok, true); assert.equal(r.audit.status, 'done'); assert.equal(r.audit.total_violations, 1); assert.equal(r.audit.total_penalty, 500);
-  assert.equal(job(api, 'JO-5').qa_status, 'VISITED'); assert.equal(job(api, 'JO-5').qa_assessment, 'FOR RECTIFY');
+  // Phase C: a failed VISITED submit opens a rectification loop, which then owns jobs.qa_status (mirrors qa.sync_job_rect)
+  assert.equal(job(api, 'JO-5').qa_status, 'FOR RECTIFICATION'); assert.equal(job(api, 'JO-5').qa_assessment, 'FOR RECTIFY');
   const again = await api.submitAudit(id, payload);
   assert.equal(again.duplicate, true);
   const detail = await api.getAudit(id);
@@ -189,4 +190,478 @@ test('listAudits filters, searches and paginates; demoSeed is synthetic', async 
   const q = await api.listAudits({ q: all.rows[0].subscriber.slice(0, 5) });
   assert.ok(q.total >= 1);
   assert.ok(Sim.demoSeed().sheetRows.every(r => /^DEMO /.test(r.SUBSCRIBERNAME)));
+});
+
+async function assignedAudit(sim, comp) {
+  const { rows } = await sim.listAudits({ status: ['queued'], contractor: comp });
+  await sim.assignAudits([rows[0].id], { inspector: 'AHBA_QA01', date: '2026-09-09', by: 'HEAD' });
+  return rows[0].id;
+}
+function payload(sim, id, fails, key) {
+  const items = sim._db.checklist.map((c, i) => ({ item_id: c.id, result: i < fails ? 'fail' : 'pass' }));
+  const photos = items.filter(i => i.result === 'fail').map(i => ({ item_id: i.item_id, path: 'qa/' + id + '/p' + i.item_id + '.jpg', label: 'x' }));
+  const violations = items.filter(i => i.result === 'fail').map(i => ({ item_id: i.item_id, code: 'HA001' }));
+  return { submit_key: key || ('k' + Math.random()), visit_status: 'VISITED', items, photos, violations, assessment: fails ? 'FOR RECTIFY' : 'GOOD', wire: 'STANDARD', qa_gc: 'COMPLETED',
+    subscriber_signed_name: 'S', subscriber_signature_path: 'qa/' + id + '/s.png', inspector_signature_path: 'qa/' + id + '/i.png' };
+}
+
+test('loop: failed submit opens FOR RECTIFICATION with default deadline, notice, JO mirror; GOOD opens nothing', async () => {
+  let t = new Date('2026-09-09T02:00:00Z'); const sim = Sim.create({ now: () => t, seed: Sim.demoSeed() });
+  sim._db.contractors.find(c => c.sheet_name === 'J2').org_id = 'ORG-J2';
+  sim._db.audits.forEach(a => { if (a.contractor_name === 'J2') a.contractor_org_id = 'ORG-J2'; });   // contractor_org_id is frozen on the audit at ingest time (mirrors qa.ingest_sheet_rows) — resync like the listRectifications test below
+  const id = await assignedAudit(sim, 'J2');
+  await sim.startAudit(id, {});
+  const r = await sim.submitAudit(id, payload(sim, id, 2));
+  const { rectification } = await sim.getAudit(id);
+  assert.equal(rectification.status, 'FOR RECTIFICATION'); assert.equal(rectification.cycle, 1);
+  assert.equal(rectification.deadline, '2026-09-16'); assert.match(rectification.id, /^RC-2026-\d{6}$/);
+  assert.equal(r.audit.rectification_id, rectification.id);
+  assert.equal(sim._db.notices.filter(n => n.org_id === 'ORG-J2' && n.kind === 'opened').length, 1);
+  const good = await assignedAudit(sim, 'AVELINE'); await sim.submitAudit(good, payload(sim, good, 0));
+  assert.equal((await sim.getAudit(good)).rectification, null);
+  // Phase A mirror still holds for a loop-less done audit: no rectification means jobs.qa_status stays the plain visit-status mirror.
+  const goodAudit = sim._db.audits.find(x => x.id === good);
+  const withJob = goodAudit.job_id ? goodAudit : sim._db.audits.find(x => x.job_id && x.status === 'done' && !x.rectification_id);
+  assert.ok(withJob, 'demo seed gives jobs to the first 20 sheet rows — expected at least one loop-less done audit with a job_id');
+  const j = job(sim, withJob.job_id);
+  assert.ok(j);
+  assert.equal(j.qa_status, 'VISITED');
+});
+
+test('NPA: a failed VISITED / NPA inspection stores items + assessment and opens the loop', async () => {
+  let t = new Date('2026-09-09T02:00:00Z'); const sim = Sim.create({ now: () => t, seed: Sim.demoSeed() });
+  const id = await assignedAudit(sim, 'J2');
+  await sim.startAudit(id, {});
+  const p = payload(sim, id, 1);
+  // subscriber absent: no name, no subscriber signature, no location photo — the checklist still applies
+  delete p.subscriber_signed_name; delete p.subscriber_signature_path;
+  const r = await sim.submitAudit(id, { ...p, visit_status: 'VISITED / NPA' });
+  assert.equal(r.audit.visit_status, 'VISITED / NPA');
+  assert.equal(r.audit.assessment, 'FOR RECTIFY'); assert.equal(r.audit.wire, 'STANDARD'); assert.equal(r.audit.qa_gc, 'COMPLETED');
+  assert.equal(r.audit.subscriber_signature_path, null);
+  assert.equal(sim._db.items.filter(i => i.audit_id === id).length, sim._db.checklist.length);
+  assert.equal(r.audit.total_violations, 1);
+  const { rectification } = await sim.getAudit(id);
+  assert.ok(rectification, 'an NPA visit with a fail opens a rectification loop');
+  assert.equal(rectification.status, 'FOR RECTIFICATION'); assert.equal(rectification.cycle, 1); assert.equal(rectification.deadline, '2026-09-16');
+  // the inspector signature is still required on an NPA visit
+  const id2 = await assignedAudit(sim, 'AVELINE');
+  const p2 = payload(sim, id2, 0); delete p2.subscriber_signed_name; delete p2.subscriber_signature_path;
+  await assert.rejects(sim.submitAudit(id2, { ...p2, visit_status: 'VISITED / NPA', inspector_signature_path: null }), /[Ii]nspector/);
+});
+
+test('NPA: a clean VISITED / NPA inspection stores GOOD, opens nothing, and mirrors qa_status on the JO', async () => {
+  let t = new Date('2026-09-09T02:00:00Z'); const sim = Sim.create({ now: () => t, seed: Sim.demoSeed() });
+  const withJob = (await sim.listAudits({ status: ['queued'] })).rows.filter(a => a.job_id)[0];
+  assert.ok(withJob, 'demo seed links the first sheet rows to JOs');
+  await sim.assignAudits([withJob.id], { inspector: 'AHBA_QA01', date: '2026-09-09', by: 'HEAD' });
+  const p = payload(sim, withJob.id, 0); delete p.subscriber_signed_name; delete p.subscriber_signature_path;
+  const r = await sim.submitAudit(withJob.id, { ...p, visit_status: 'VISITED / NPA' });
+  assert.equal(r.audit.assessment, 'GOOD');
+  assert.equal((await sim.getAudit(withJob.id)).rectification, null);
+  assert.equal(job(sim, withJob.job_id).qa_status, 'VISITED / NPA');
+  assert.equal(job(sim, withJob.job_id).qa_assessment, 'GOOD');
+  // Commercial is Yes/No only: found_business must be a valid value even on an NPA visit
+  const id2 = await assignedAudit(sim, 'AVELINE');
+  const p2 = payload(sim, id2, 0); delete p2.subscriber_signed_name; delete p2.subscriber_signature_path;
+  await assert.rejects(sim.submitAudit(id2, { ...p2, visit_status: 'VISITED / NPA', found_business: 'bogus' }), /Invalid found_business/);
+  const ok = await sim.submitAudit(id2, { ...p2, visit_status: 'VISITED / NPA', found_business: 'yes', new_plan: 'BIZ 100' });
+  assert.equal(ok.audit.found_business, 'yes'); assert.equal(ok.audit.new_plan, 'BIZ 100');
+});
+
+test('loop: assign re-inspection → new audit source=reinspection; GOOD closes as RECTIFIED; head cannot close RECTIFIED', async () => {
+  let t = new Date('2026-09-09T02:00:00Z'); const sim = Sim.create({ now: () => t, seed: Sim.demoSeed() });
+  const id = await assignedAudit(sim, 'J2'); await sim.submitAudit(id, payload(sim, id, 1));
+  const rect = (await sim.getAudit(id)).rectification;
+  const re = await sim.assignReinspection(rect.id, { inspector: 'AHBA_QA02', date: '2026-09-12', by: 'HEAD' });
+  assert.equal(re.source, 'reinspection'); assert.equal(re.reinspection_of, id); assert.equal(re.rectification_id, rect.id); assert.equal(re.status, 'assigned');
+  assert.equal((await sim.getRectification(rect.id)).rect.status, 'FOR RE-INSPECTION');
+  const mine = await sim.listMyAudits('AHBA_QA02'); assert.equal(mine[0].id, re.id);
+  const prev = (await sim.getAudit(re.id)).previous; assert.equal(prev.audit.id, id); assert.equal(prev.violations.length, 1);
+  await sim.submitAudit(re.id, payload(sim, re.id, 0));
+  const done = await sim.getRectification(rect.id);
+  assert.equal(done.rect.status, 'RECTIFIED'); assert.equal(done.rect.last_audit_id, re.id); assert.equal(done.audits.length, 2);
+  const rectJob = job(sim, done.rect.job_id); if (rectJob) assert.equal(rectJob.qa_status, 'RECTIFIED');
+  await assert.rejects(sim.closeRectification(rect.id, 'x'), /not open/);
+});
+
+test('loop: a RECTIFIED re-inspection reopened by the head and resubmitted with a fail returns the loop to FOR RECTIFICATION in place', async () => {
+  let t = new Date('2026-09-09T02:00:00Z'); const sim = Sim.create({ now: () => t, seed: Sim.demoSeed() });
+  sim._db.contractors.find(c => c.sheet_name === 'J2').org_id = 'ORG-J2';
+  sim._db.audits.forEach(a => { if (a.contractor_name === 'J2') a.contractor_org_id = 'ORG-J2'; });   // frozen at ingest — resync so the notice path is live
+  const id = await assignedAudit(sim, 'J2'); await sim.submitAudit(id, payload(sim, id, 1));
+  const rect = (await sim.getAudit(id)).rectification;
+  const re = await sim.assignReinspection(rect.id, { inspector: 'AHBA_QA02', date: '2026-09-12', by: 'HEAD' });
+  t = new Date('2026-09-12T02:00:00Z');
+  await sim.submitAudit(re.id, payload(sim, re.id, 0));
+  let r = (await sim.getRectification(rect.id)).rect;
+  assert.equal(r.status, 'RECTIFIED'); assert.ok(r.rectified_at); assert.equal(r.cycle, 1);
+  const deadline = r.deadline;
+  const opened = () => sim._db.notices.filter(n => n.rectification_id === rect.id && n.kind === 'opened').length;
+  const openedBefore = opened();
+
+  // the head spots the mistake, reopens that same re-inspection, and the inspector resubmits it WITH a fail
+  await sim.reopenAudit(re.id, { by: 'HEAD', reason: 'photo shows the drop wire still sagging' });
+  t = new Date('2026-09-13T02:00:00Z');
+  await sim.submitAudit(re.id, payload(sim, re.id, 1));
+  r = (await sim.getRectification(rect.id)).rect;
+  assert.equal(r.status, 'FOR RECTIFICATION', 'the corrected outcome reopens the loop instead of being ignored as a late submit');
+  assert.equal(r.cycle, 1, 'a correction does not burn a cycle');
+  assert.equal(r.deadline, deadline, 'and does not push the deadline out');
+  assert.equal(r.rectified_at, null);
+  assert.equal(r.last_audit_id, re.id);
+  assert.equal(sim._db.log.filter(l => l.audit_id === re.id && l.action === 'rect_resubmit').length, 1);
+  assert.equal(sim._db.log.filter(l => l.audit_id === re.id && l.action === 'rect_ignored_late_submit').length, 0);
+  assert.equal(opened(), openedBefore + 1, 'the reopened loop is a real state change → exactly one new "opened" notice');
+  const j = r.job_id && job(sim, r.job_id); if (j) assert.equal(j.qa_status, 'FOR RECTIFICATION');
+
+  // correcting it back the other way still works: resubmit GOOD → RECTIFIED again, same cycle
+  await sim.reopenAudit(re.id, { by: 'HEAD', reason: 'wrong photo attached' });
+  await sim.submitAudit(re.id, payload(sim, re.id, 0));
+  r = (await sim.getRectification(rect.id)).rect;
+  assert.equal(r.status, 'RECTIFIED'); assert.equal(r.cycle, 1); assert.ok(r.rectified_at);
+});
+
+test('loop: failed re-inspection → cycle 2 with a fresh deadline; unassign pending re-inspection returns to FOR RECTIFICATION; close requires reason', async () => {
+  let t = new Date('2026-09-09T02:00:00Z'); const sim = Sim.create({ now: () => t, seed: Sim.demoSeed() });
+  const id = await assignedAudit(sim, 'J2'); await sim.submitAudit(id, payload(sim, id, 1));
+  const rect = (await sim.getAudit(id)).rectification;
+  const re = await sim.assignReinspection(rect.id, { inspector: 'AHBA_QA02', date: '2026-09-12', by: 'HEAD' });
+  t = new Date('2026-09-12T02:00:00Z');
+  await sim.submitAudit(re.id, payload(sim, re.id, 1));
+  let r = (await sim.getRectification(rect.id)).rect;
+  assert.equal(r.status, 'FOR RECTIFICATION'); assert.equal(r.cycle, 2); assert.equal(r.deadline, '2026-09-19');
+  const re2 = await sim.assignReinspection(rect.id, { inspector: 'AHBA_QA02', date: '2026-09-15', by: 'HEAD' });
+  await sim.unassignAudits([re2.id], { by: 'HEAD' });
+  r = (await sim.getRectification(rect.id)).rect; assert.equal(r.status, 'FOR RECTIFICATION');
+  assert.ok(sim._db.audits.find(a => a.id === re2.id).deleted_at, 'released re-inspection is retired');
+  await sim.setRectDeadline(rect.id, '2026-09-25', 'materials on order', { by: 'HEAD' });
+  assert.equal((await sim.getRectification(rect.id)).rect.deadline, '2026-09-25');
+  assert.equal(sim._db.notices.filter(n => n.kind === 'deadline').length, 0, 'J2 has no org in this test → no notice');
+  await assert.rejects(sim.closeRectification(rect.id, ''), /Reason/);
+  const closed = await sim.closeRectification(rect.id, 'Subscriber disconnected', { by: 'HEAD' });
+  assert.equal(closed.status, 'CLOSED'); assert.equal(closed.close_reason, 'Subscriber disconnected');
+  const closedJob = job(sim, closed.job_id); if (closedJob) assert.equal(closedJob.qa_status, 'CLOSED BY HEAD');
+});
+
+test('offense: 2nd audit with same contractor+code within 12 months → offense 2 / level-2 penalty; same code twice in one audit shares offense; other contractor stays at 1', async () => {
+  let t = new Date('2026-09-09T02:00:00Z'); const sim = Sim.create({ now: () => t, seed: Sim.demoSeed() });
+  const a1 = await assignedAudit(sim, 'J2'); await sim.submitAudit(a1, payload(sim, a1, 2));  // two HA001 in one audit
+  let v = sim._db.violations.filter(x => x.audit_id === a1); assert.deepEqual(v.map(x => x.offense_no), [1, 1]); assert.equal(v[0].penalty_amount, 500);
+  t = new Date('2026-09-10T02:00:00Z');
+  const a2 = await assignedAudit(sim, 'J2'); await sim.submitAudit(a2, payload(sim, a2, 1));
+  v = sim._db.violations.filter(x => x.audit_id === a2); assert.equal(v[0].offense_no, 2); assert.equal(v[0].penalty_amount, 1000);
+  t = new Date(t.getTime() + 1000);   // advance past a2's inspected_at — offenseNo's as-of upper bound excludes rows at/after "now" (mirrors a real request's now() always being later than a prior transaction's)
+  const prev = await sim.offensePreview('J2', ['HA001', 'PR003']);
+  assert.equal(prev.HA001.offense_no, 3); assert.equal(prev.HA001.penalty_amount, 2000); assert.equal(prev.PR003.offense_no, 1);
+  const b1 = await assignedAudit(sim, 'RIA'); await sim.submitAudit(b1, payload(sim, b1, 1));
+  assert.equal(sim._db.violations.find(x => x.audit_id === b1).offense_no, 1);
+});
+
+test('override: head sets amount with reason, total_penalty recomputed, offense_no untouched; recomputeOffenses keeps overrides', async () => {
+  let t = new Date('2026-09-09T02:00:00Z'); const sim = Sim.create({ now: () => t, seed: Sim.demoSeed() });
+  const a1 = await assignedAudit(sim, 'J2'); await sim.submitAudit(a1, payload(sim, a1, 2));
+  const vid = sim._db.violations.find(x => x.audit_id === a1).id;
+  await assert.rejects(sim.overridePenalty(vid, 0, ''), /Reason/);
+  const r = await sim.overridePenalty(vid, 0, 'First-time coaching', { by: 'HEAD' });
+  assert.equal(r.total_penalty, 500); assert.equal(r.violation.penalty_override, 0); assert.equal(r.violation.offense_no, 1);
+  const rc = await sim.recomputeOffenses(); assert.equal(rc.audits, 1); assert.equal(rc.violations, 2);
+  assert.equal(sim._db.violations.find(x => x.id === vid).penalty_override, 0);
+  assert.equal(sim._db.audits.find(a => a.id === a1).total_penalty, 500);
+});
+
+test('listRectifications filters (status, overdue, org) and subcon-mode sim only sees own org; notices unseen/seen', async () => {
+  let t = new Date('2026-09-09T02:00:00Z'); const sim = Sim.create({ now: () => t, seed: Sim.demoSeed() });
+  sim._db.contractors.find(c => c.sheet_name === 'J2').org_id = 'ORG-J2'; sim._db.contractors.find(c => c.sheet_name === 'RIA').org_id = 'ORG-RIA';
+  sim._db.audits.forEach(a => { const c = sim._db.contractors.find(x => x.sheet_name === a.contractor_name); if (c) a.contractor_org_id = c.org_id; });
+  const a = await assignedAudit(sim, 'J2'); await sim.submitAudit(a, payload(sim, a, 1));
+  const b = await assignedAudit(sim, 'RIA'); await sim.submitAudit(b, payload(sim, b, 1));
+  assert.equal((await sim.listRectifications({})).total, 2);
+  assert.equal((await sim.listRectifications({ org_id: 'ORG-J2' })).total, 1);
+  t = new Date('2026-09-20T02:00:00Z');
+  assert.equal((await sim.listRectifications({ overdue: true })).total, 2);
+  assert.equal((await sim.listRectifications({ status: ['RECTIFIED'] })).total, 0);
+  const sub = Sim.create({ now: () => t, org: 'ORG-J2', db: sim._db });   // subcon-mode view over the same store
+  assert.equal((await sub.listRectifications({})).total, 1);
+  const j2RectId = sim._db.rectifications.find(r => r.contractor_org_id === 'ORG-J2').id;
+  await assert.rejects(sub.getRectification(sim._db.rectifications.find(r => r.contractor_org_id === 'ORG-RIA').id), /not found/);
+  assert.equal(await sub.noticesUnseen(), 1); assert.equal(await sub.markNoticesSeen(), 1); assert.equal(await sub.noticesUnseen(), 0);
+  // subcon strip parity (mirrors qa.rectification_bundle's column exclusions)
+  const subBundle = await sub.getRectification(j2RectId);
+  const subAudit = subBundle.audits[0].audit;
+  ['subscriber_signature_path', 'inspector_signature_path', 'subscriber_signed_name', 'lat', 'lng', 'sheet_latlong', 'submit_key', 'contractor_rep', 'mobile_no']
+    .forEach(k => assert.ok(!(k in subAudit), 'subcon bundle audit should not carry ' + k));
+  const headBundle = await sim.getRectification(j2RectId);
+  assert.ok('subscriber_signed_name' in headBundle.audits[0].audit, 'head bundle audit should keep subscriber_signed_name');
+  // subcon-mode boundary: head-only / RLS-guarded methods reject, getConfig/listInspectors mirror the narrowed RLS
+  await assert.rejects(sub.listAudits({}), /Not allowed/);
+  await assert.rejects(sub.submitAudit('x', {}), /Not allowed/);
+  assert.deepEqual((await sub.getConfig()).codes, []);
+  assert.deepEqual(await sub.listInspectors(), []);
+  // subscribers are shared across create() calls over the same store: a callback registered on the subcon
+  // instance must still fire when the head instance opens a new loop (mirrors the demo's live subcon toast).
+  let fired = 0;
+  const unsubNotices = sub.subscribeNotices(() => { fired++; });
+  const c = await assignedAudit(sim, 'J2'); await sim.submitAudit(c, payload(sim, c, 1));
+  assert.equal(fired, 1);
+  unsubNotices();
+});
+
+test('monthlyScorecard: per-contractor counts, penalty uses overrides, re-inspections excluded from inspected, rect on-time/late', async () => {
+  let t = new Date('2026-09-09T02:00:00Z'); const sim = Sim.create({ now: () => t, seed: Sim.demoSeed() });
+  sim._db.audits = sim._db.audits.filter(x => !(x.contractor_name === 'J2' && x.status === 'done'));   // demoSeed() plants one legacy J2 audit this month; isolate this test's own 2-inspection scenario
+  const a = await assignedAudit(sim, 'J2'); await sim.submitAudit(a, payload(sim, a, 1));
+  const rect = (await sim.getAudit(a)).rectification;
+  const re = await sim.assignReinspection(rect.id, { inspector: 'AHBA_QA02', date: '2026-09-12', by: 'HEAD' });
+  t = new Date('2026-09-12T02:00:00Z'); await sim.submitAudit(re.id, payload(sim, re.id, 0));
+  const g = await assignedAudit(sim, 'J2'); await sim.submitAudit(g, payload(sim, g, 0));
+  await sim.overridePenalty(sim._db.violations.find(x => x.audit_id === a).id, 250, 'partial', { by: 'HEAD' });
+  const rows = await sim.monthlyScorecard('2026-09-01');
+  const j2 = rows.find(r => r.contractor === 'J2');
+  assert.equal(j2.inspected, 2); assert.equal(j2.good, 1); assert.equal(j2.rectify, 1); assert.equal(j2.violations, 1); assert.equal(j2.penalty, 250); assert.equal(j2.overrides, 1);
+  assert.equal(j2.rect_opened, 1); assert.equal(j2.rect_on_time, 1); assert.equal(j2.rect_late, 0); assert.equal(j2.rect_open_end, 0);
+  assert.equal(j2.top_codes[0].code, 'HA001'); assert.ok(j2.closed >= 2);
+  assert.ok(rows.every(r => r.kind === 'inhouse' ? rows.indexOf(r) === rows.length - 1 || rows[rows.indexOf(r) + 1].kind === 'inhouse' : true), 'subcons first');
+});
+
+test('redispatch: an in_progress ticket can be assigned to another inspector (started_at cleared, log reassigned); district filter', async () => {
+  const sim = Sim.create({ seed: Sim.demoSeed() });
+  const { rows } = await sim.listAudits({ status: ['queued'], district: '2' });
+  assert.ok(rows.length > 0); assert.ok(rows.every(a => ['BAGONG SILANGAN', 'BATASAN HILLS', 'COMMONWEALTH', 'HOLY SPIRIT', 'PAYATAS'].includes(a.barangay)));
+  assert.equal((await sim.listAudits({ status: ['queued'], district: '9' })).total, 0);
+  const id = rows[0].id;
+  await sim.assignAudits([id], { inspector: 'AHBA_QA01', date: '2026-09-09', by: 'HEAD' });
+  await sim.startAudit(id, { lat: 1, lng: 2 });
+  assert.equal(await sim.assignAudits([id], { inspector: 'AHBA_QA02', date: '2026-09-10', by: 'HEAD' }), 1);
+  const a = sim._db.audits.find(x => x.id === id);
+  assert.equal(a.status, 'assigned'); assert.equal(a.assigned_to, 'AHBA_QA02'); assert.equal(a.started_at, null); assert.equal(a.inspector, null);
+  assert.equal(sim._db.log.filter(l => l.audit_id === id && l.action === 'reassigned').length, 1);
+  assert.equal((await sim.listMyAudits('AHBA_QA01')).some(x => x.id === id), false);
+  assert.equal((await sim.listMyAudits('AHBA_QA02')).some(x => x.id === id), true);
+  // same-inspector re-sequence of an in_progress ticket: status stays in_progress, inspector/started_at untouched
+  await sim.startAudit(id, { lat: 3, lng: 4 });
+  assert.equal(sim._db.audits.find(x => x.id === id).status, 'in_progress');
+  assert.equal(await sim.assignAudits([id], { inspector: 'AHBA_QA02', date: '2026-09-10', startSeq: 5, by: 'HEAD' }), 1);
+  const a2 = sim._db.audits.find(x => x.id === id);
+  assert.equal(a2.status, 'in_progress'); assert.equal(a2.inspector, 'AHBA_QA02'); assert.ok(a2.started_at);
+  // assignAudits resequences the whole day afterwards (qa-05f), so startSeq only fixes the ORDER within the batch —
+  // the lane always ends up numbered 1..n. This ticket is alone on QA02's 2026-09-10, so #5 becomes #1.
+  assert.equal(a2.sequence, 1);
+});
+
+// ---------------- Task 14: Dispatch board ----------------
+test('dispatch: scheduleAudit assigns, stamps the time and resequences that inspector day by time', async () => {
+  const sim = Sim.create({ seed: Sim.demoSeed() });
+  const { rows } = await sim.listAudits({ status: ['queued'], pageSize: 5 });
+  const [a, b] = rows.map(r => r.id);
+  const D = '2026-09-12', g = id => sim._db.audits.find(x => x.id === id);
+  await sim.scheduleAudit(a, { inspector: 'AHBA_QA01', date: D, time: '10:00', by: 'HEAD' });
+  assert.equal(g(a).sequence, 1);
+  await sim.scheduleAudit(b, { inspector: 'AHBA_QA01', date: D, time: '08:30', by: 'HEAD' });
+  assert.equal(g(a).scheduled_time, '10:00'); assert.equal(g(b).scheduled_time, '08:30');
+  assert.equal(g(a).sequence, 2); assert.equal(g(b).sequence, 1);        // the 08:30 drop takes over #1
+  assert.equal(g(a).status, 'assigned'); assert.equal(g(a).assigned_to, 'AHBA_QA01'); assert.equal(g(a).scheduled_date, D);
+  const mine = (await sim.listMyAudits('AHBA_QA01')).filter(x => x.id === a || x.id === b);
+  assert.deepEqual(mine.map(x => x.id), [b, a]);                         // the phone list follows the schedule
+  assert.deepEqual(sim._db.log.filter(l => l.audit_id === b && l.action === 'scheduled')[0].detail, { to: 'AHBA_QA01', date: D, time: '08:30' });
+  const lane = (await sim.board(D)).filter(x => x.assigned_to === 'AHBA_QA01');
+  assert.deepEqual(lane.map(x => x.id), [b, a]);
+});
+
+test('dispatch: scheduling onto another inspector redispatches and resequences BOTH lanes; unassign clears the time', async () => {
+  const sim = Sim.create({ seed: Sim.demoSeed() });
+  const { rows } = await sim.listAudits({ status: ['queued'], pageSize: 5 });
+  const [a, b, c] = rows.map(r => r.id);
+  const D = '2026-09-12', g = id => sim._db.audits.find(x => x.id === id);
+  await sim.scheduleAudit(a, { inspector: 'AHBA_QA01', date: D, time: '08:00', by: 'HEAD' });
+  await sim.scheduleAudit(b, { inspector: 'AHBA_QA01', date: D, time: '09:00', by: 'HEAD' });
+  await sim.scheduleAudit(c, { inspector: 'AHBA_QA02', date: D, time: '13:00', by: 'HEAD' });
+  assert.equal(g(b).sequence, 2);
+  await sim.scheduleAudit(a, { inspector: 'AHBA_QA02', date: D, time: '11:30', by: 'HEAD' });
+  assert.equal(g(a).assigned_to, 'AHBA_QA02'); assert.equal(g(a).scheduled_time, '11:30');
+  assert.equal(g(a).sequence, 1); assert.equal(g(c).sequence, 2);        // destination lane: 11:30 before 13:00
+  assert.equal(g(b).sequence, 1);                                        // source lane closed the gap
+  assert.equal(sim._db.log.filter(l => l.audit_id === a && l.action === 'reassigned').length, 1);
+  assert.equal(await sim.unassignAudits([a], { by: 'HEAD' }), 1);
+  assert.equal(g(a).status, 'queued'); assert.equal(g(a).scheduled_time, null); assert.equal(g(a).scheduled_date, null); assert.equal(g(a).sequence, null);
+  assert.equal(sim._db.audits.every(x => 'scheduled_time' in x), true);  // every audit carries the column
+  await assert.rejects(sim.scheduleAudit(b, { inspector: 'NOT_A_QA', date: D, time: '09:00', by: 'HEAD' }), /Not a QA inspector/);
+});
+
+// Owner's call: a plain Queue-tab assign resequences the inspector's day too, so it can never renumber a visit the
+// board already pinned to a clock time. Timed rows lead in time order; untimed rows keep the head's manual order.
+test('dispatch: a plain assignAudits resequences the day — a pinned time keeps #1 and a later assign lands after it', async () => {
+  const sim = Sim.create({ seed: Sim.demoSeed() });
+  const { rows } = await sim.listAudits({ status: ['queued'], pageSize: 6 });
+  const [a, b, c, d] = rows.map(r => r.id);
+  const D = '2026-09-13', g = id => sim._db.audits.find(x => x.id === id);
+  assert.equal(await sim.assignAudits([a, b, c], { inspector: 'AHBA_QA01', date: D, startSeq: 1, by: 'HEAD' }), 3);
+  assert.deepEqual([g(a).sequence, g(b).sequence, g(c).sequence], [1, 2, 3]);   // untimed rows keep the manual order
+  await sim.scheduleAudit(c, { inspector: 'AHBA_QA01', date: D, time: '08:00', by: 'HEAD' });
+  assert.deepEqual([g(c).sequence, g(a).sequence, g(b).sequence], [1, 2, 3]);   // the 08:00 visit leads the day
+  assert.deepEqual((await sim.board(D)).filter(x => x.assigned_to === 'AHBA_QA01').map(x => x.id), [c, a, b]);
+  assert.equal(await sim.assignAudits([d], { inspector: 'AHBA_QA01', date: D, startSeq: 4, by: 'HEAD' }), 1);
+  assert.equal(g(d).sequence, 4);                                              // queued behind the timed visit, not ahead of it
+  assert.equal(g(c).sequence, 1); assert.equal(g(c).scheduled_time, '08:00');  // the pinned time was NOT renumbered away
+  assert.deepEqual((await sim.listMyAudits('AHBA_QA01')).filter(x => x.scheduled_date === D).map(x => x.id), [c, a, b, d]);
+});
+
+// ---------- Return JO to the team for photo replacement (qa-05h) ----------
+const RJ_SEED = () => ({ inspectors: [{ username: 'AHBA_QA01', display_name: 'QA 1' }], jobs: [], sheetRows: [] });
+const rjJob = (over) => Object.assign({ id: 'JO-R1', job_order_no: 'R9100001', ibass_acct_no: '1000000000101', status: 'completed', team: 'AHBA_T01',
+  completed_at: '2026-10-07T05:00:00Z', assigned_org_code: 'J2', subscriber: 'RJ SUB', history: '[Oct 7, 1:00 PM] Completed' }, over || {});
+
+test('return JO: a completed JO with a team goes back in-progress with remarks, a history line, qa_status RETURNED TO TEAM, and job_returned on its audit', async () => {
+  const t = new Date('2026-10-08T02:00:00Z'); const api = Sim.create({ now: () => t, seed: RJ_SEED() });
+  const a = api._completeJob(rjJob());
+  const before = JSON.stringify(api._db.audits.find(x => x.id === a.id));
+  const j = await api.returnJobForPhotos('JO-R1', '  Replace the NAP photo  ', { by: 'AHBA_QA01' });
+  assert.equal(j.status, 'in-progress'); assert.equal(j.completed_at, '2026-10-07T05:00:00Z');   // completed_at kept
+  assert.equal(j.qa_return_remarks, 'Replace the NAP photo'); assert.equal(j.qa_returned_at, t.toISOString());
+  assert.equal(j.qa_returned_by, 'AHBA_QA01'); assert.equal(j.qa_return_resolved_at, null); assert.equal(j.qa_status, 'RETURNED TO TEAM');
+  // jobs.history is TEXT, one "[Mon D, H:MM AM] line" per entry (mobile appendHist / public.append_job_history)
+  assert.equal(j.history, '[Oct 7, 1:00 PM] Completed\n[Oct 8, 10:00 AM] ↩ Returned by QA (AHBA_QA01) — replace photo: Replace the NAP photo');
+  assert.equal(job(api, 'JO-R1').status, 'in-progress');   // the store is updated, not just the returned copy
+  const l = api._db.log.filter(x => x.action === 'job_returned');
+  assert.equal(l.length, 1); assert.equal(l[0].audit_id, a.id); assert.equal(l[0].by, 'AHBA_QA01');
+  assert.deepEqual(l[0].detail, { job: 'JO-R1', team: 'AHBA_T01', remarks: 'Replace the NAP photo' });
+  assert.equal(JSON.stringify(api._db.audits.find(x => x.id === a.id)), before);   // the QA audit record itself is untouched
+});
+
+test('return JO: rejects blank remarks, a JO that is not completed, a JO without a team, and an unknown JO', async () => {
+  const api = Sim.create({ seed: RJ_SEED() });
+  api._completeJob(rjJob());
+  api._db.jobs.push(rjJob({ id: 'JO-R2', job_order_no: 'R9100002', ibass_acct_no: '1000000000102', status: 'in-progress' }));
+  api._db.jobs.push(rjJob({ id: 'JO-R3', job_order_no: 'R9100003', ibass_acct_no: '1000000000103', team: null }));
+  api._db.jobs.push(rjJob({ id: 'JO-R4', job_order_no: 'R9100004', ibass_acct_no: '1000000000104', deleted_at: '2026-10-01T00:00:00Z' }));
+  await assert.rejects(api.returnJobForPhotos('JO-R1', '   '), /Remarks required \(which photo to replace\)/);
+  await assert.rejects(api.returnJobForPhotos('JO-R1', null), /Remarks required/);
+  await assert.rejects(api.returnJobForPhotos('JO-R2', 'x'), /Job JO-R2 is not a completed job with a team/);
+  await assert.rejects(api.returnJobForPhotos('JO-R3', 'x'), /Job JO-R3 is not a completed job with a team/);
+  await assert.rejects(api.returnJobForPhotos('JO-R4', 'x'), /Job JO-R4 is not a completed job with a team/);
+  await assert.rejects(api.returnJobForPhotos('NOPE', 'x'), /Job NOPE is not a completed job with a team/);
+  assert.equal(job(api, 'JO-R1').status, 'completed'); assert.equal(job(api, 'JO-R1').qa_returned_at, undefined);
+  // returning twice: the second call fails because the JO is no longer completed
+  await api.returnJobForPhotos('JO-R1', 'photo 1');
+  await assert.rejects(api.returnJobForPhotos('JO-R1', 'photo 1'), /not a completed job/);
+});
+
+test('Gate B: a direct status flip (old light path) is LOCKED while the return is open; the team re-submit never closes the return', async () => {
+  let t = new Date('2026-10-08T02:00:00Z'); const api = Sim.create({ now: () => t, seed: RJ_SEED() });
+  const a = api._completeJob(rjJob());
+  await api.assignAudits([a.id], { inspector: 'AHBA_QA01', date: '2026-10-08', by: 'HEAD' });
+  await api.startAudit(a.id, {});
+  await api.submitAudit(a.id, payload(api, a.id, 1));
+  assert.equal(job(api, 'JO-R1').qa_status, 'FOR RECTIFICATION');
+  const r = await api.returnJobForPhotos('JO-R1', 'Replace the house bracket photo', { by: 'AHBA_QA01', role: 'inspector' });
+  const t1 = r.qa_returned_at;
+  assert.equal(job(api, 'JO-R1').qa_status, 'RETURNED TO TEAM'); assert.equal(r.qa_return_submitted_at, null);
+  // the pre-Gate-B light re-complete (plain status PATCH) is refused by the freeze trigger
+  assert.throws(() => api._recompleteJob('JO-R1'), /JO_RETURNED_LOCKED: "status"/);
+  assert.equal(job(api, 'JO-R1').status, 'in-progress');
+  // no new photo → refused; wrong token → refused
+  assert.throws(() => api._recompleteReturned('JO-R1', t1, { team: 'AHBA_T01' }), /NO_NEW_PHOTO/);
+  job(api, 'JO-R1').photos = [{ path: 'r1/nap.jpg', label: 'NAP', created_at: '2026-10-08T03:00:00Z' }];
+  assert.throws(() => api._recompleteReturned('JO-R1', '2026-10-08T02:00:01.000Z', { team: 'AHBA_T01' }), /RETURN_TOKEN_MISMATCH/);
+  assert.throws(() => api._recompleteReturned('JO-R1', t1, { team: 'AHBA_T99' }), /Only the team that holds/);
+  t = new Date('2026-10-08T06:30:00Z');
+  const s1 = api._recompleteReturned('JO-R1', t1, { team: 'AHBA_T01' });
+  assert.equal(s1.status, 'completed'); assert.equal(s1.qa_return_submitted_at, t.toISOString());
+  assert.equal(s1.qa_return_resolved_at, null);                       // ← the team submission does NOT close the return
+  assert.equal(s1.qa_status, 'FOR QA CHECK'); assert.equal(s1.qa_audit_id, a.id); assert.equal(s1.completed_at, '2026-10-07T05:00:00Z');
+  assert.match(s1.history, /→ Re-submitted after QA photo replacement \(by AHBA_T01\) — for QA check$/);
+  // replay of the same cycle (offline queue) is idempotent
+  t = new Date('2026-10-08T06:45:00Z');
+  assert.equal(api._recompleteReturned('JO-R1', t1, { team: 'AHBA_T01' }).qa_return_submitted_at, '2026-10-08T06:30:00.000Z');
+  // the trigger left the open return alone: no audit created, qa_status still FOR QA CHECK
+  assert.equal(api._db.audits.filter(x => !x.deleted_at).length, 1); assert.equal(job(api, 'JO-R1').qa_status, 'FOR QA CHECK');
+  assert.deepEqual(api._db.log.filter(x => x.audit_id === a.id && /return/.test(x.action)).map(x => x.action), ['job_returned', 'return_submitted']);
+});
+
+test('Gate B: only an authorized reviewer with the CURRENT token closes the return; "return again" issues a new token; the old token is dead', async () => {
+  let t = new Date('2026-10-08T02:00:00Z'); const api = Sim.create({ now: () => t, seed: RJ_SEED() });
+  const a = api._completeJob(rjJob());
+  await api.assignAudits([a.id], { inspector: 'AHBA_QA01', date: '2026-10-08', by: 'HEAD' });
+  const r = await api.returnJobForPhotos('JO-R1', 'NAP photo blurred', { by: 'AHBA_QA01', role: 'inspector' });
+  const t1 = r.qa_returned_at;
+  await assert.rejects(api.closeReturn('JO-R1', t1, true, '', { by: 'HEAD' }), /NOT_SUBMITTED/);            // nothing to verify yet
+  job(api, 'JO-R1').photos = [{ path: 'r1/nap2.jpg', label: 'NAP', created_at: '2026-10-08T03:00:00Z' }];
+  t = new Date('2026-10-08T04:00:00Z'); api._recompleteReturned('JO-R1', t1, { team: 'AHBA_T01' });
+  await assert.rejects(api.closeReturn('JO-R1', t1, true, '', { by: 'AHBA_QA02', role: 'inspector' }), /QA Head, or the inspector who returned/);   // unrelated inspector
+  await assert.rejects(api.closeReturn('JO-R1', '2026-10-08T01:59:00.000Z', true, '', { by: 'HEAD' }), /RETURN_TOKEN_MISMATCH/);   // stale token
+  await assert.rejects(api.closeReturn('JO-R1', t1, false, '  ', { by: 'AHBA_QA01', role: 'inspector' }), /Remarks required/);
+  // return again (the photo is still wrong) → new cycle, new token, team must redo
+  t = new Date('2026-10-08T05:00:00Z');
+  const r2 = await api.closeReturn('JO-R1', t1, false, 'still blurry — retake in daylight', { by: 'AHBA_QA01', role: 'inspector' });
+  assert.equal(r2.status, 'in-progress'); assert.equal(r2.qa_return_submitted_at, null); assert.equal(r2.qa_return_resolved_at, null);
+  assert.equal(r2.qa_returned_at, t.toISOString()); assert.notEqual(r2.qa_returned_at, t1); assert.equal(r2.qa_return_remarks, 'still blurry — retake in daylight');
+  assert.equal(r2.qa_status, 'RETURNED TO TEAM');
+  // the old cycle's token can no longer re-submit nor close
+  job(api, 'JO-R1').photos.push({ path: 'r1/nap3.jpg', label: 'NAP', created_at: '2026-10-08T05:30:00Z' });
+  assert.throws(() => api._recompleteReturned('JO-R1', t1, { team: 'AHBA_T01' }), /RETURN_TOKEN_MISMATCH/);
+  await assert.rejects(api.closeReturn('JO-R1', t1, true, '', { by: 'HEAD' }), /RETURN_TOKEN_MISMATCH/);
+  t = new Date('2026-10-08T06:00:00Z'); api._recompleteReturned('JO-R1', r2.qa_returned_at, { team: 'AHBA_T01' });
+  // the head verifies the exact (current) return → resolved, qa_status restored from the audit, completed_at untouched
+  t = new Date('2026-10-08T07:00:00Z');
+  const c = await api.closeReturn('JO-R1', r2.qa_returned_at, true, 'ok now', { by: 'HEAD' });
+  assert.equal(c.qa_return_resolved_at, t.toISOString()); assert.equal(c.qa_return_checked_by, 'HEAD'); assert.equal(c.status, 'completed');
+  assert.equal(c.qa_status, 'ASSIGNED'); assert.equal(c.completed_at, '2026-10-07T05:00:00Z');
+  assert.match(c.history, /✔ Photo replacement verified by QA \(HEAD\) — ok now$/);
+  assert.deepEqual(api._db.log.filter(x => x.audit_id === a.id && /return/.test(x.action)).map(x => x.action), ['job_returned', 'return_submitted', 'job_returned', 'return_submitted', 'return_closed']);
+  await assert.rejects(api.closeReturn('JO-R1', r2.qa_returned_at, true, '', { by: 'HEAD' }), /NOT_RETURNED/);   // closed = nothing open
+  // a JO with NO job-linked audit: the close clears the return state instead of syncing an audit
+  const b = api._completeJob(rjJob({ id: 'JO-R5', job_order_no: 'R9100005', ibass_acct_no: '1000000000105' }));
+  const r5 = await api.returnJobForPhotos('JO-R5', 'NIU photo blurred', { by: 'HEAD' });
+  job(api, 'JO-R5').photos = [{ path: 'r5/niu.jpg', label: 'NIU', created_at: '2026-10-08T08:00:00Z' }];
+  api._recompleteReturned('JO-R5', r5.qa_returned_at, { team: 'AHBA_T01' });
+  api._db.audits.find(x => x.id === b.id).job_id = null;   // simulate an audit matched by JO no only
+  const c5 = await api.closeReturn('JO-R5', r5.qa_returned_at, true, '', { by: 'HEAD' });
+  assert.equal(c5.qa_status, null); assert.equal(c5.qa_return_resolved_at, t.toISOString());
+});
+
+test('Gate B: inspector scope on the return itself — only the inspector holding the audit (or the head) may return; listReturnedJobs worklist order', async () => {
+  let t = new Date('2026-10-08T02:00:00Z'); const api = Sim.create({ now: () => t, seed: RJ_SEED() });
+  const a = api._completeJob(rjJob());
+  api._completeJob(rjJob({ id: 'JO-R7', job_order_no: 'R9100007', ibass_acct_no: '1000000000107', assigned_org_code: 'AHBA' }));
+  await api.assignAudits([a.id], { inspector: 'AHBA_QA01', date: '2026-10-08', by: 'HEAD' });
+  await assert.rejects(api.returnJobForPhotos('JO-R1', 'x', { by: 'AHBA_QA02', role: 'inspector' }), /QA Head, or the inspector assigned/);
+  await assert.rejects(api.returnJobForPhotos('JO-R7', 'x', { by: 'AHBA_QA01', role: 'inspector' }), /QA Head, or the inspector assigned/);   // its audit is unassigned
+  const r1 = await api.returnJobForPhotos('JO-R1', 'photo A', { by: 'AHBA_QA01', role: 'inspector' });
+  t = new Date('2026-10-08T03:00:00Z');
+  const r7 = await api.returnJobForPhotos('JO-R7', 'photo B', { by: 'HEAD' });
+  assert.deepEqual((await api.listReturnedJobs()).map(x => x.id), ['JO-R1', 'JO-R7']);   // oldest first
+  job(api, 'JO-R7').photos = [{ path: 'r7/b.jpg', label: 'B', created_at: '2026-10-08T04:00:00Z' }];
+  t = new Date('2026-10-08T04:30:00Z'); api._recompleteReturned('JO-R7', r7.qa_returned_at, { team: 'AHBA_T01' });
+  const l = await api.listReturnedJobs();
+  assert.deepEqual(l.map(x => x.id), ['JO-R7', 'JO-R1']);   // re-submitted (waiting for the reviewer) first
+  assert.deepEqual(Object.keys(l[0]).sort(), ['id', 'job_order_no', 'qa_return_remarks', 'qa_return_submitted_at', 'qa_returned_at', 'qa_returned_by', 'status', 'subscriber', 'team']);
+  assert.equal(l[0].qa_return_submitted_at, '2026-10-08T04:30:00.000Z'); assert.equal(l[1].qa_return_submitted_at, null); assert.equal(r1.qa_returned_at, l[1].qa_returned_at);
+});
+
+test('return JO: completed_at is unchanged by the return, the re-submit and the close', async () => {
+  let t = new Date('2026-10-08T02:00:00Z'); const api = Sim.create({ now: () => t, seed: RJ_SEED() });
+  api._completeJob(rjJob());
+  const r = await api.returnJobForPhotos('JO-R1', 'Replace the modem photo', { by: 'AHBA_QA01' });
+  assert.equal(job(api, 'JO-R1').completed_at, '2026-10-07T05:00:00Z');
+  job(api, 'JO-R1').photos = [{ path: 'r1/m.jpg', label: 'Modem', created_at: '2026-10-08T03:00:00Z' }];
+  t = new Date('2026-10-08T06:30:00Z');
+  api._recompleteReturned('JO-R1', r.qa_returned_at, { team: 'AHBA_T01' });
+  assert.equal(job(api, 'JO-R1').completed_at, '2026-10-07T05:00:00Z');   // the original completion date stands
+  t = new Date('2026-10-08T07:30:00Z');
+  await api.closeReturn('JO-R1', r.qa_returned_at, true, '', { by: 'HEAD' });
+  assert.equal(job(api, 'JO-R1').completed_at, '2026-10-07T05:00:00Z'); assert.equal(job(api, 'JO-R1').qa_return_resolved_at, t.toISOString());
+});
+
+test('return JO: jobReturnStatus shape; subcon-mode sim denies the return methods', async () => {
+  const t = new Date('2026-10-08T02:00:00Z'); const api = Sim.create({ now: () => t, seed: RJ_SEED() });
+  api._completeJob(rjJob());
+  assert.deepEqual(await api.jobReturnStatus('JO-R1'), { status: 'completed', team: 'AHBA_T01', qa_return_remarks: null, qa_returned_at: null, qa_returned_by: null, qa_return_resolved_at: null, qa_return_submitted_at: null, qa_return_checked_by: null });
+  await api.returnJobForPhotos('JO-R1', 'Speedtest photo', { by: 'AHBA_QA01' });
+  assert.deepEqual(await api.jobReturnStatus('JO-R1'), { status: 'in-progress', team: 'AHBA_T01', qa_return_remarks: 'Speedtest photo', qa_returned_at: t.toISOString(), qa_returned_by: 'AHBA_QA01', qa_return_resolved_at: null, qa_return_submitted_at: null, qa_return_checked_by: null });
+  assert.equal(await api.jobReturnStatus('NOPE'), null);
+  const sub = Sim.create({ org: 'ORG-J2', db: api._db });
+  await assert.rejects(sub.returnJobForPhotos('JO-R1', 'x'), /Not allowed/);
+  await assert.rejects(sub.jobReturnStatus('JO-R1'), /Not allowed/);
+  await assert.rejects(sub.closeReturn('JO-R1', t.toISOString(), true), /Not allowed/);
+  await assert.rejects(sub.listReturnedJobs(), /Not allowed/);
 });

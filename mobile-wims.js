@@ -182,6 +182,9 @@
     slots.forEach(function(slot){
       if(slot.getAttribute('data-mounted')==='1' && slot.innerHTML) return; // keep user input across re-renders
       var jid=slot.getAttribute('data-wjob'); var s=st(jid);
+      // ↩ Phase 1 (owner 2026-10-09): ibinalik ng QA = PICTURE LANG ang papalitan. Walang WIMS form — ipinapakita ang
+      // naka-file na declaration (read-only) o ang katayuan nito; ang server din ang humaharang sa panibagong filing.
+      if(slot.getAttribute('data-returned')==='1'){ slot.setAttribute('data-mounted','1'); mountDeclared(slot, jid); return; }
       var iptvn = parseInt(slot.getAttribute('data-iptvn'),10)||0;  // # of IPTV from the JO (2-PLAY add-ons); 0 = 1-PLAY
       var dwellRaw = slot.getAttribute('data-dwell')||'';
       var dw = dwellKey(dwellRaw);
@@ -279,6 +282,33 @@
       if(is2) mountIptv(jid);
     });
   };
+
+  // Read-only declaration card for a returned JO (wims.my_declaration = the team's own filed row, any task).
+  async function mountDeclared(slot, jid){
+    var j=jobOf(jid);
+    slot.innerHTML='<div style="border:1.5px solid #d8dcd9;background:#f5f6f5;border-radius:14px;padding:12px;margin-top:10px"><div style="font-weight:800;font-size:12px;color:#4a5c56">📦 WIMS material report <span style="font-weight:600;color:#8a9a94">· naka-lock habang ibinalik ng QA</span></div><div style="font-size:11px;color:#8a9a94;margin-top:4px">Loading…</div></div>';
+    var d=null, err='';
+    try{
+      var r=await W().schema('wims').rpc('my_declaration',{p_job_id:jid, p_jo:(j&&(j.job_order_no||j.ticket_no))||null});
+      if(r&&r.error) throw r.error;
+      d=(r&&r.data&&r.data[0])||null;
+    }catch(e){ err=/could not find the function|schema cache/i.test(String(e&&e.message||''))?'':(e&&e.message||String(e)); }
+    var body;
+    if(d){
+      var mats=[]; try{ Object.keys(d.materials_used||{}).forEach(function(k){ if(+d.materials_used[k]>0) mats.push(k+' '+d.materials_used[k]); }); }catch(e){}
+      var kit=[]; try{ Object.keys(d.kit_used||{}).forEach(function(k){ if(+d.kit_used[k]>0) kit.push(k+' '+d.kit_used[k]); }); }catch(e){}
+      body='<div style="font-size:12px;color:#1f2f2a;margin-top:6px"><b>✔ Naka-file na</b>'+(d.completed_at?' · '+new Date(d.completed_at).toLocaleString('en-PH',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'')+(d.task&&d.task!=='install'?' · '+d.task:'')+'</div>'+
+        '<div style="font-size:11.5px;color:#4a5c56;margin-top:3px">Modem: <b class="tnum">'+(d.modem_serial||'—')+'</b>'+(d.iptv_serial?' · IPTV <b class="tnum">'+d.iptv_serial+'</b>':'')+'</div>'+
+        (kit.length?'<div style="font-size:11px;color:#4a5c56">Kit: '+kit.join(', ')+'</div>':'')+(mats.length?'<div style="font-size:11px;color:#4a5c56">Materials: '+mats.join(', ')+'</div>':'')+
+        (d.quarantined?'<div style="font-size:10.5px;color:#a4690f;margin-top:4px">⚠ Nasa warehouse reconciliation ang declaration na ito.</div>':'')+
+        '<div style="font-size:10.5px;color:#8a9a94;margin-top:6px">Rehistrado na ang gamit ng JO na ito. Hindi ito mababago dito — picture lang ang papalitan, tapos pindutin ang Re-complete.</div>';
+    } else if(err){
+      body='<div style="font-size:11px;color:#c2503a;margin-top:6px">Hindi mabasa ang declaration: '+err+'</div><div style="font-size:10.5px;color:#8a9a94;margin-top:4px">Picture lang ang papalitan; walang bagong WIMS entry habang ibinalik ng QA.</div>';
+    } else {
+      body='<div style="font-size:11.5px;color:#4a5c56;margin-top:6px">Walang nakitang naka-file na WIMS report para sa JO na ito'+(navigator.onLine?'':' (offline)')+'.</div><div style="font-size:10.5px;color:#8a9a94;margin-top:4px">Kung may naka-queue pang report, maipapadala ito automatic. Walang bagong WIMS entry habang ibinalik ng QA — ipaalam sa warehouse kung talagang walang declaration.</div>';
+    }
+    slot.innerHTML='<div style="border:1.5px solid #d8dcd9;background:#f5f6f5;border-radius:14px;padding:12px;margin-top:10px"><div style="font-weight:800;font-size:12px;color:#4a5c56">📦 WIMS material report <span style="font-weight:600;color:#8a9a94">· naka-lock habang ibinalik ng QA</span></div>'+body+'</div>';
+  }
 
   // keep selections in wState so re-renders never lose them
   document.addEventListener('change', function(e){
@@ -392,24 +422,40 @@
   }
   function qAll(){ try{ return JSON.parse(localStorage.getItem(WQKEY)||'[]')||[]; }catch(e){ return []; } }
   function qSave(a){ try{ localStorage.setItem(WQKEY, JSON.stringify(a.slice(0,50))); }catch(e){} }
+  // Phase 1 (2026-10-09, Codex F7): bawat item ay may sariling id + may-ari (auth uid / username). Ang flush ay nag-aalis LANG ng
+  // item na KUMPIRMADONG natapos (by id, mula sa PINAKABAGONG queue) — dating isinusulat ang buong snapshot pabalik, kaya ang
+  // report na na-enqueue HABANG nagfa-flush ay tahimik na nawawala. Items ng ibang login sa parehong phone = hawak, hindi ire-replay.
+  var _wUid='';
+  try{ W().auth.onAuthStateChange(function(_e,s){ _wUid=(s&&s.user&&s.user.id)||''; }); W().auth.getSession().then(function(r){ var s=r&&r.data&&r.data.session; if(s&&s.user) _wUid=s.user.id; }).catch(function(){}); }catch(e){}
+  function _wOwner(){ var u=''; try{ u=(typeof myTeam!=='undefined'&&myTeam)||''; }catch(e){} return _wUid||(u?('u:'+u):''); }
+  function _wMine(it){ if(!it) return false; if(!it.owner) return true;   // legacy item (bago ang Phase 1) — iisang login lang ang phone noon
+    var u=''; try{ u=(typeof myTeam!=='undefined'&&myTeam)||''; }catch(e){}
+    return (_wUid&&it.owner===_wUid)||(u&&(it.owner===('u:'+u)||it.ouser===u)); }
+  function qDrop(qid){ qSave(qAll().filter(function(x){ return x.qid!==qid; })); }
+  function isDeclaredAlready(e){ return /^DECLARED_ALREADY/.test(String(e&&e.message||'')); }
   var flushing=false;
   async function flushWims(){
     var a=qAll(); if(flushing||!a.length) return; flushing=true;
     try{
-      var keep=[];
       for(var i=0;i<a.length;i++){
-        var it=a[i];
+        var it=a[i]; if(!it||!it.qid){ it=it||{}; it.qid=it.qid||('legacy_'+i); }
+        if(!_wMine(it)) continue;                       // sa ibang login — hawak lang
         try{
           var r=await W().schema('wims').rpc(it.rpc, it.args);
+          if(r&&r.error&&/could not find the function|schema cache/i.test(String(r.error.message||''))&&it.args&&('p_job_id' in it.args)){
+            var a2={}; Object.keys(it.args).forEach(function(k){ if(k!=='p_job_id') a2[k]=it.args[k]; });   // LUMA pa ang backend
+            r=await W().schema('wims').rpc(it.rpc, a2);
+          }
           if(r&&r.error) throw r.error;
-          cpeCache=null;
+          cpeCache=null; qDrop(it.qid);
           say('📦 Queued WIMS report filed — JO '+(it.jo||'?'));
         }catch(e){
-          if(isNetErr(e)) keep.push(it);               // offline pa rin — susubukan ulit
+          if(isNetErr(e)) continue;                      // offline pa rin — mananatili, susubukan ulit
+          qDrop(it.qid);
+          if(isDeclaredAlready(e)) say('⚠ JO '+(it.jo||'?')+': may WIMS declaration NA ang JO na ito — hindi binago ang inventory. '+(e.message||''));
           else say('⚠ WIMS report for JO '+(it.jo||'?')+' FAILED: '+(e.message||e)+' — ipaalam sa warehouse');
         }
       }
-      qSave(keep);
     }finally{ flushing=false; }
   }
   try{ window.addEventListener('online', function(){ setTimeout(flushWims, 2000); }); }catch(e){}
@@ -438,6 +484,7 @@
         var twa=''; try{ twa=(typeof shiftAccount!=='undefined'?shiftAccount:'')||''; }catch(e){ twa=''; }
         var targs={
           p_jo: (job&&(job.job_order_no||job.ticket_no))||jobId,
+          p_job_id: jobId,   // Phase 1: canonical public.jobs.id — one declaration per job (server resolves the JO no when absent)
           p_subscriber: (job&&job.subscriber)||'',
           p_account: (job&&job.ibass_acct_no)||'',
           p_work_account: twa,
@@ -457,7 +504,11 @@
         };
         _rpc='ticket_usage'; _args=targs; _jo=targs.p_jo;
         var tr=await W().schema('wims').rpc('ticket_usage',targs);
-        // fallback: LUMA pa ang backend (walang pulled params) → alisin at subukan ulit
+        // fallback: LUMA pa ang backend (walang p_job_id / pulled params) → alisin at subukan ulit
+        if(tr&&tr.error&&/could not find the function|schema cache/i.test(String(tr.error.message||''))){
+          delete targs.p_job_id;
+          tr=await W().schema('wims').rpc('ticket_usage',targs);
+        }
         if(tr&&tr.error&&/could not find the function|schema cache/i.test(String(tr.error.message||''))){
           delete targs.p_pulled_serials; delete targs.p_pulled_note;
           tr=await W().schema('wims').rpc('ticket_usage',targs);
@@ -488,6 +539,7 @@
       var wa=''; try{ wa=(typeof shiftAccount!=='undefined'?shiftAccount:'')||''; }catch(e){ wa=''; }
       var args={
         p_jo: (job&&job.job_order_no)||jobId,
+        p_job_id: jobId,   // Phase 1: canonical public.jobs.id — one declaration per job
         p_subscriber: (job&&job.subscriber)||'',
         p_account: (job&&(job.ibass_acct_no||job.account_no||job.account))||'',
         p_work_account: wa,
@@ -505,7 +557,11 @@
       };
       _rpc='complete_install'; _args=args; _jo=args.p_jo;
       var r=await W().schema('wims').rpc('complete_install',args);
-      // fallback: kung LUMA pa ang backend (walang FOC params), subukan ang legacy signature
+      // fallback: kung LUMA pa ang backend (walang p_job_id / FOC params), subukan ang legacy signature
+      if(r&&r.error&&/could not find the function|schema cache/i.test(String(r.error.message||''))){
+        delete args.p_job_id;
+        r=await W().schema('wims').rpc('complete_install',args);
+      }
       if(r&&r.error&&/could not find the function|schema cache/i.test(String(r.error.message||''))){
         // legacy backend fallback: 14 → 12 → 9 params
         delete args.p_kit_remarks;
@@ -530,6 +586,9 @@
       return null;
     }catch(e){
       try{console.warn('wimsSubmit',e);}catch(_){ }
+      // Phase 1: may declaration NA ang JO (server guard). Hindi na-file ang bagong entries at walang nabawas sa stock —
+      // ipaalam nang malinaw, pero HUWAG ipitin ang completion (rehistrado na ang gamit ng JO).
+      if(isDeclaredAlready(e)){ say('⚠ '+(e.message||'May WIMS declaration na ang JO na ito — hindi binago ang inventory.')); return null; }
       // NETWORK/JWT lang ang dahilan → i-QUEUE at payagan ang completion
       // (ang jobs patch mismo ay naka-offline-queue rin, magkasabay silang aabot)
       if(_rpc && isNetErr(e)){
@@ -540,7 +599,7 @@
         if(q.length>=50){
           return '⚠ WIMS offline queue is full (50 pending reports) — this report was NOT queued. Please reconnect or contact the warehouse.';
         }
-        q.push({rpc:_rpc,args:_args,jo:_jo,ts:Date.now()}); qSave(q);
+        q.push({qid:Date.now()+'_'+Math.random().toString(36).slice(2,6),rpc:_rpc,args:_args,jo:_jo,job:jobId,ts:Date.now(),owner:_wOwner(),ouser:(function(){ try{ return myTeam||''; }catch(e){ return ''; } })()}); qSave(q);
         say('📴 Walang signal — WIMS report QUEUED, isesend automatic kapag online na');
         return null;
       }

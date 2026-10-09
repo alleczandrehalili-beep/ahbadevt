@@ -367,33 +367,47 @@
       api.jobReturnStatus(a.job_id).then(function (st) { if (state.destroyed || state.open !== a) return; state.ret = { job: a.job_id, st: st || {} }; renderRet(a, state.ret.st); })
         .catch(function () { var el = $('#qaRet'); if (el && state.open === a) el.innerHTML = '<span class="qa-pend">JO return status unavailable.</span>'; });
     }
+    // qa-05h + qa-06 Gate B. States: open & not re-submitted → amber (waiting for the team) · open & re-submitted → FOR QA CHECK with
+    // ✔ Verify / ↩ Not fixed (the inspector who returned it, or who holds the audit) · resolved → green. The token is st.qa_returned_at
+    // exactly as returned by PostgREST (a newer return = a newer token → RETURN_TOKEN_MISMATCH on a stale sheet).
     function renderRet(a, st) {
       var el = $('#qaRet'); if (!el) return;
-      var draft = (state.retDraft && state.retDraft.job === a.job_id) ? state.retDraft : (state.retDraft = { job: a.job_id, open: false, text: '' });
-      var line = (st.qa_returned_at && !st.qa_return_resolved_at) ? '<div class="qa-retline warn">↩ Returned to ' + esc(st.team || '—') + ' on ' + fmtDate(st.qa_returned_at) + ' by ' + esc(st.qa_returned_by || '—') + ': ' + esc(st.qa_return_remarks || '') + '</div>'
-        : st.qa_return_resolved_at ? '<div class="qa-retline ok">Photo replaced by team on ' + fmtDate(st.qa_return_resolved_at) + '</div>' : '';
-      var can = st.status === 'completed', busy = state.retBusy === a.job_id;   // a send in flight survives the form's re-renders
-      el.innerHTML = line + '<button class="qa-btn warn" id="qaRetBtn" type="button"' + (can ? '' : ' disabled') + '>↩ Return to team (replace photo)</button>' +
-        (can ? '' : '<div class="qa-pend">Only a completed JO can be returned' + (st.status ? ' (JO is ' + esc(st.status) + ')' : '') + '.</div>') +
-        '<div id="qaRetBox" style="' + (can && draft.open ? '' : 'display:none;') + 'margin-top:6px"><div class="qa-field"><label>Which photo must the team replace? * (the team sees this)</label><textarea id="f_retremarks" rows="2">' + esc(draft.text) + '</textarea></div><button class="qa-btn" id="qaRetSend" type="button"' + (busy ? ' disabled' : '') + '>' + (busy ? 'Sending…' : 'Send back') + '</button></div>';
-      var btn = $('#qaRetBtn'), box = $('#qaRetBox'), ta = $('#f_retremarks'), send = $('#qaRetSend');
-      btn.onclick = function () { if (btn.disabled) return; draft.open = !draft.open; box.style.display = draft.open ? '' : 'none'; if (draft.open) ta.focus(); };
+      var draft = (state.retDraft && state.retDraft.job === a.job_id) ? state.retDraft : (state.retDraft = { job: a.job_id, open: false, text: '', again: false });
+      var open = st.qa_returned_at && !st.qa_return_resolved_at, sub = open && st.qa_return_submitted_at;
+      var line = sub ? '<div class="qa-retline warn" style="background:#e8f1fb;color:#1d4f8a;border-color:#bcd3ee">📸 FOR QA CHECK — ' + esc(st.team || '—') + ' re-submitted on ' + fmtDate(st.qa_return_submitted_at) + ' (returned ' + fmtDate(st.qa_returned_at) + ': ' + esc(st.qa_return_remarks || '') + ')</div>'
+        : open ? '<div class="qa-retline warn">↩ Returned to ' + esc(st.team || '—') + ' on ' + fmtDate(st.qa_returned_at) + ' by ' + esc(st.qa_returned_by || '—') + ': ' + esc(st.qa_return_remarks || '') + ' — waiting for the team</div>'
+        : st.qa_return_resolved_at ? '<div class="qa-retline ok">✔ Photo replacement verified by ' + esc(st.qa_return_checked_by || 'QA') + ' on ' + fmtDate(st.qa_return_resolved_at) + '</div>' : '';
+      var can = !open && st.status === 'completed', busy = state.retBusy === a.job_id;   // a send in flight survives the form's re-renders
+      el.innerHTML = line +
+        (sub ? '<button class="qa-btn" id="qaRetOk" type="button"' + (busy ? ' disabled' : '') + '>✔ Verify — photo replaced</button> <button class="qa-btn warn" id="qaRetBtn" type="button"' + (busy ? ' disabled' : '') + '>↩ Not fixed — return again</button>' : '') +
+        (!open ? '<button class="qa-btn warn" id="qaRetBtn" type="button"' + (can ? '' : ' disabled') + '>↩ Return to team (replace photo)</button>' + (can ? '' : '<div class="qa-pend">Only a completed JO can be returned' + (st.status ? ' (JO is ' + esc(st.status) + ')' : '') + '.</div>') : '') +
+        (open && !sub ? '<div class="qa-pend">The team has not re-submitted the photo yet.</div>' : '') +
+        '<div id="qaRetBox" style="' + ((can || sub) && draft.open ? '' : 'display:none;') + 'margin-top:6px"><div class="qa-field"><label>' + (sub ? 'What is still wrong with the photo? * (the team sees this)' : 'Which photo must the team replace? * (the team sees this)') + '</label><textarea id="f_retremarks" rows="2">' + esc(draft.text) + '</textarea></div><button class="qa-btn" id="qaRetSend" type="button"' + (busy ? ' disabled' : '') + '>' + (busy ? 'Sending…' : (sub ? 'Return again' : 'Send back')) + '</button></div>';
+      var btn = $('#qaRetBtn'), box = $('#qaRetBox'), ta = $('#f_retremarks'), send = $('#qaRetSend'), okb = $('#qaRetOk');
+      if (btn) btn.onclick = function () { if (btn.disabled) return; draft.open = !draft.open; box.style.display = draft.open ? '' : 'none'; if (draft.open) ta.focus(); };
       ta.oninput = function () { draft.text = ta.value; };
+      function finish(job, msg) {
+        state.retBusy = null; toast(msg);
+        if (!state.destroyed && state.open === a) { state.retDraft = null; state.ret = null; loadRet(a); }   // never wipe another sheet's state
+      }
+      function fail(e) { state.retBusy = null; toast('Failed: ' + e.message); if (!state.destroyed && state.open === a) renderRet(a, state.ret && state.ret.job === a.job_id ? state.ret.st : st); }
+      if (okb) okb.onclick = function () {
+        if (state.retBusy) return;
+        if (!confirm('Verify: the requested photo was replaced correctly? This closes the return.')) return;
+        state.retBusy = a.job_id; okb.disabled = true; okb.textContent = 'Closing…';
+        api.closeReturn(a.job_id, st.qa_returned_at, true, '').then(function (job) { finish(job, 'Return closed — photo replacement verified'); }).catch(fail);
+      };
       send.onclick = function () {
         var remarks = (ta.value || '').trim();
         if (state.retBusy) return;
-        if (!remarks) { toast('Remarks required (which photo to replace)'); ta.focus(); return; }
+        if (!remarks) { toast(sub ? 'Remarks required (what is still wrong with the photo)' : 'Remarks required (which photo to replace)'); ta.focus(); return; }
         state.retBusy = a.job_id; send.disabled = true; send.textContent = 'Sending…';
-        api.returnJobForPhotos(a.job_id, remarks).then(function (job) {
-          state.retBusy = null;
+        var p = sub ? api.closeReturn(a.job_id, st.qa_returned_at, false, remarks) : api.returnJobForPhotos(a.job_id, remarks);
+        p.then(function (job) {
           var team = (job && job.team) || st.team || '';
-          toast('JO returned to ' + (team || 'the team'));
-          try { if (deps.pushNotify && team) deps.pushNotify({ team: team, title: '↩ JO returned by QA', body: remarks.slice(0, 120), url: 'mobile.html' }); } catch (e) { }
-          if (!state.destroyed && state.open === a) { state.retDraft = null; state.ret = null; loadRet(a); }   // never wipe another sheet's state
-        }).catch(function (e) {
-          state.retBusy = null; toast('Failed: ' + e.message);
-          if (!state.destroyed && state.open === a) renderRet(a, state.ret && state.ret.job === a.job_id ? state.ret.st : st);   // re-enable on the live DOM, not a stale node
-        });
+          try { if (deps.pushNotify && team) deps.pushNotify({ team: team, title: sub ? '↩ JO returned again by QA' : '↩ JO returned by QA', body: remarks.slice(0, 120), url: 'mobile.html' }); } catch (e) { }
+          finish(job, 'JO returned to ' + (team || 'the team'));
+        }).catch(fail);
       };
     }
 

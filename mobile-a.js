@@ -157,7 +157,7 @@
     // P5 (owner 2026-10-08): `pre` = LAST SERVER-CONFIRMED state (status/team) na nakunan
     // BAGO ang optimistic mutation ng aksyon — nagiging replay precondition para hindi
     // mapatungan ng lumang queued write ang mas bagong dispatch state ng office.
-    function enqueueWrite(table, op, match, payload, pre){ const q=syncQLoad(); q.push({qid:Date.now()+'_'+Math.random().toString(36).slice(2,6), table, op, match, payload, attempts:0, at:Date.now(), owner:_qOwner(), ouser:myTeam||'', pre:pre||null}); syncQSave(q); }
+    function enqueueWrite(table, op, match, payload, pre, schema){ const q=syncQLoad(); q.push({qid:Date.now()+'_'+Math.random().toString(36).slice(2,6), table, op, match, payload, attempts:0, at:Date.now(), owner:_qOwner(), ouser:myTeam||'', pre:pre||null, schema:schema||null}); syncQSave(q); }
     function enqueueJob(id, patch){ enqueueWrite('jobs','update',{id}, patch); }
     // (P2) Structured status/code muna bago ang anumang hula: alin ang sulit i-retry?
     function _classifyErr(error, status){
@@ -171,6 +171,7 @@
       return 'transient';                          // walang structured code/status → network/offline/timeout
     }
     function _opLabel(table,op,match){
+      if(op==='rpc'&&match&&match.id) return 'Re-complete of '+match.id;
       if(table==='jobs'&&match&&match.id) return 'Change to '+match.id;
       if(table==='attendance') return 'Attendance update';
       if(table==='gate_logs') return 'Gate log';
@@ -181,6 +182,12 @@
       const table=item.table||'jobs', op=item.op||'update', match=item.match||{id:item.id}, payload=item.payload||item.patch;
       if(op==='insert'){
         const r=await sb.from(table).insert(payload);
+        return r.error?{ok:false,kind:_classifyErr(r.error,r.status)}:{ok:true};
+      }
+      // Phase 1 (2026-10-09): queued RPC (e.g. qa.recomplete_returned_job on a returned JO) — `table` = function name, item.schema = schema.
+      // Idempotent on the server for the same return token; a token/lock error is a deterministic server answer → permanent.
+      if(op==='rpc'){
+        const r=await sb.schema(item.schema||'public').rpc(table, payload);
         return r.error?{ok:false,kind:_classifyErr(r.error,r.status)}:{ok:true};
       }
       let q=sb.from(table).update(payload); for(const k in match) q=q.eq(k, match[k]);
@@ -200,13 +207,14 @@
     // Try a write now. Transient failure → queue (never lost). Permanent/0-row → TAHASANG
     // bigo, HINDI ipi-pila ang walang pag-asa. Never throws; parehong true/false pa rin
     // ang nakikita ng lahat ng caller.
-    async function saveWrite(table, op, match, payload, pre){
+    async function saveWrite(table, op, match, payload, pre, schema){
       saveWrite.queued=false;   // itinatakda bawat tawag: na-pila ba ang failure na ito?
+      saveWrite.lastError=null;
       // P5: ang IMMEDIATE first attempt ay WALANG pre filters (online at sariwa ang state);
       // ang `pre` ay itinatatak LANG sa queued item para sa replay preconditions.
-      let v; try{ v=await _applyItem({table,op,match,payload}); }catch(e){ v={ok:false,kind:'transient'}; }
+      let v; try{ v=await _applyItem({table,op,match,payload,schema}); }catch(e){ v={ok:false,kind:'transient'}; }
       if(v.ok||v.kind==='duplicate') return true;   // duplicate = pinatunayan ng server na naisulat na — success iyon
-      if(v.kind==='transient'){ enqueueWrite(table,op,match,payload,pre); saveWrite.queued=true; return false; }
+      if(v.kind==='transient'){ enqueueWrite(table,op,match,payload,pre,schema); saveWrite.queued=true; return false; }
       // Permanent/0-row sa UNANG attempt: sabihin agad ang totoo (2B). Ang mga caller ay
       // naka-guard na sa saveWrite.queued kaya WALANG "will sync" na lalabas dito kahit saglit.
       const msg='❌ '+_opLabel(table,op,match)+' was NOT saved — '+(v.kind==='zero'?'the record was not found or is no longer editable':'the server rejected it')+'. Please review and redo it.';

@@ -162,7 +162,13 @@
       // ----- return JO to the team for photo replacement (qa-05h) -----
       // security definer RPC: head or inspector only, remarks required, JO must be completed with a team → JO back to in-progress.
       returnJobForPhotos: function (jobId, remarks, o) { return rpc('return_job_for_photos', { p_job_id: jobId, p_remarks: remarks }); },
-      jobReturnStatus: function (jobId) { return unwrap(client.from('jobs').select('status,team,qa_return_remarks,qa_returned_at,qa_returned_by,qa_return_resolved_at').eq('id', jobId).maybeSingle()); },
+      jobReturnStatus: function (jobId) { return unwrap(client.from('jobs').select('status,team,qa_return_remarks,qa_returned_at,qa_returned_by,qa_return_resolved_at,qa_return_submitted_at,qa_return_checked_by').eq('id', jobId).maybeSingle()); },
+      // qa-06 Gate B — the token is the qa_returned_at STRING exactly as PostgREST returned it (never a Date: microseconds would be lost)
+      closeReturn: function (jobId, expectedReturnedAt, ok, note) { return rpc('close_return', { p_job_id: jobId, p_expected_returned_at: expectedReturnedAt, p_ok: !!ok, p_note: note == null ? null : String(note) }); },
+      listReturnedJobs: function () {
+        return unwrap(client.from('jobs').select('id,job_order_no,subscriber,team,status,qa_return_remarks,qa_returned_at,qa_returned_by,qa_return_submitted_at')
+          .not('qa_returned_at', 'is', null).is('qa_return_resolved_at', null).is('deleted_at', null).order('qa_return_submitted_at', { ascending: false, nullsFirst: false }).order('qa_returned_at', { ascending: true }).limit(500));
+      },
       photoUrl: function (path) { return unwrap(client.storage.from(BUCKET).createSignedUrl(path, 3600)).then(function (d) { return (d && d.signedUrl) || ''; }); }
     };
     return api;
