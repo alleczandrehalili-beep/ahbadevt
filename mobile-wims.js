@@ -421,8 +421,24 @@
     if(c) return false;                                // may server code = validation, hindi network
     return /fetch|network|timeout|abort|load failed|connection|offline/i.test(String(e.message||e));
   }
+  var QMAX=50;
   function qAll(){ try{ return JSON.parse(localStorage.getItem(WQKEY)||'[]')||[]; }catch(e){ return []; } }
-  function qSave(a){ try{ localStorage.setItem(WQKEY, JSON.stringify(a.slice(0,50))); }catch(e){} }
+  // NEVER truncates: every record that is in the queue stays; capacity is enforced where a record is ADDED (qPut) and the write is
+  // verified by reading it back, so a caller knows whether its report is durable on this phone.
+  function qSave(a){ try{ localStorage.setItem(WQKEY, JSON.stringify(a)); return true; }catch(e){ return false; } }
+  function qPut(item){
+    try{
+      var q=qAll(); if(q.length>=QMAX) return false;
+      q.push(item); if(!qSave(q)) return false;
+      return qAll().some(function(x){ return x.qid===item.qid; });
+    }catch(e){ return false; }
+  }
+  // Cross-tab serialization: the Web Locks API when the browser has it (Chrome / Android WebView do), otherwise run inline
+  // (the per-record claim below still guards two timers in one tab). Server idempotency is the final protection either way.
+  function withQueueLock(fn){
+    try{ if(navigator.locks&&navigator.locks.request) return navigator.locks.request('wims_pending_v1', fn); }catch(e){}
+    return Promise.resolve().then(fn);
+  }
   // Phase 1 (2026-10-09, Codex F7): bawat item ay may sariling id + may-ari (auth uid / username). Ang flush ay nag-aalis LANG ng
   // item na KUMPIRMADONG natapos (by id, mula sa PINAKABAGONG queue) — dating isinusulat ang buong snapshot pabalik, kaya ang
   // report na na-enqueue HABANG nagfa-flush ay tahimik na nawawala. Items ng ibang login sa parehong phone = hawak, hindi ire-replay.
@@ -477,7 +493,8 @@
   // Hinahawakan (hindi tinatapon) ang report na tinanggihan ng server (validation) o may CONFLICT sa naka-file nang declaration:
   // nakikita sa ⚠ banner / wimsHeldReports() at maaaring i-retry; ang NETWORK/session error ay nananatili at inuulit; ang
   // tagumpay lang ang tinatanggal — by id, mula sa PINAKABAGONG queue. Hindi nagre-replay nang walang naka-sign-in na session.
-  async function flushWims(){
+  async function flushWims(){ if(flushing) return; return withQueueLock(flushInner); }
+  async function flushInner(){
     if(flushing) return; var ids=hydrateQueue(); if(!ids.length) return; flushing=true;
     try{
       var sess=null; try{ var sr=await W().auth.getSession(); sess=sr&&sr.data&&sr.data.session; }catch(e){ sess=null; }
@@ -540,21 +557,24 @@
   // outcome ng interactive filing: filed/replay → ok; conflict → HOLD (may-ari, nakikita sa banner) at durable na babala, pero
   // tuloy ang completion (rehistrado na ang gamit ng JO sa orihinal na declaration — nasa warehouse review ang bagong entries)
   window.wimsLastOutcome=null;
-  function holdInteractive(jobId, rpc, args, jo, kind, msg){
-    var q=qAll();
-    q.push({qid:Date.now()+'_'+Math.random().toString(36).slice(2,6),rpc:rpc,args:args,jo:jo,job:jobId,ts:Date.now(),owner:_wOwner(),ouser:(function(){ try{ return myTeam||''; }catch(e){ return ''; } })(),held:msg,heldAt:Date.now(),kind:kind});
-    qSave(q); renderHeldBar();
+  // returns true only when the held record is verifiably in storage
+  function holdInteractive(jobId, rpc, args, jo, kind, msg, conflictId){
+    var ok=qPut({qid:Date.now()+'_'+Math.random().toString(36).slice(2,6),rpc:rpc,args:args,jo:jo,job:jobId,ts:Date.now(),owner:_wOwner(),ouser:(function(){ try{ return myTeam||''; }catch(e){ return ''; } })(),held:msg,heldAt:Date.now(),kind:kind,conflict_id:conflictId||null});
+    renderHeldBar(); return ok;
   }
-  function outcome(res, jobId, rpc, args, okMsg){
-    window.wimsLastOutcome={status:res.status, message:res.message||'', job:jobId};
+  async function outcome(res, jobId, rpc, args, okMsg){
+    window.wimsLastOutcome={status:res.status, message:res.message||'', job:jobId, conflict_id:res.conflict_id||null};
     if(res.status==='conflict'){
-      holdInteractive(jobId, rpc, args, args.p_jo, 'conflict', res.message||'Conflict with the filed declaration');
-      say('⚠ '+(res.message||'May WIMS declaration NA ang JO na ito — hindi binago ang inventory.')+' Naka-hold ang report (⚠ banner).');
-      return null;
+      var kept=await withQueueLock(function(){ return holdInteractive(jobId, rpc, args, args.p_jo, 'conflict', res.message||'Conflict with the filed declaration', res.conflict_id); });
+      if(kept) say('⚠ '+(res.message||'May WIMS declaration NA ang JO na ito — hindi binago ang inventory.')+' Naka-hold ang report (⚠ banner).');
+      else say('⚠ '+(res.message||'May WIMS declaration NA ang JO na ito.')+' Nasa warehouse review ang bagong entries (server copy'+(res.conflict_id?' '+String(res.conflict_id).slice(0,8):'')+'); hindi na nakasya sa phone queue.');
+      window.wimsLastOutcome.heldLocally=!!kept;
+      return null;   // the server holds the durable copy (conflict row) — completion proceeds
     }
     say(res.status==='replay'?'📦 WIMS report already filed (same report)':okMsg);
     return null;
   }
+  window.wimsSessionFoc=function(){ return focPrev; };   // read-only: what the next JO's START is prefilled from
   window.wimsHeldReports=function(){ return qAll().filter(function(x){ return !!x.held; }); };
   window.wimsReleaseHeld=function(qid){ qPatch(qid, function(x){ delete x.held; delete x.heldAt; delete x.kind; delete x.lock; }); renderHeldBar(); return flushWims(); };
   try{ window.addEventListener('online', function(){ setTimeout(flushWims, 2000); }); }catch(e){}
@@ -605,7 +625,7 @@
         var tres=await fileDeclaration('ticket_usage', targs);
         if(tres.status==='error') throw (tres.error||new Error(tres.message));
         cpeCache=null;
-        return outcome(tres, jobId, 'ticket_usage', targs, '📦 WIMS usage filed — deducted from your inventory');
+        return await outcome(tres, jobId, 'ticket_usage', targs, '📦 WIMS usage filed — deducted from your inventory');
       }
       if(!s || !s.modem) return null;   // nothing reported → skip (gate na ang humaharang sa enrolled)
       var mats={}; Object.keys(s.mats||{}).forEach(function(k){ if(k!=='foc'&&s.mats[k]>0) mats[k]=s.mats[k]; });
@@ -647,28 +667,32 @@
       _rpc='complete_install'; _args=args; _jo=args.p_jo;
       var ires=await fileDeclaration('complete_install', args);
       if(ires.status==='error') throw (ires.error||new Error(ires.message));
-      // chain continuity for the NEXT JO in this session
-      if(hasStart&&hasEnd){
+      // chain continuity for the NEXT JO in this session — from ACCEPTED readings only (filed / replay), never from a conflict
+      if(hasStart&&hasEnd&&(ires.status==='filed'||ires.status==='replay')){
         focPrev={ reel_no:(s.foc2On&&s.foc2Reel)?s.foc2Reel:(s.focReel||null),
                   end_m:(s.foc2On&&!isNaN(parseFloat(s.foc2End)))?parseFloat(s.foc2End):parseFloat(s.focEnd) };
       }
       cpeCache=null;   // installed CPE leaves the issued pool
-      return outcome(ires, jobId, 'complete_install', args, '📦 WIMS material report filed');
+      return await outcome(ires, jobId, 'complete_install', args, '📦 WIMS material report filed');
     }catch(e){
       try{console.warn('wimsSubmit',e);}catch(_){ }
-      // LUMANG backend na nag-raise ng DECLARED_ALREADY (bago ang conflict table): i-hold nang may-ari ang report, payagan ang completion
-      if(isDeclaredAlready(e)){ holdInteractive(jobId, _rpc, _args, _jo, 'conflict', String(e.message||'')); return null; }
+      // LUMANG backend na nag-raise ng DECLARED_ALREADY (walang conflict table sa server): tanging kopya ng report ay ang phone —
+      // kailangang MAISULAT nang tiyak bago payagan ang completion; kung hindi, HARANG na may malinaw na dahilan.
+      if(isDeclaredAlready(e)){
+        var kept=await withQueueLock(function(){ return holdInteractive(jobId, _rpc, _args, _jo, 'conflict', String(e.message||'')); });
+        if(!kept) return '⚠ WIMS: may declaration na ang JO na ito at HINDI maisave sa phone ang bagong report (puno ang WIMS queue — i-review/i-retry ang mga naka-hold na report, o ipaalam sa warehouse) bago i-complete.';
+        return null;
+      }
       // NETWORK/JWT lang ang dahilan → i-QUEUE at payagan ang completion
       // (ang jobs patch mismo ay naka-offline-queue rin, magkasabay silang aabot)
       if(_rpc && isNetErr(e)){
-        var q=qAll();
-        // 4C F4 (owner 2026-10-07): kapag puno na ang offline queue, HUWAG magpanggap na
-        // "QUEUED" — dati, ang slice(0,50) sa qSave ay TAHIMIK na nagtatapon ng bagong
-        // report. Ngayon: tapat na error → hinaharang ng file-first ang completion.
-        if(q.length>=50){
-          return '⚠ WIMS offline queue is full (50 pending reports) — this report was NOT queued. Please reconnect or contact the warehouse.';
+        // 4C F4 (owner 2026-10-07) + Phase 1: kapag puno ang queue O bigo ang pagsulat, HUWAG magpanggap na "QUEUED" —
+        // tapat na error → hinaharang ng file-first ang completion. Ang write ay bineberipika (qPut).
+        var qitem={qid:Date.now()+'_'+Math.random().toString(36).slice(2,6),rpc:_rpc,args:_args,jo:_jo,job:jobId,ts:Date.now(),owner:_wOwner(),ouser:(function(){ try{ return myTeam||''; }catch(e){ return ''; } })()};
+        var put=await withQueueLock(function(){ return qPut(qitem); });
+        if(!put){
+          return '⚠ WIMS offline queue is full or this phone could not save the report ('+QMAX+' max) — this report was NOT queued. Review/retry the held reports (⚠ banner) or contact the warehouse, then try again.';
         }
-        q.push({qid:Date.now()+'_'+Math.random().toString(36).slice(2,6),rpc:_rpc,args:_args,jo:_jo,job:jobId,ts:Date.now(),owner:_wOwner(),ouser:(function(){ try{ return myTeam||''; }catch(e){ return ''; } })()}); qSave(q);
         say('📴 Walang signal — WIMS report QUEUED, isesend automatic kapag online na');
         return null;
       }

@@ -94,7 +94,7 @@ test('changed INTERACTIVE filing on a job that already has its declaration: held
   const r = await b.ctx.window.wimsSubmit('JOB-1', job);
   assert.equal(r, null, 'completion proceeds (the original declaration stands)');
   const held = b.q(); assert.equal(held.length, 1); assert.equal(held[0].kind, 'conflict'); assert.equal(held[0].owner, 'uid-1'); assert.equal(held[0].args.p_modem_serial, 'M2'); assert.equal(held[0].args.p_job_id, 'JOB-1');
-  assert.deepEqual(JSON.parse(JSON.stringify(b.ctx.window.wimsLastOutcome)), { status: 'conflict', message: 'This JO already has a WIMS declaration; your changed entries were recorded', job: 'JOB-1' });
+  assert.deepEqual(JSON.parse(JSON.stringify(b.ctx.window.wimsLastOutcome)), { status: 'conflict', message: 'This JO already has a WIMS declaration; your changed entries were recorded', job: 'JOB-1', conflict_id: 'c-9', heldLocally: true });
   assert.ok(b.dom.els.find(e => e.id === 'wimsHeldBar'));
 });
 
@@ -149,4 +149,63 @@ test('job list column tiers: a server with only the ORIGINAL four return columns
   const tiers = selections.map(c => c.split(',').filter(x => x.startsWith('qa_return')).length);
   assert.deepEqual(tiers, [6, 4], 'tries the six, then keeps the original four');
   assert.equal(loaded[0].qa_returned_at, returned.qa_returned_at, 'the returned JO keeps its return identity');
+});
+
+// ---- Codex round-2 residuals ----
+const fullQueue = (n) => Array.from({ length: n }, (_, i) => ({ qid: 'old-' + i, rpc: 'complete_install', args: { p_jo: 'OLD-' + i }, jo: 'OLD-' + i, ts: i + 1, held: 'existing review', owner: 'uid-1' }));
+const JOB1 = { id: 'J1', job_order_no: 'R1', subscriber: 'S', load_type: 'Install' };
+function selectModem(b, id, serial) { const el = { getAttribute: k => ({ 'data-j': id, 'data-wf': 'modem' })[k], value: serial }; b.listeners['doc:change'][0]({ target: { closest: () => el } }); }
+function change(b, id, field, value) { const el = { getAttribute: k => ({ 'data-j': id, 'data-wf': field })[k], value }; b.listeners['doc:change'][0]({ target: { closest: () => el } }); }
+
+test('full queue (50) + legacy DECLARED_ALREADY: completion is BLOCKED with the reason, the 50 existing records are untouched; at 49 the report is held', async () => {
+  const legacyBackend = (name) => name === 'my_access' ? ok([{ role: 'technician' }]) : name === 'file_declaration' ? missingFn() : err('DECLARED_ALREADY: old backend conflict; new M2 entries NOT filed', 'P0001');
+  const b = boot({ jobs: [JOB1], handler: legacyBackend });
+  b.setQ(fullQueue(50)); selectModem(b, 'J1', 'M2');
+  const r = await b.ctx.window.wimsSubmit('J1', JOB1);
+  assert.match(String(r), /HINDI maisave sa phone/, 'completion must be blocked with the reason');
+  assert.equal(b.q().length, 50); assert.ok(!b.q().some(x => x.job === 'J1'));
+  const b2 = boot({ jobs: [JOB1], handler: legacyBackend });
+  b2.setQ(fullQueue(49)); selectModem(b2, 'J1', 'M2');
+  assert.equal(await b2.ctx.window.wimsSubmit('J1', JOB1), null, 'at 49 the conflicting report is held and completion proceeds');
+  assert.equal(b2.q().length, 50); assert.ok(b2.q().some(x => x.job === 'J1' && x.kind === 'conflict'));
+});
+
+test('full queue (50) + wrapper conflict: completion proceeds (the server holds the conflict copy) and the user is told it did not fit locally', async () => {
+  const b = boot({ jobs: [JOB1], handler: name => name === 'my_access' ? ok([{ role: 'technician' }]) : ok({ status: 'conflict', receipt: 'orig', conflict_id: 'c-77', message: 'Changed report was NOT filed' }) });
+  b.setQ(fullQueue(50)); selectModem(b, 'J1', 'M2');
+  assert.equal(await b.ctx.window.wimsSubmit('J1', JOB1), null);
+  assert.equal(b.q().length, 50); assert.equal(JSON.parse(JSON.stringify(b.ctx.window.wimsLastOutcome)).heldLocally, false);
+  assert.match(b.toasts.at(-1), /server copy c-77/);
+});
+
+test('storage write failure: an offline report is NOT reported as queued; a legacy conflict blocks completion', async () => {
+  const b = boot({ jobs: [JOB1], handler: name => name === 'my_access' ? ok([{ role: 'technician' }]) : Promise.reject(new TypeError('Failed to fetch')) });
+  b.ctx.localStorage.setItem = () => { throw new Error('QuotaExceededError'); };
+  selectModem(b, 'J1', 'M1');
+  assert.match(String(await b.ctx.window.wimsSubmit('J1', JOB1)), /could not save the report/);
+  assert.deepEqual(b.q(), []);
+});
+
+test('a structured conflict does NOT advance the session FOC prefill; a filed report does', async () => {
+  const mk = (status) => boot({ jobs: [JOB1], handler: name => name === 'my_access' ? ok([{ role: 'technician' }]) : ok({ status, receipt: 'r', conflict_id: status === 'conflict' ? 'c' : null, message: 'x' }) });
+  const b = mk('conflict');
+  selectModem(b, 'J1', 'M2'); change(b, 'J1', 'focreel', 'REJECTED-REEL'); change(b, 'J1', 'focstart', '1500'); change(b, 'J1', 'focend', '1300');
+  await b.ctx.window.wimsSubmit('J1', JOB1);
+  assert.equal(b.ctx.window.wimsSessionFoc(), null, 'conflict: no carry-over');
+  const b2 = mk('filed');
+  selectModem(b2, 'J1', 'M2'); change(b2, 'J1', 'focreel', 'REEL-A'); change(b2, 'J1', 'focstart', '1500'); change(b2, 'J1', 'focend', '1300');
+  await b2.ctx.window.wimsSubmit('J1', JOB1);
+  assert.deepEqual(JSON.parse(JSON.stringify(b2.ctx.window.wimsSessionFoc())), { reel_no: 'REEL-A', end_m: 1300 }, 'filed: carried over');
+});
+
+test('two tabs flushing the same queue at the same time send the item ONCE (Web Locks serialize the claim)', async () => {
+  // a shared store + a shared fake navigator.locks that serializes requests by name, like the browser's Web Locks API
+  const store = new Map(); const chain = { p: Promise.resolve() };
+  const locks = { request: (name, fn) => { const run = chain.p.then(() => fn()); chain.p = run.catch(() => { }); return run; } };
+  const sends = [];
+  const mkTab = (tag) => { const b = boot({ store, handler: async (name, args) => { sends.push(tag + ':' + (args.p_args || args).p_jo); await new Promise(r => setImmediate(r)); return ok({ status: 'filed', receipt: 'rcpt' }); } }); b.ctx.navigator.locks = locks; return b; };
+  const t1 = mkTab('tab1'), t2 = mkTab('tab2');
+  store.set('wims_pending_v1', JSON.stringify([{ qid: 'A', rpc: 'complete_install', args: { p_jo: 'R1' }, jo: 'R1', ts: 1, owner: 'uid-1' }]));
+  await Promise.all([t1.flush(), t2.flush()]);
+  assert.deepEqual(sends, ['tab1:R1'], 'exactly one send'); assert.deepEqual(JSON.parse(store.get('wims_pending_v1')), []);
 });
