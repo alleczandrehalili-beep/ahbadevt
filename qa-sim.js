@@ -215,7 +215,15 @@
       var j = db.jobs.filter(function (x) { return x.id === jobId && !x.deleted_at; })[0];
       if (!j) throw new Error('Job ' + jobId + ' not found');
       if (j.status === 'completed') return null;   // the trigger only fires on a transition INTO completed
-      if (j.qa_returned_at && !j.qa_return_resolved_at) throw new Error('JO_RETURNED_LOCKED: "status" cannot change while JO ' + jobId + ' is returned by QA for photo replacement — only photos and the Re-complete step are allowed; QA closes the return');
+      // qa-06 continuity: an OLD phone's plain status flip on a returned JO is accepted as the team's SUBMISSION when a new photo
+      // exists after the return (never a closure); without one it is refused (jobs_return_freeze).
+      if (j.qa_returned_at && !j.qa_return_resolved_at) {
+        if (j.qa_return_submitted_at) return null;
+        var fresh = (j.photos || []).some(function (p) { return p.created_at && p.created_at > j.qa_returned_at; });
+        if (!fresh) throw new Error('NO_NEW_PHOTO: upload the replacement photo first — no photo was added after the QA return (JO ' + jobId + ')');
+        j.status = 'completed'; j.qa_return_submitted_at = iso(); j.qa_status = 'FOR QA CHECK'; j.updated_at = iso();
+        return null;   // open return: the trigger does nothing
+      }
       j.status = 'completed'; j.completed_at = j.completed_at || iso(); j.updated_at = iso();   // light re-complete: completed_at kept
       return completeJob(j);
     }

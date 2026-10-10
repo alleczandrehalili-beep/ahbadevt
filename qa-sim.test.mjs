@@ -556,12 +556,16 @@ test('Gate B: a direct status flip (old light path) is LOCKED while the return i
   const r = await api.returnJobForPhotos('JO-R1', 'Replace the house bracket photo', { by: 'AHBA_QA01', role: 'inspector' });
   const t1 = r.qa_returned_at;
   assert.equal(job(api, 'JO-R1').qa_status, 'RETURNED TO TEAM'); assert.equal(r.qa_return_submitted_at, null);
-  // the pre-Gate-B light re-complete (plain status PATCH) is refused by the freeze trigger
-  assert.throws(() => api._recompleteJob('JO-R1'), /JO_RETURNED_LOCKED: "status"/);
+  // the pre-Gate-B light re-complete (plain status PATCH, old phone) is refused without a new photo …
+  assert.throws(() => api._recompleteJob('JO-R1'), /NO_NEW_PHOTO/);
   assert.equal(job(api, 'JO-R1').status, 'in-progress');
   // no new photo → refused; wrong token → refused
   assert.throws(() => api._recompleteReturned('JO-R1', t1, { team: 'AHBA_T01' }), /NO_NEW_PHOTO/);
   job(api, 'JO-R1').photos = [{ path: 'r1/nap.jpg', label: 'NAP', created_at: '2026-10-08T03:00:00Z' }];
+  // … and with a new photo it is accepted as the team's SUBMISSION only (compatibility exception; never a closure)
+  { const snap = JSON.stringify(job(api, 'JO-R1')); const copy = JSON.parse(snap); copy.id = 'JO-R1-OLDPHONE'; copy.job_order_no = 'R9100099'; copy.ibass_acct_no = '1000000000199'; api._db.jobs.push(copy);
+    assert.equal(api._recompleteJob('JO-R1-OLDPHONE'), null);
+    const o = job(api, 'JO-R1-OLDPHONE'); assert.equal(o.status, 'completed'); assert.equal(o.qa_status, 'FOR QA CHECK'); assert.ok(o.qa_return_submitted_at); assert.equal(o.qa_return_resolved_at, null); }
   assert.throws(() => api._recompleteReturned('JO-R1', '2026-10-08T02:00:01.000Z', { team: 'AHBA_T01' }), /RETURN_TOKEN_MISMATCH/);
   assert.throws(() => api._recompleteReturned('JO-R1', t1, { team: 'AHBA_T99' }), /Only the team that holds/);
   t = new Date('2026-10-08T06:30:00Z');

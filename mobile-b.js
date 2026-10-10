@@ -10,8 +10,9 @@
     // ↩ Returned-by-QA (2026-10-09): ang QA/GC ay pwedeng ibalik ang completed JO sa team para
     // palitan ang isang picture (qa.return_job_for_photos). Hiwalay na listahan para may fallback
     // kapag hindi pa na-apply ang SQL (42703 undefined column) — hindi masisira ang job list.
-    const JOB_QA_RETURN_COLS = 'qa_return_remarks,qa_returned_at,qa_returned_by,qa_return_resolved_at,qa_return_submitted_at,qa_return_checked_by';
-    let _qaRetColsOk = true;
+    const JOB_QA_RETURN_COLS4 = 'qa_return_remarks,qa_returned_at,qa_returned_by,qa_return_resolved_at';
+    const JOB_QA_RETURN_COLS = JOB_QA_RETURN_COLS4+',qa_return_submitted_at,qa_return_checked_by';
+    let _qaRetColsOk = true, _qaRet4ColsOk = true;
     const JOB_LIVE_WINDOW_DAYS = 14;
     async function loadJobs(){
       const cutoff = new Date(Date.now() - JOB_LIVE_WINDOW_DAYS*24*3600*1000).toISOString();
@@ -20,11 +21,14 @@
       const q = cols => sb.from('jobs')
         .select(cols)
         .eq('team',myTeam).is('deleted_at',null)
-        .or(`status.not.in.(completed,cancelled,negative),updated_at.gte.${cutoff},load_date.gte.${cutoffDate},scheduled_at.gte.${cutoff}`+(_qaRetColsOk?',and(qa_returned_at.not.is.null,qa_return_resolved_at.is.null)':''))
+        .or(`status.not.in.(completed,cancelled,negative),updated_at.gte.${cutoff},load_date.gte.${cutoffDate},scheduled_at.gte.${cutoff}`+((_qaRetColsOk||_qaRet4ColsOk)?',and(qa_returned_at.not.is.null,qa_return_resolved_at.is.null)':''))
         .order('updated_at',{ascending:false});
-      let {data,error} = await q(_qaRetColsOk ? JOB_LIST_COLS+','+JOB_QA_RETURN_COLS : JOB_LIST_COLS);
+      // Column tiers (server may be: Gate B, original 4-column return, or none): 6 → 4 → 0. The original four are KEPT when
+      // only the two Gate B columns are missing, so a returned JO never loads without its return identity.
+      let {data,error} = await q(_qaRetColsOk ? JOB_LIST_COLS+','+JOB_QA_RETURN_COLS : (_qaRet4ColsOk ? JOB_LIST_COLS+','+JOB_QA_RETURN_COLS4 : JOB_LIST_COLS));
       if(error && _qaRetColsOk && (error.code==='42703' || /qa_return/i.test(error.message||''))){
-        _qaRetColsOk=false; ({data,error} = await q(JOB_LIST_COLS));
+        _qaRetColsOk=false; ({data,error} = await q(JOB_LIST_COLS+','+JOB_QA_RETURN_COLS4));
+        if(error && (error.code==='42703' || /qa_return/i.test(error.message||''))){ _qaRet4ColsOk=false; ({data,error} = await q(JOB_LIST_COLS)); }
       }
       if(error) throw error; return data||[];
     }
@@ -36,6 +40,7 @@
       // 1,437–2,545 photos na). Photos ay kailangan lang ng AKTIBO/kamakailang cards.
       const cut=Date.now()-3*24*3600*1000;
       const ids=jobs.filter(j=>!['completed','cancelled','negative'].includes(j.status)
+        || isQaReturned(j)   // ↩ open QA return: photos stay loaded until the reviewer closes it
         || (j.updated_at&&new Date(j.updated_at).getTime()>=cut)
         || (j.negative_at&&new Date(j.negative_at).getTime()>=cut)).map(j=>j.id);
       if(!ids.length){photoData={};return;}
@@ -530,6 +535,8 @@
       closeComplete(); render(); logTrack('status:completed', job.area||job.city);
       if(ok){ toast('Job completed'); setSync('live','Synced'); }
       else if(saveWrite.queued){ toast('Completed — will sync when back online'); setSync('syncing', syncQCount()+' pending sync'); }
+      // Phase 1: a WIMS conflict (report held for warehouse review) must stay visible after the completion toast
+      try{ const wo=window.wimsLastOutcome; if(wo&&wo.job===id&&wo.status==='conflict'){ setTimeout(()=>toast('⚠ WIMS: '+(wo.message||'report on hold for warehouse review')+' (see the ⚠ banner)'), 2800); } }catch(e){}
       // 4B-3: permanent failure → nananatili ang ❌ ng saveWrite; walang pekeng "Completed"
     }
     // ---------- 🎫 Tech-created SLR ticket (AHBA teams) ----------
@@ -637,9 +644,9 @@
       const todo=jobs.filter(j=>!isTk(j)&&['assigned','pending'].includes(j.status));
       const inprog=jobs.filter(j=>!isTk(j)&&['en-route','on-site','in-progress'].includes(j.status));
       const negs=jobs.filter(j=>!isTk(j)&&j.status==='negative'&&sameManilaDay(j.negative_at||j.updated_at));
-      const doneToday=jobs.filter(j=>!isTk(j)&&j.status==='completed'&&sameManilaDay(j.updated_at));
+      const doneToday=jobs.filter(j=>!isTk(j)&&j.status==='completed'&&(sameManilaDay(j.updated_at)||isQaReturned(j)));   // ↩ FOR QA CHECK stays visible past midnight
       const cut7=Date.now()-7*24*3600*1000;
-      const tickets=jobs.filter(j=>isTk(j)&&(!['completed','cancelled','negative'].includes(j.status)||(j.updated_at&&new Date(j.updated_at).getTime()>=cut7)));
+      const tickets=jobs.filter(j=>isTk(j)&&(!['completed','cancelled','negative'].includes(j.status)||isQaReturned(j)||(j.updated_at&&new Date(j.updated_at).getTime()>=cut7)));
       $('#cToDo').textContent=todo.length;
       $('#cActive').textContent=inprog.length;
       $('#cDone').textContent=doneToday.length;
