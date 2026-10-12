@@ -435,17 +435,25 @@
   // tab verified and acknowledged. Correctness no longer depends on any mutex. The pre-RC5 array blob (wims_pending_v1) is
   // migrated record by record (hydrateQueue) and is still READ by every listing, so an old client still writing the blob beside
   // a new tab loses nothing either.
-  var QPFX=WQKEY+'.i.';
+  // TERMINAL STATE (Codex RC5): an accepted record leaves a durable tombstone (wims_pending_v1.d.<qid>) tied to its STABLE identity
+  // — a legacy record's identity is a content hash (ts + JO + rpc + args), never its position in the old array. A tombstoned
+  // record is never listed, migrated, claimed or resurrected (a stale write of it is removed on the next listing).
+  var QPFX=WQKEY+'.i.', DPFX=WQKEY+'.d.', DONE_TTL=30*24*3600*1000;
   function qKey(qid){ return QPFX+qid; }
+  function dKey(qid){ return DPFX+qid; }
   function qParse(v){ try{ var x=JSON.parse(v||'null'); return (x&&typeof x==='object')?x:null; }catch(e){ return null; } }
-  function qKeys(){ var out=[]; try{ var n=localStorage.length; for(var i=0;i<n;i++){ var k=localStorage.key(i); if(k&&k.indexOf(QPFX)===0) out.push(k); } }catch(e){} return out; }
-  function qLegacyId(it,i){ return it.qid||('legacy_'+(it.ts||0)+'_'+(it.jo||'')+'_'+i); }   // deterministic: two tabs migrating the same blob agree
+  function qKeys(pfx){ var out=[]; try{ var n=localStorage.length; for(var i=0;i<n;i++){ var k=localStorage.key(i); if(k&&k.indexOf(pfx)===0) out.push(k); } }catch(e){} return out; }
+  function isDone(qid){ try{ return !!localStorage.getItem(dKey(qid)); }catch(e){ return false; } }
+  function markDone(qid){ try{ localStorage.setItem(dKey(qid), JSON.stringify({at:Date.now()})); }catch(e){} }
+  function qHash(str){ var h=5381; for(var i=0;i<str.length;i++) h=((h<<5)+h+str.charCodeAt(i))|0; return (h>>>0).toString(36); }
+  function qLegacyId(it){ return it.qid||('legacy_'+(it.ts||0)+'_'+(it.jo||'')+'_'+qHash(JSON.stringify([it.rpc||'',it.args||null]))); }   // content identity: stable across tabs and across the old writer's rewrites
   function qLegacy(){ try{ var a=JSON.parse(localStorage.getItem(WQKEY)||'[]'); return Array.isArray(a)?a.filter(function(x){ return x&&typeof x==='object'; }):[]; }catch(e){ return []; } }
-  // every record: the per-key records plus the not-yet-migrated blob items, oldest first
+  // every ACTIVE record: the per-key records plus the not-yet-migrated blob items, minus tombstoned ones, oldest first
   function qAll(){
     var out=[], seen={};
-    qKeys().forEach(function(k){ var x=qParse(localStorage.getItem(k)); if(x){ x.qid=x.qid||k.slice(QPFX.length); seen[x.qid]=1; out.push(x); } });
-    qLegacy().forEach(function(it,i){ var id=qLegacyId(it,i); if(!seen[id]){ it.qid=id; out.push(it); } });
+    qKeys(QPFX).forEach(function(k){ var id=k.slice(QPFX.length); if(isDone(id)){ try{ localStorage.removeItem(k); }catch(e){} return; }   // a stale resurrection of an accepted record heals here
+      var x=qParse(localStorage.getItem(k)); if(x){ x.qid=x.qid||id; seen[x.qid]=1; out.push(x); } });
+    qLegacy().forEach(function(it){ var id=qLegacyId(it); if(!seen[id]&&!isDone(id)){ it.qid=id; seen[id]=1; out.push(it); } });
     out.sort(function(a,b){ return ((a.ts||0)-(b.ts||0))||String(a.qid).localeCompare(String(b.qid)); });
     return out;
   }
@@ -460,8 +468,12 @@
     }catch(e){ return false; }
   }
   function qGet(qid){ return qParse(localStorage.getItem(qKey(qid))); }
-  function qDrop(qid){ try{ localStorage.removeItem(qKey(qid)); }catch(e){} }
-  function qPatch(qid, fn){ try{ var x=qGet(qid); if(!x) return false; fn(x); localStorage.setItem(qKey(qid), JSON.stringify(x)); return true; }catch(e){ return false; } }
+  function qDrop(qid){ markDone(qid); try{ localStorage.removeItem(qKey(qid)); }catch(e){} }   // terminal: tombstone FIRST, then the record
+  function qPatch(qid, fn){ try{ if(isDone(qid)) return false; var x=qGet(qid); if(!x) return false; fn(x); localStorage.setItem(qKey(qid), JSON.stringify(x)); return true; }catch(e){ return false; } }
+  // FENCED finalize (RC5): a non-terminal outcome (held / conflict / retry) is written only by the tab whose claim token is still
+  // on the record and only while the record is not terminal — a finalizer that resumes after its lease expired and another tab
+  // accepted the report writes nothing (it cannot recreate an acknowledged record from its stale snapshot)
+  function qFinalize(qid, tok, fn){ return qPatch(qid, function(x){ if(!(x.lock&&x.lock.by===TAB_ID&&x.lock.tok===tok)) throw new Error('stale'); fn(x); }); }
   // CLAIM ARBITRATION (no longer a correctness dependency): the Web Locks API when the browser has it (Chrome / Android WebView
   // do), otherwise a localStorage token that FAILS CLOSED — a tab that cannot confirm ownership within the wait does NOT run the
   // claim (it skips this round). Should two tabs ever both believe they hold the token, the cost is one duplicate request: the
@@ -501,22 +513,26 @@
     return (_wUid&&it.owner===_wUid)||(u&&(it.owner===('u:'+u)||it.ouser===u)); }
   function isDeclaredAlready(e){ return /^DECLARED_ALREADY/.test(String(e&&e.message||'')); }
   function isMissingFn(e){ return /could not find the function|schema cache/i.test(String(e&&e.message||'')); }
-  // Legacy records (the array blob of an older client; items before Phase 1 have no qid): each gets a STABLE, deterministic id and
-  // its own key BEFORE any await; the blob is removed only once every record is verifiably in its key (a record already
-  // migrated by another tab is left alone). Returns the ids of every record, oldest first.
-  var TAB_ID=Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,6);
+  // LEGACY HANDOFF (Codex RC5 B1): the old array blob (wims_pending_v1) belongs to the OLD client, which may still be open in another
+  // tab and still appends to / rewrites it. This client NEVER deletes or writes that blob — it cannot know that no incompatible
+  // writer is still active, and a read-back before a removal cannot make the removal atomic. Instead: every blob record is COPIED
+  // to its own key under its content identity (retried on every hydrate, so a copy that failed for storage reasons is retried
+  // and the record stays visible from the blob meanwhile), an accepted record is tombstoned (never copied or sent again, even if
+  // the old client still carries it), and the blob simply dies with the old client (or when the old client finalizes its own
+  // records; the server answers its re-sends with the same receipt). Tombstones outlive the blob and are pruned after 30 days
+  // once nothing references them. Returns the ids of every active record, oldest first.
+  var TAB_ID=Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,6), migrateWarned=false;
   function hydrateQueue(){
-    var legacy=qLegacy();
-    if(legacy.length){
-      var ok=true;
-      legacy.forEach(function(it,i){
-        it.qid=qLegacyId(it,i);
-        if(qGet(it.qid)) return;
-        try{ localStorage.setItem(qKey(it.qid), JSON.stringify(it)); }catch(e){}
-        if(!qGet(it.qid)) ok=false;
-      });
-      if(ok){ try{ localStorage.removeItem(WQKEY); }catch(e){} }
-    }
+    var legacy=qLegacy(), failed=0, inBlob={};
+    legacy.forEach(function(it){
+      var id=qLegacyId(it); inBlob[id]=1;
+      if(isDone(id)||qGet(id)) return;
+      it.qid=id;
+      try{ localStorage.setItem(qKey(id), JSON.stringify(it)); }catch(e){}
+      if(!qGet(id)) failed++;
+    });
+    if(failed&&!migrateWarned){ migrateWarned=true; say('⚠ '+failed+' older WIMS report'+(failed>1?'s':'')+' could not be copied (phone storage full) — they stay queued and will be retried'); }
+    try{ qKeys(DPFX).forEach(function(k){ var id=k.slice(DPFX.length), d=qParse(localStorage.getItem(k)); if(!inBlob[id]&&!qGet(id)&&d&&(Date.now()-(d.at||0))>DONE_TTL) localStorage.removeItem(k); }); }catch(e){}
     return qAll().map(function(x){ return x.qid; });
   }
   // Replay signature fallbacks = parehong hagdan ng interactive na tawag: LUMANG backend na walang p_job_id / pulled / kit_remarks / FOC2 / FOC params
@@ -560,30 +576,32 @@
       for(var i=0;i<ids.length;i++){
         var id=ids[i];
         // CLAIM under the arbitration lock (latest state, by id); another tab's fresh claim or a held / foreign record is skipped
+        var tok=Math.random().toString(36).slice(2,10);
         var it=await withQueueLock(function(){
           var x=qGet(id); if(!x||x.held||!_wMine(x)) return null;
           if(x.lock&&x.lock.by!==TAB_ID&&(Date.now()-(x.lock.at||0))<90000) return null;
-          qPatch(id, function(y){ y.lock={by:TAB_ID, at:Date.now()}; }); return qGet(id);
+          qPatch(id, function(y){ y.lock={by:TAB_ID, at:Date.now(), tok:tok}; }); return qGet(id);
         });
         if(it===LOCK_BUSY) return;
         if(!it) continue;
         var res=null, failure=null;
         try{ res=await fileDeclaration(it.rpc, it.args); if(res.status==='error') throw (res.error||new Error(res.message)); }   // NO lock held during the network call
         catch(e){ failure=e; }
-        // FINALIZE: single-key writes on THIS record only (atomic) — a record another tab added or changed meanwhile is untouched
+        // FINALIZE: single-key writes on THIS record only (atomic) — a record another tab added or changed meanwhile is untouched;
+        // a non-terminal outcome is FENCED on this tab's claim token (a stale finalizer writes nothing)
         if(failure){
-          if(isNetErr(failure)){ qPatch(id, function(x){ delete x.lock; }); continue; }   // offline / session — mananatili, susubukan ulit
+          if(isNetErr(failure)){ qFinalize(id, tok, function(x){ delete x.lock; }); continue; }   // offline / session — mananatili, susubukan ulit
           var msg=String(failure&&failure.message||failure);
-          qPatch(id, function(x){ x.held=msg; x.heldAt=Date.now(); x.kind='rejected'; delete x.lock; });
-          say('⚠ WIMS report for JO '+(it.jo||'?')+' was NOT accepted: '+msg+' — naka-hold para sa warehouse review');
+          if(qFinalize(id, tok, function(x){ x.held=msg; x.heldAt=Date.now(); x.kind='rejected'; delete x.lock; }))
+            say('⚠ WIMS report for JO '+(it.jo||'?')+' was NOT accepted: '+msg+' — naka-hold para sa warehouse review');
           continue;
         }
         cpeCache=null;
         if(res.status==='conflict'){
-          qPatch(id, function(x){ x.held=res.message||'Conflict with the filed declaration'; x.heldAt=Date.now(); x.kind='conflict'; x.conflict_id=res.conflict_id||null; delete x.lock; });
-          say('⚠ JO '+(it.jo||'?')+': '+(res.reason==='under_review'?'nasa warehouse review ang mas naunang WIMS declaration ng JO number na ito — hindi na-file; naka-hold ang report.':'may WIMS declaration NA ang JO na ito — hindi binago ang inventory; naka-hold ang report para sa warehouse review.'));
+          if(qFinalize(id, tok, function(x){ x.held=res.message||'Conflict with the filed declaration'; x.heldAt=Date.now(); x.kind='conflict'; x.conflict_id=res.conflict_id||null; delete x.lock; }))
+            say('⚠ JO '+(it.jo||'?')+': '+(res.reason==='under_review'?'nasa warehouse review ang mas naunang WIMS declaration ng JO number na ito — hindi na-file; naka-hold ang report.':res.reason==='ambiguous_replay'?'kapareho ng declaration na na-file na para sa mas naunang (deleted) generation ng JO number na ito — hindi na-file ulit; nasa warehouse review.':'may WIMS declaration NA ang JO na ito — hindi binago ang inventory; naka-hold ang report para sa warehouse review.'));
         } else {
-          qDrop(id);
+          qDrop(id);   // ACCEPTED by the server (filed or replay) → terminal, whoever holds the claim now
           say('📦 Queued WIMS report filed — JO '+(it.jo||'?'));
         }
         if(res.status==='filed'||res.status==='replay') refreshPrevFoc();   // accepted chronology from the server — fenced, never awaited

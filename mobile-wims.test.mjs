@@ -41,8 +41,11 @@ function boot(opts) {
     setHandler: fn => { handler = fn; }, signIn: (uid, team) => { session = { user: { id: uid } }; ctx.myTeam = team; authListeners.forEach(fn => fn('SIGNED_IN', session)); }, timers };
 }
 // RC5 storage: one record per key (wims_pending_v1.i.<qid>) + the legacy array blob (an old client's writes), oldest first
-const qOf = (store) => { const out = []; for (const [k, v] of store) if (k.startsWith('wims_pending_v1.i.')) out.push(JSON.parse(v)); for (const it of JSON.parse(store.get('wims_pending_v1') || '[]')) if (!out.some(x => x.qid === it.qid)) out.push(it); return out.sort((a, b) => ((a.ts || 0) - (b.ts || 0)) || String(a.qid).localeCompare(String(b.qid))); };
+const legacyId = it => it.qid || ('legacy_' + (it.ts || 0) + '_' + (it.jo || '') + '_' + hash(JSON.stringify([it.rpc || '', it.args || null])));
+function hash(str) { let h = 5381; for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
+const qOf = (store) => { const done = id => store.has('wims_pending_v1.d.' + id); const out = []; for (const [k, v] of store) if (k.startsWith('wims_pending_v1.i.') && !done(k.slice(18))) out.push(JSON.parse(v)); for (const it of JSON.parse(store.get('wims_pending_v1') || '[]')) { const id = legacyId(it); if (!done(id) && !out.some(x => x.qid === id)) out.push({ ...it, qid: id }); } return out.sort((a, b) => ((a.ts || 0) - (b.ts || 0)) || String(a.qid).localeCompare(String(b.qid))); };
 const tick = async (n = 3) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
+const waitFor = async (pred, ms = 4000) => { const t0 = Date.now(); while (!pred()) { if (Date.now() - t0 > ms) throw new Error('waitFor timeout'); await new Promise(r => setTimeout(r, 5)); } };
 const ok = (data) => ({ data, error: null });
 const err = (message, code) => ({ data: null, error: Object.assign(new Error(message), code ? { code } : {}) });
 const missingFn = () => err('Could not find the function wims.file_declaration(p_args, p_kind) in the schema cache', 'PGRST202');
@@ -79,6 +82,8 @@ test('an item enqueued DURING a flush is kept; only the acknowledged item is rem
   await b.flush();
   assert.deepEqual(b.q().map(x => x.qid), ['B'], 'the record an old client appended to the blob during the flush is kept');
   await b.flush(); assert.deepEqual(b.q(), [], 'and migrated + sent on the next round');
+  assert.ok(b.store.has('wims_pending_v1'), 'the old client\'s blob is left in place (it still lists A and B for the old client; both are tombstoned here)');
+  assert.ok(b.store.has('wims_pending_v1.d.A') && b.store.has('wims_pending_v1.d.B'), 'accepted records are tombstoned');
 });
 
 test('server CONFLICT on replay = held as a conflict with the server conflict id; DECLARED_ALREADY from an old backend = held too', async () => {
@@ -307,8 +312,8 @@ test('RC4 B2 (structural): a tab only ever writes the record it is mutating — 
   assert.ok(!qOf(store).some(x => x.qid === 'A'), 'A sent and removed its own record');
   assert.ok(qOf(store).some(x => x.job === 'J1'), 'B\'s acknowledged report survived A\'s finalize');
   const aKeys = new Set(tA.writes.map(w => w[1]));
-  for (const k of aKeys) assert.ok(k === 'wims_pending_v1' || k === 'wims_pending_v1.lock' || k === 'wims_pending_v1.i.A', 'A wrote only: the blob (migration removal), the claim token, its own record — not ' + k);
-  assert.ok(!tA.writes.some(w => w[0] === 'set' && w[1] === 'wims_pending_v1'), 'the array blob is never written back (only removed after migration)');
+  for (const k of aKeys) assert.ok(k === 'wims_pending_v1.lock' || k === 'wims_pending_v1.i.A' || k === 'wims_pending_v1.d.A', 'A wrote only: the claim token, its own record, its own tombstone — not ' + k);
+  assert.ok(!tA.writes.some(w => w[1] === 'wims_pending_v1'), 'the old client\'s array blob is never written or removed');
   assert.ok(!tA.writes.some(w => w[1] === 'wims_pending_v1.i.' + bRec.qid), 'A never touched B\'s record');
 });
 
@@ -370,11 +375,12 @@ test('RC4 storage migration: a legacy blob is moved record by record with DETERM
   store.set('wims_pending_v1', JSON.stringify([legacyItem('A', 1), legacyItem('B', 2)]));
   const mk = () => { const b = boot({ store, handler: () => Promise.reject(new TypeError('Failed to fetch')) }); b.ctx.navigator.locks = locks; return b; };
   const t1 = mk(), t2 = mk(); await Promise.all([t1.flush(), t2.flush()]);
-  assert.equal(store.has('wims_pending_v1'), false, 'blob removed after migration'); assert.equal(qOf(store).length, 2, 'no duplicate records from two tabs migrating the same blob');
-  assert.deepEqual(qOf(store).map(x => x.qid), ['legacy_1700000000001_A_0', 'legacy_1700000000002_B_1']);
+  assert.equal(store.has('wims_pending_v1'), true, 'the old client\'s blob is NEVER deleted by this client'); assert.equal(qOf(store).length, 2, 'no duplicate records from two tabs migrating the same blob');
+  assert.deepEqual(qOf(store).map(x => x.qid), [legacyId(legacyItem('A', 1)), legacyId(legacyItem('B', 2))], 'content identity, not array position');
+  assert.equal([...store.keys()].filter(k => k.startsWith('wims_pending_v1.i.')).length, 2, 'both records copied to their keys');
   // an old client (still running) appends to the blob afterwards → listed and migrated on the next round
-  store.set('wims_pending_v1', JSON.stringify([legacyItem('C', 3)]));
-  assert.deepEqual(t1.q().map(x => x.jo), ['A', 'B', 'C']); await t1.flush(); assert.equal(store.has('wims_pending_v1'), false); assert.equal(qOf(store).length, 3);
+  store.set('wims_pending_v1', JSON.stringify([legacyItem('A', 1), legacyItem('B', 2), legacyItem('C', 3)]));
+  assert.deepEqual(t1.q().map(x => x.jo), ['A', 'B', 'C']); await t1.flush(); assert.equal(qOf(store).length, 3); assert.equal([...store.keys()].filter(k => k.startsWith('wims_pending_v1.i.')).length, 3);
 });
 
 test('RC4: an under-review number (reused / duplicated generation) comes back as a recorded conflict with NO receipt — the report is held with the server\'s reason, completion proceeds', async () => {
@@ -388,4 +394,69 @@ test('RC4: an under-review number (reused / duplicated generation) comes back as
   const q = boot({ handler: () => ok({ status: 'conflict', receipt: null, conflict_id: 'c-ur2', reason: 'under_review', message: 'under warehouse review' }) });
   q.setQ([{ qid: 'A', rpc: 'complete_install', args: { p_jo: 'R1' }, jo: 'R1', ts: 1, owner: 'uid-1' }]);
   await q.flush(); assert.equal(q.q()[0].kind, 'conflict'); assert.match(q.toasts.join('\n'), /nasa warehouse review ang mas naunang WIMS declaration/);
+});
+
+// ---- Codex RC5: non-destructive legacy handoff, durable terminal state, fenced finalize ----
+const OLD_REV = '33f290b483ea32fa69e8a2ef93a601a10db000d8';   // the array-writing client Codex pinned
+function oldClientAppend(store, item) {   // what the OLD client does on an offline report: read the array, push, write the array (no lock, no keys)
+  const cur = JSON.parse(store.get('wims_pending_v1') || '[]'); cur.push(item); store.set('wims_pending_v1', JSON.stringify(cur));
+}
+test('RC5 B1: an OLD client appends to the blob AFTER the new tab copied it and BEFORE anything else — nothing is ever deleted, the append is listed, migrated and sent on the next round (migration vs old append)', async () => {
+  const store = sharedStore(); const locks = serialLocks();
+  store.set('wims_pending_v1', JSON.stringify([{ qid: 'H', rpc: 'complete_install', args: { p_jo: 'HELD' }, jo: 'HELD', ts: 1, owner: 'uid-1', held: 'existing conflict', kind: 'conflict' }]));
+  const sends = [];
+  const A = boot({ store, handler: (name, args) => { sends.push((args.p_args || args).p_jo); return ok({ status: 'filed', receipt: 'r' }); } }); A.ctx.navigator.locks = locks;
+  // the new tab hydrates (copies H) …
+  await A.flush();
+  assert.ok(store.has('wims_pending_v1.i.H'), 'H copied to its key'); assert.ok(store.has('wims_pending_v1'), 'blob NOT removed');
+  // … the old tab (pinned revision ' + OLD_REV + ') saves J-B into the array and shows QUEUED
+  oldClientAppend(store, { rpc: 'complete_install', args: { p_jo: 'R-JB', p_modem_serial: 'M-JB' }, jo: 'R-JB', ts: 5 });
+  assert.ok(JSON.parse(store.get('wims_pending_v1')).some(x => x.jo === 'R-JB'), 'the old client\'s acknowledged append is in the blob');
+  // the new tab keeps going: J-B is visible, migrated and sent; the blob is still untouched by the new tab
+  assert.ok(A.q().some(x => x.jo === 'R-JB'), 'listed from the blob at once');
+  await A.ctx.window.wimsReleaseHeld('H');
+  assert.deepEqual(sends.sort(), ['HELD', 'R-JB'], 'both sent');
+  assert.ok(store.has('wims_pending_v1'), 'blob still present'); assert.ok(JSON.parse(store.get('wims_pending_v1')).some(x => x.jo === 'R-JB'), 'blob content untouched by the new client');
+  assert.deepEqual(A.q(), [], 'both terminal (tombstoned) — nothing active');
+  const idJB = legacyId({ rpc: 'complete_install', args: { p_jo: 'R-JB', p_modem_serial: 'M-JB' }, jo: 'R-JB', ts: 5 });
+  assert.ok(store.has('wims_pending_v1.d.' + idJB) && store.has('wims_pending_v1.d.H'), 'tombstones carry the stable identities');
+  await A.flush(); assert.deepEqual(sends.length, 2, 'a later round does not re-send tombstoned blob records');
+});
+
+test('RC5 B1: no-qid legacy records keep their identity when the OLD writer removes an earlier record (content hash, not array position); an interrupted copy is retried', async () => {
+  const store = sharedStore(); const locks = serialLocks();
+  store.set('wims_pending_v1', JSON.stringify([legacyItem('A', 1), legacyItem('B', 2)]));
+  const b = boot({ store, handler: () => Promise.reject(new TypeError('Failed to fetch')) }); b.ctx.navigator.locks = locks;
+  await b.flush(); const ids1 = b.q().map(x => x.qid);
+  store.set('wims_pending_v1', JSON.stringify([legacyItem('B', 2)]));   // the old client finalized A itself and rewrote the array
+  await b.flush(); const ids2 = b.q().map(x => x.qid);
+  assert.deepEqual(ids1, [legacyId(legacyItem('A', 1)), legacyId(legacyItem('B', 2))]); assert.deepEqual(ids2, ids1, 'B keeps its identity although its position changed; A\'s copy remains (the server answers a re-send with the same receipt)');
+  // interrupted / partial copy: B's key write fails for storage reasons → B stays visible from the blob and the copy is retried on the next hydrate
+  const store2 = sharedStore(); store2.set('wims_pending_v1', JSON.stringify([legacyItem('A', 1), legacyItem('B', 2)]));
+  const sends = []; let failB = true;
+  const c = boot({ store: store2, handler: (name, args) => { sends.push((args.p_args || args).p_jo); return ok({ status: 'filed', receipt: 'r' }); } }); c.ctx.navigator.locks = locks;
+  const rawSet = c.ctx.localStorage.setItem; c.ctx.localStorage.setItem = (k, v) => { if (failB && k === 'wims_pending_v1.i.' + legacyId(legacyItem('B', 2))) throw new Error('QuotaExceededError'); return rawSet(k, v); };
+  await c.flush();
+  assert.deepEqual(sends, ['A'], 'A sent'); assert.ok(c.q().some(x => x.jo === 'B'), 'B still listed (from the blob)'); assert.match(c.toasts.join('\n'), /could not be copied/);
+  await c.flush(); assert.deepEqual(sends, ['A'], 'A is NOT re-imported from the surviving blob (tombstone) — partial migration never resurrects an accepted record');
+  failB = false; await c.flush(); assert.deepEqual(sends, ['A', 'B'], 'B is copied and sent once the write succeeds'); assert.deepEqual(c.q(), []);
+});
+
+test('RC5 P2: a stale finalizer (lease expired, another tab accepted and removed the record) cannot resurrect it; an accepted record is terminal', async () => {
+  const store = sharedStore();
+  let release; const pending = new Promise(r => { release = r; });
+  const A = boot({ store, handler: () => pending }); A.ctx.navigator.locks = undefined;
+  store.set('wims_pending_v1.i.X', JSON.stringify({ qid: 'X', rpc: 'complete_install', args: { p_jo: 'R-X' }, jo: 'R-X', ts: 1, owner: 'uid-1' }));
+  const flushing = A.flush(); await waitFor(() => { const r = JSON.parse(store.get('wims_pending_v1.i.X') || '{}'); return !!(r.lock && r.lock.tok); });
+  const rec = JSON.parse(store.get('wims_pending_v1.i.X')); assert.ok(rec.lock && rec.lock.tok, 'A claimed X with a token');
+  store.set('wims_pending_v1.i.X', JSON.stringify({ ...rec, lock: { ...rec.lock, at: Date.now() - 90001 } }));   // A's lease expired while its call hangs
+  const B = boot({ store, handler: () => ok({ status: 'filed', receipt: 'r' }) }); B.ctx.navigator.locks = undefined;
+  await B.flush();
+  assert.equal(store.has('wims_pending_v1.i.X'), false, 'B accepted and removed X'); assert.ok(store.has('wims_pending_v1.d.X'), 'X is tombstoned');
+  release(ok({ status: 'conflict', receipt: null, conflict_id: 'c-old', reason: 'under_review', message: 'under review' })); await flushing;   // A's stale conflict outcome arrives late
+  assert.equal(store.has('wims_pending_v1.i.X'), false, 'the stale finalizer wrote nothing (fenced on its claim token + the tombstone)');
+  assert.ok(!A.toasts.some(t => /R-X/.test(t)), 'no stale hold message');
+  // and even a stale write that slipped in is healed by the next listing
+  store.set('wims_pending_v1.i.X', JSON.stringify({ qid: 'X', held: 'stale', kind: 'conflict', owner: 'uid-1' }));
+  assert.deepEqual(A.q(), [], 'tombstoned → not listed'); assert.equal(A.ctx.window.wimsHeldReports().length, 0, 'the module\'s listing ignores it'); assert.equal(store.has('wims_pending_v1.i.X'), false, 'and removed it');
 });
