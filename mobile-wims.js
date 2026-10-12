@@ -446,19 +446,37 @@
   // content fingerprint of a legacy record: two independent 32-bit hashes (djb2 + sdbm) over the WHOLE record = 64 bits; the id
   // carries it and so does the tombstone (sig), so a tombstone only ever suppresses the record it was written for
   function qHash(str){ var h=5381, g=0; for(var i=0;i<str.length;i++){ var c=str.charCodeAt(i); h=((h<<5)+h+c)|0; g=(c+(g<<6)+(g<<16)-g)|0; } return (h>>>0).toString(36)+(g>>>0).toString(36); }
-  function qSig(it){ return qHash(JSON.stringify([it.rpc||'',it.args||null,it.ts||0,it.jo||'',it.owner||'',it.ouser||''])); }
-  function qLegacyId(it){ return it.qid||('legacy_'+(it.ts||0)+'_'+(it.jo||'')+'_'+qSig(it)); }   // content identity: stable across tabs and across the old writer's rewrites
-  // TERMINAL: a tombstone key, or (storage too full for a separate key) the record key itself holding a done marker
-  function isDone(qid, it){ try{ var d=qParse(localStorage.getItem(dKey(qid))); if(d){ return !(it&&d.sig&&d.sig!==qSig(it)); } var r=qParse(localStorage.getItem(qKey(qid))); return !!(r&&r.done); }catch(e){ return false; } }
-  function markDone(qid, sig){ try{ localStorage.setItem(dKey(qid), JSON.stringify({at:Date.now(), sig:sig||null})); return isDone(qid); }catch(e){ return false; } }
+  // the record's CONTENT (what a tombstone / a collision guard compares — never a digest alone, Codex RC7)
+  function qSrc(it){ return JSON.stringify([it.rpc||'',it.args||null,it.ts||0,it.jo||'',it.owner||'',it.ouser||'']); }
+  function qSig(it){ return qHash(qSrc(it)); }
+  function qLegacyId(it){ return it.qid||('legacy_'+(it.ts||0)+'_'+(it.jo||'')+'_'+qSig(it)); }   // content identity: stable across tabs and across the old writer's rewrites; a digest collision is separated by content (hydrateQueue)
+  // TERMINAL: a tombstone key (carrying the record's content, so it suppresses ONLY the record it was written for), or (storage too
+  // full for a separate key) the record key itself holding a done marker
+  function isDone(qid, it){ try{ var d=qParse(localStorage.getItem(dKey(qid))); if(d){ return !(it&&d.src&&d.src!==qSrc(it)); } var r=qParse(localStorage.getItem(qKey(qid))); return !!(r&&r.done); }catch(e){ return false; } }
+  // the content travels with a LEGACY record's tombstone only (its id is a digest that can collide); a record this client created
+  // has a unique id, so its tombstone and done marker stay tiny (they must fit when storage is nearly full)
+  function markDone(qid, src){ try{ localStorage.setItem(dKey(qid), JSON.stringify(qid.indexOf('legacy_')===0&&src?{at:Date.now(), src:src}:{at:Date.now()})); return !!qParse(localStorage.getItem(dKey(qid))); }catch(e){ return false; } }
+  // a legacy record's id, resolved by CONTENT among the digest's slots (base, base_2, …): the slot whose key or tombstone holds this
+  // record, else the first free slot — so a different record with the same digest never shares an identity or a tombstone
+  function qSlot(it){
+    var base=qLegacyId(it), src=qSrc(it), n=1, id=base;
+    for(;;){
+      var d=null, x=null; try{ d=qParse(localStorage.getItem(dKey(id))); x=qParse(localStorage.getItem(qKey(id))); }catch(e){}
+      if(d&&(!d.src||d.src===src)) return {id:id, done:true};
+      if(x&&!x.done&&qSrc(x)===src) return {id:id, done:false};
+      if(x&&x.done&&(!x.src||x.src===src)) return {id:id, done:true};
+      if(!d&&!x) return {id:id, done:false, free:true};
+      id=base+'_'+(++n);
+    }
+  }
   function qLegacy(){ try{ var a=JSON.parse(localStorage.getItem(WQKEY)||'[]'); return Array.isArray(a)?a.filter(function(x){ return x&&typeof x==='object'; }):[]; }catch(e){ return []; } }
   // every ACTIVE record: the per-key records plus the not-yet-migrated blob items, minus terminal ones, oldest first
   function qAll(){
     var out=[], seen={};
     qKeys(QPFX).forEach(function(k){ var id=k.slice(QPFX.length), x=qParse(localStorage.getItem(k));
-      if(!x||x.done||isDone(id)){ if(x&&x.done&&!markDone(id, x.sig)) return; try{ localStorage.removeItem(k); }catch(e){} return; }   // terminal (a stale resurrection of an accepted record heals here; a done marker becomes a tombstone when room allows)
+      if(!x||x.done||isDone(id)){ if(x&&x.done&&!markDone(id, x.src)) return; try{ localStorage.removeItem(k); }catch(e){} return; }   // terminal (a stale resurrection of an accepted record heals here; a done marker becomes a tombstone when room allows)
       x.qid=x.qid||id; seen[x.qid]=1; out.push(x); });
-    qLegacy().forEach(function(it){ var id=qLegacyId(it); if(!seen[id]&&!isDone(id, it)){ it.qid=id; seen[id]=1; out.push(it); } });
+    qLegacy().forEach(function(it){ var sl=qSlot(it); if(!seen[sl.id]&&!sl.done){ it.qid=sl.id; seen[sl.id]=1; out.push(it); } });
     out.sort(function(a,b){ return ((a.ts||0)-(b.ts||0))||String(a.qid).localeCompare(String(b.qid)); });
     return out;
   }
@@ -477,10 +495,14 @@
   // marker, the record key itself is overwritten with a small done marker (which frees room) and verified; if even that fails the
   // record is left as it is — a re-send costs one replay, never the loss of the only local acknowledgment (Codex RC6).
   function qDrop(qid){
-    var x=qGet(qid), sig=x?qSig(x):null;
-    if(markDone(qid, sig)){ try{ localStorage.removeItem(qKey(qid)); }catch(e){} return true; }
-    try{ localStorage.setItem(qKey(qid), JSON.stringify({qid:qid, done:true, at:Date.now(), sig:sig})); }catch(e){}
-    var back=qParse(localStorage.getItem(qKey(qid))); return !!(back&&back.done);
+    var x=qGet(qid), src=x?qSrc(x):null;
+    if(markDone(qid, src)){ try{ localStorage.removeItem(qKey(qid)); }catch(e){} return true; }
+    // storage too full for the separate marker: shrink the record to a done marker (frees room), verify it, then IMMEDIATELY retry the
+    // separate tombstone with the room that freed — a stale writer that later overwrites the record key cannot undo a tombstone
+    try{ localStorage.setItem(qKey(qid), JSON.stringify(qid.indexOf('legacy_')===0&&src?{qid:qid, done:true, at:Date.now(), src:src}:{qid:qid, done:true, at:Date.now()})); }catch(e){}
+    var back=qParse(localStorage.getItem(qKey(qid))); if(!(back&&back.done)) return false;
+    if(markDone(qid, src)){ try{ localStorage.removeItem(qKey(qid)); }catch(e){} }
+    return true;
   }
   function qPatch(qid, fn){ try{ if(isDone(qid)) return false; var x=qGet(qid); if(!x) return false; fn(x); if(isDone(qid)) return false; localStorage.setItem(qKey(qid), JSON.stringify(x)); return true; }catch(e){ return false; } }
   // FENCED finalize (RC5): a non-terminal outcome (held / conflict / retry) is written only by the tab whose claim token is still
@@ -542,10 +564,9 @@
   function hydrateQueue(){
     var legacy=qLegacy(), failed=0, inBlob={};
     legacy.forEach(function(it){
-      var id=qLegacyId(it), ex=qGet(id), n=1;
-      while(ex&&qSig(ex)!==qSig(it)){ id=qLegacyId(it)+'_'+(++n); ex=qGet(id); }   // a different record under the same identity (collision) gets its own id
+      var sl=qSlot(it), id=sl.id;   // by CONTENT: a different record under the same digest gets its own slot
       inBlob[id]=1;
-      if(ex||isDone(id, it)) return;
+      if(sl.done||!sl.free) return;
       it.qid=id;
       try{ localStorage.setItem(qKey(id), JSON.stringify(it)); }catch(e){}
       if(!qGet(id)) failed++;

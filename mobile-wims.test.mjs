@@ -42,12 +42,15 @@ function boot(opts) {
 }
 // RC5 storage: one record per key (wims_pending_v1.i.<qid>) + the legacy array blob (an old client's writes), oldest first
 function hash(str) { let h = 5381, g = 0; for (let i = 0; i < str.length; i++) { const c = str.charCodeAt(i); h = ((h << 5) + h + c) | 0; g = (c + (g << 6) + (g << 16) - g) | 0; } return (h >>> 0).toString(36) + (g >>> 0).toString(36); }
-const sigOf = it => hash(JSON.stringify([it.rpc || '', it.args || null, it.ts || 0, it.jo || '', it.owner || '', it.ouser || '']));
+const srcOf = it => JSON.stringify([it.rpc || '', it.args || null, it.ts || 0, it.jo || '', it.owner || '', it.ouser || '']);
+const sigOf = it => hash(srcOf(it));
 const legacyId = it => it.qid || ('legacy_' + (it.ts || 0) + '_' + (it.jo || '') + '_' + sigOf(it));
 // a record is terminal when its tombstone key exists (with a matching sig, when the tombstone carries one) or its own key holds a done marker
-const qOf = (store) => { const done = (id, it) => { const d = store.has('wims_pending_v1.d.' + id) ? JSON.parse(store.get('wims_pending_v1.d.' + id)) : null; if (d) return !(it && d.sig && d.sig !== sigOf(it)); const r = store.has('wims_pending_v1.i.' + id) ? JSON.parse(store.get('wims_pending_v1.i.' + id)) : null; return !!(r && r.done); };
+// mirrors the client: a legacy record's slot is found by CONTENT among base, base_2, … (key or tombstone holding it), else the first free slot
+const slotOf = (store, it) => { const base = legacyId(it), src = srcOf(it); let n = 1, id = base; for (;;) { const d = store.has('wims_pending_v1.d.' + id) ? JSON.parse(store.get('wims_pending_v1.d.' + id)) : null; const x = store.has('wims_pending_v1.i.' + id) ? JSON.parse(store.get('wims_pending_v1.i.' + id)) : null; if (d && (!d.src || d.src === src)) return { id, done: true }; if (x && !x.done && srcOf(x) === src) return { id, done: false }; if (x && x.done && (!x.src || x.src === src)) return { id, done: true }; if (!d && !x) return { id, done: false }; id = base + '_' + (++n); } };
+const qOf = (store) => { const done = (id) => { const d = store.has('wims_pending_v1.d.' + id); const r = store.has('wims_pending_v1.i.' + id) ? JSON.parse(store.get('wims_pending_v1.i.' + id)) : null; return d || !!(r && r.done); };
   const out = []; for (const [k, v] of store) if (k.startsWith('wims_pending_v1.i.')) { const r = JSON.parse(v); if (!r.done && !done(k.slice(18))) out.push(r); }
-  for (const it of JSON.parse(store.get('wims_pending_v1') || '[]')) { const id = legacyId(it); if (!done(id, it) && !out.some(x => x.qid === id)) out.push({ ...it, qid: id }); } return out.sort((a, b) => ((a.ts || 0) - (b.ts || 0)) || String(a.qid).localeCompare(String(b.qid))); };
+  for (const it of JSON.parse(store.get('wims_pending_v1') || '[]')) { const sl = slotOf(store, it); if (!sl.done && !out.some(x => x.qid === sl.id)) out.push({ ...it, qid: sl.id }); } return out.sort((a, b) => ((a.ts || 0) - (b.ts || 0)) || String(a.qid).localeCompare(String(b.qid))); };
 const tick = async (n = 3) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
 const waitFor = async (pred, ms = 4000) => { const t0 = Date.now(); while (!pred()) { if (Date.now() - t0 > ms) throw new Error('waitFor timeout'); await new Promise(r => setTimeout(r, 5)); } };
 const ok = (data) => ({ data, error: null });
@@ -515,4 +518,41 @@ test('RC6 (P3): a finalizer that was overtaken between its read and its write (a
   assert.ok(preempted, 'the preemption was exercised at the write');
   assert.equal(store.has('wims_pending_v1.i.X'), false, 'no stale held record survives'); assert.ok(store.has('wims_pending_v1.d.X'));
   assert.ok(!A.toasts.some(t => /R-X/.test(t) && /hold|review|NA/.test(t)), 'no obsolete "held / not filed" warning for an accepted report');
+});
+
+// ---- Codex RC7: digest collisions separated by CONTENT; terminal state survives a stale writer under storage pressure ----
+test('RC7: two legacy reports whose 64-bit digests COLLIDE (Codex\'s engineered pair) are still separated by content — both copied, both sent, each tombstone suppresses only its own record', async () => {
+  const a = { rpc: 'complete_install', args: { p_jo: 'R1', p_modem_serial: 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB' }, jo: 'R1', ts: 1 };
+  const b0 = { rpc: 'complete_install', args: { p_jo: 'R1', p_modem_serial: 'CAACACCAACCACAACACCACAACCAACACCA' }, jo: 'R1', ts: 1 };
+  assert.equal(sigOf(a), sigOf(b0), 'the fixture is a real digest collision for this client\'s hash'); assert.notEqual(srcOf(a), srcOf(b0));
+  const store = sharedStore(); const locks = serialLocks();
+  store.set('wims_pending_v1', JSON.stringify([a, b0]));
+  const sent = [];
+  const b = boot({ store, handler: (name, args) => { sent.push((args.p_args || args).p_modem_serial.slice(0, 4)); return ok({ status: 'filed', receipt: 'r' }); } }); b.ctx.navigator.locks = locks;
+  await b.flush(); await b.flush();
+  assert.deepEqual(sent.sort(), ['BBBB', 'CAAC'], 'both distinct reports sent');
+  assert.deepEqual(b.q(), [], 'both terminal');
+  const keys = [...store.keys()].filter(k => k.startsWith('wims_pending_v1.d.'));
+  assert.equal(keys.length, 2, 'two tombstones (the second under a suffixed id)'); assert.ok(keys.some(k => k.endsWith('_2')), 'suffixed identity for the colliding record');
+  for (const k of keys) assert.ok(JSON.parse(store.get(k)).src, 'a tombstone carries the record content');
+});
+
+test('RC7: storage too full for a separate tombstone — the done marker shrinks the record, the tombstone is retried at once, and a stale finalizer that overwrites the record afterwards cannot undo the accepted state (healed, no obsolete warning)', async () => {
+  const store = sharedStore();
+  const rec = { qid: 'X', rpc: 'complete_install', args: { p_jo: 'R-X', p_modem_serial: 'M-X' }, jo: 'R-X', ts: 1, owner: 'uid-1' };
+  store.set('wims_pending_v1.i.X', JSON.stringify(rec));
+  // capacity model (Codex): the quota equals the usage at the moment the accepting tab's separate-marker write is attempted
+  const cost = () => { let n = 0; for (const [k, v] of store) n += k.length + v.length; return n; };
+  let quota = Infinity, markerAttempts = 0;
+  const capacity = (ls) => { const raw = ls.setItem; ls.setItem = (k, v) => { if (k === 'wims_pending_v1.d.X' && quota === Infinity) { quota = cost(); markerAttempts++; } const next = cost() - (store.has(k) ? k.length + store.get(k).length : 0) + k.length + String(v).length; if (next > quota) { const e = new Error('QuotaExceededError'); e.name = 'QuotaExceededError'; throw e; } return raw(k, v); }; };
+  const B = boot({ store, handler: () => ok({ status: 'filed', receipt: 'r' }) }); B.ctx.navigator.locks = undefined; capacity(B.ctx.localStorage);
+  await B.flush();
+  assert.ok(markerAttempts >= 1, 'the separate marker was attempted'); assert.ok(quota < Infinity);
+  assert.ok(store.has('wims_pending_v1.d.X'), 'the tombstone was retried and fits after the record shrank to a done marker');
+  assert.ok(B.toasts.some(t => /filed/.test(t)));
+  // a stale finalizer (paused after its last check) now overwrites the record key with its captured held conflict
+  store.set('wims_pending_v1.i.X', JSON.stringify({ ...rec, held: 'under review', kind: 'conflict', conflict_id: 'c-old' }));
+  const A = boot({ store, handler: () => ok({ status: 'filed', receipt: 'r' }) });
+  assert.deepEqual(A.ctx.window.wimsHeldReports().length, 0, 'the stale held record is not listed'); assert.equal(store.has('wims_pending_v1.i.X'), false, 'and is removed (tombstone wins)');
+  await A.flush(); assert.equal(A.calls.filter(c => c.name === 'file_declaration').length, 0, 'never re-sent');
 });
