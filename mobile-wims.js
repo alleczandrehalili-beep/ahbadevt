@@ -71,6 +71,9 @@
     try{ var r=await W().schema('wims').rpc('my_last_foc'); focPrev=(r&&r.data&&r.data[0])||null; }catch(e){ focPrev=null; }
     return focPrev;
   }
+  // After ANY accepted outcome (filed / replay, install or ticket, interactive or queued) the next JO's START comes from the
+  // server's accepted chronology (my_last_foc = the team's latest filed reading), never from a local guess or an older replay.
+  async function refreshPrevFoc(){ var prev=focPrev; focPrevLoaded=false; try{ var r=await loadPrevFoc(); if(!r){ focPrev=prev; } }catch(e){ focPrev=prev; } return focPrev; }   // server unreachable → keep the freshly filed reading
   function lockedStart(s){   // ano dapat ang START ayon sa continuity rule
     if(!focPrev||focPrev.end_m==null) return null;              // walang history → editable
     var cur=(s.focReel||'').trim().toUpperCase(), prev=(focPrev.reel_no||'').trim().toUpperCase();
@@ -433,11 +436,31 @@
       return qAll().some(function(x){ return x.qid===item.qid; });
     }catch(e){ return false; }
   }
-  // Cross-tab serialization: the Web Locks API when the browser has it (Chrome / Android WebView do), otherwise run inline
-  // (the per-record claim below still guards two timers in one tab). Server idempotency is the final protection either way.
-  function withQueueLock(fn){
-    try{ if(navigator.locks&&navigator.locks.request) return navigator.locks.request('wims_pending_v1', fn); }catch(e){}
-    return Promise.resolve().then(fn);
+  // ONE ownership rule for every queue mutation (append, hold, claim, drop, hydrate, release): the Web Locks API when the
+  // browser has it (Chrome / Android WebView do), otherwise a localStorage mutex (token + settle delay + re-read, bounded wait).
+  // Reentrant within a tab (a mutation inside a locked section runs inline). Network calls are NEVER made while holding it.
+  var LOCKKEY='wims_pending_v1.lock', lockDepth=0;
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+  async function lsMutex(fn){
+    var mine=TAB_ID+'_'+Math.random().toString(36).slice(2,6), t0=Date.now(), got=false;
+    while(Date.now()-t0<3000){
+      var cur=null; try{ cur=JSON.parse(localStorage.getItem(LOCKKEY)||'null'); }catch(e){ cur=null; }
+      if(!cur||!cur.at||(Date.now()-cur.at)>8000){
+        try{ localStorage.setItem(LOCKKEY, JSON.stringify({id:mine, at:Date.now()})); }catch(e){}
+        await sleep(12);                                   // let a simultaneous claimant's write land, then re-read
+        try{ cur=JSON.parse(localStorage.getItem(LOCKKEY)||'null'); }catch(e){ cur=null; }
+        if(cur&&cur.id===mine){ got=true; break; }
+      }
+      await sleep(25);
+    }
+    try{ return await fn(); }
+    finally{ if(got){ try{ var c=JSON.parse(localStorage.getItem(LOCKKEY)||'null'); if(c&&c.id===mine) localStorage.removeItem(LOCKKEY); }catch(e){} } }
+  }
+  async function withQueueLock(fn){
+    if(lockDepth>0) return fn();                           // already inside this tab's locked section
+    var run=async function(){ lockDepth++; try{ return await fn(); } finally{ lockDepth--; } };
+    try{ if(navigator.locks&&navigator.locks.request) return await navigator.locks.request('wims_pending_v1', run); }catch(e){}
+    return lsMutex(run);
   }
   // Phase 1 (2026-10-09, Codex F7): bawat item ay may sariling id + may-ari (auth uid / username). Ang flush ay nag-aalis LANG ng
   // item na KUMPIRMADONG natapos (by id, mula sa PINAKABAGONG queue) — dating isinusulat ang buong snapshot pabalik, kaya ang
@@ -493,35 +516,43 @@
   // Hinahawakan (hindi tinatapon) ang report na tinanggihan ng server (validation) o may CONFLICT sa naka-file nang declaration:
   // nakikita sa ⚠ banner / wimsHeldReports() at maaaring i-retry; ang NETWORK/session error ay nananatili at inuulit; ang
   // tagumpay lang ang tinatanggal — by id, mula sa PINAKABAGONG queue. Hindi nagre-replay nang walang naka-sign-in na session.
-  async function flushWims(){ if(flushing) return; return withQueueLock(flushInner); }
-  async function flushInner(){
-    if(flushing) return; var ids=hydrateQueue(); if(!ids.length) return; flushing=true;
+  async function flushWims(){
+    if(flushing) return; flushing=true;
     try{
       var sess=null; try{ var sr=await W().auth.getSession(); sess=sr&&sr.data&&sr.data.session; }catch(e){ sess=null; }
-      if(!sess) return;                                 // walang session — hintayin ang login (SIGNED_IN ang magti-trigger)
+      if(!sess) return;                                   // walang session — hintayin ang login (SIGNED_IN ang magti-trigger)
+      var ids=await withQueueLock(hydrateQueue);
       for(var i=0;i<ids.length;i++){
-        var it=qGet(ids[i]); if(!it) continue;         // natanggal na (ibang tab)
-        if(it.held) continue;                             // naghihintay ng review — hindi inuulit nang kusa
-        if(!_wMine(it)) continue;                         // sa ibang login — hawak lang
-        if(it.lock&&it.lock.by!==TAB_ID&&(Date.now()-(it.lock.at||0))<90000) continue;   // ibang tab ang nagpapadala nito ngayon
-        qPatch(it.qid, function(x){ x.lock={by:TAB_ID, at:Date.now()}; });
-        try{
-          var res=await fileDeclaration(it.rpc, it.args);
-          if(res.status==='error') throw res.error||new Error(res.message);
+        var id=ids[i];
+        // CLAIM under the lock (latest state, by id); another tab's fresh claim or a held / foreign item is skipped
+        var it=await withQueueLock(function(){
+          var x=qGet(id); if(!x||x.held||!_wMine(x)) return null;
+          if(x.lock&&x.lock.by!==TAB_ID&&(Date.now()-(x.lock.at||0))<90000) return null;
+          qPatch(id, function(y){ y.lock={by:TAB_ID, at:Date.now()}; }); return qGet(id);
+        });
+        if(!it) continue;
+        var res=null, failure=null;
+        try{ res=await fileDeclaration(it.rpc, it.args); if(res.status==='error') throw (res.error||new Error(res.message)); }   // NO lock held during the network call
+        catch(e){ failure=e; }
+        // FINALIZE under the lock, against the latest state (an append by another tab in the meantime is untouched)
+        await withQueueLock(function(){
+          if(failure){
+            if(isNetErr(failure)){ qPatch(id, function(x){ delete x.lock; }); return; }   // offline / session — mananatili, susubukan ulit
+            var msg=String(failure&&failure.message||failure);
+            qPatch(id, function(x){ x.held=msg; x.heldAt=Date.now(); x.kind='rejected'; delete x.lock; });
+            say('⚠ WIMS report for JO '+(it.jo||'?')+' was NOT accepted: '+msg+' — naka-hold para sa warehouse review');
+            return;
+          }
           cpeCache=null;
           if(res.status==='conflict'){
-            qPatch(it.qid, function(x){ x.held=res.message||'Conflict with the filed declaration'; x.heldAt=Date.now(); x.kind='conflict'; x.conflict_id=res.conflict_id||null; delete x.lock; });
+            qPatch(id, function(x){ x.held=res.message||'Conflict with the filed declaration'; x.heldAt=Date.now(); x.kind='conflict'; x.conflict_id=res.conflict_id||null; delete x.lock; });
             say('⚠ JO '+(it.jo||'?')+': may WIMS declaration NA ang JO na ito — hindi binago ang inventory; naka-hold ang report para sa warehouse review.');
           } else {
-            qDrop(it.qid);
+            qDrop(id);
             say('📦 Queued WIMS report filed — JO '+(it.jo||'?'));
           }
-        }catch(e){
-          if(isNetErr(e)){ qPatch(it.qid, function(x){ delete x.lock; }); continue; }   // offline / session — mananatili, susubukan ulit
-          var msg=String(e&&e.message||e);
-          qPatch(it.qid, function(x){ x.held=msg; x.heldAt=Date.now(); x.kind='rejected'; delete x.lock; });
-          say('⚠ WIMS report for JO '+(it.jo||'?')+' was NOT accepted: '+msg+' — naka-hold para sa warehouse review');
-        }
+        });
+        if(!failure&&(res.status==='filed'||res.status==='replay')) await refreshPrevFoc();   // accepted chronology from the server
       }
     }finally{ flushing=false; renderHeldBar(); }
   }
@@ -576,7 +607,7 @@
   }
   window.wimsSessionFoc=function(){ return focPrev; };   // read-only: what the next JO's START is prefilled from
   window.wimsHeldReports=function(){ return qAll().filter(function(x){ return !!x.held; }); };
-  window.wimsReleaseHeld=function(qid){ qPatch(qid, function(x){ delete x.held; delete x.heldAt; delete x.kind; delete x.lock; }); renderHeldBar(); return flushWims(); };
+  window.wimsReleaseHeld=async function(qid){ await withQueueLock(function(){ qPatch(qid, function(x){ delete x.held; delete x.heldAt; delete x.kind; delete x.lock; }); }); renderHeldBar(); return flushWims(); };
   try{ window.addEventListener('online', function(){ setTimeout(flushWims, 2000); }); }catch(e){}
   setInterval(flushWims, 60000);
   setTimeout(flushWims, 8000);
@@ -624,6 +655,7 @@
         _rpc='ticket_usage'; _args=targs; _jo=targs.p_jo;
         var tres=await fileDeclaration('ticket_usage', targs);
         if(tres.status==='error') throw (tres.error||new Error(tres.message));
+        if(tres.status==='filed'||tres.status==='replay') await refreshPrevFoc();
         cpeCache=null;
         return await outcome(tres, jobId, 'ticket_usage', targs, '📦 WIMS usage filed — deducted from your inventory');
       }
@@ -667,11 +699,13 @@
       _rpc='complete_install'; _args=args; _jo=args.p_jo;
       var ires=await fileDeclaration('complete_install', args);
       if(ires.status==='error') throw (ires.error||new Error(ires.message));
-      // chain continuity for the NEXT JO in this session — from ACCEPTED readings only (filed / replay), never from a conflict
-      if(hasStart&&hasEnd&&(ires.status==='filed'||ires.status==='replay')){
+      // chain continuity for the NEXT JO: a freshly FILED reading is applied at once, then the server's accepted chronology
+      // (my_last_foc) is reloaded for every accepted outcome — a replay of an older receipt never rewinds it
+      if(hasStart&&hasEnd&&ires.status==='filed'){
         focPrev={ reel_no:(s.foc2On&&s.foc2Reel)?s.foc2Reel:(s.focReel||null),
                   end_m:(s.foc2On&&!isNaN(parseFloat(s.foc2End)))?parseFloat(s.foc2End):parseFloat(s.focEnd) };
       }
+      if(ires.status==='filed'||ires.status==='replay') await refreshPrevFoc();
       cpeCache=null;   // installed CPE leaves the issued pool
       return await outcome(ires, jobId, 'complete_install', args, '📦 WIMS material report filed');
     }catch(e){

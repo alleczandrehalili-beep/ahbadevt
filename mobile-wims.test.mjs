@@ -29,7 +29,8 @@ function boot(opts) {
     getElementById: id => dom.els.find(e => e.id === id) || null, createElement: () => mkEl(), body: { appendChild: el => dom.els.push(el) } };
   const ctx = { window, document, localStorage, navigator: { onLine: true, clipboard: { writeText() { } } }, console: { warn() { }, error() { }, log() { } }, sb, toast: m => toasts.push(m),
     myTeam: opts.loggedIn === false ? '' : (opts.team || 'AHBA_SLI001'), jobs: opts.jobs || [], photoCount: () => 12, shiftAccount: 'ACC-1',
-    setInterval: () => 0, setTimeout: (fn) => { timers.push(fn); return 0; }, clearTimeout() { }, requestAnimationFrame() { }, cancelAnimationFrame() { }, URL: { createObjectURL() { }, revokeObjectURL() { } }, Date, Math, JSON };
+    // module timers are captured (flush / banner / SIGNED_IN are driven by the tests); short internal waits (the localStorage mutex) really fire
+    setInterval: () => 0, setTimeout: (fn, ms) => { timers.push(fn); if (fn.name !== 'flushWims' && fn.name !== 'renderHeldBar' && (ms || 0) <= 100) setTimeout(fn, Math.min(ms || 0, 5)); return 0; }, clearTimeout() { }, requestAnimationFrame() { }, cancelAnimationFrame() { }, URL: { createObjectURL() { }, revokeObjectURL() { } }, Date, Math, JSON };
   ctx.window.sb = sb;
   vm.createContext(ctx);
   vm.runInContext(SRC, ctx, { filename: 'mobile-wims.js' });
@@ -120,7 +121,7 @@ test('old backend (no wrapper, no p_job_id): replay uses the signature fallbacks
           { qid: 'Z', rpc: 'complete_install', args: { p_jo: 'R9' }, jo: 'R9', ts: 1, owner: 'uid-OTHER' },
           { qid: 'L', rpc: 'complete_install', args: { p_jo: 'R5' }, jo: 'R5', ts: 1, owner: 'uid-1', lock: { by: 'other-tab', at: Date.now() } }]);
   await b.flush();
-  assert.deepEqual(b.calls.map(c => [c.name, 'p_job_id' in (c.args.p_args || c.args)]), [['file_declaration', true], ['complete_install', true], ['complete_install', false]]);
+  assert.deepEqual(b.calls.filter(c => c.name !== 'my_last_foc').map(c => [c.name, 'p_job_id' in (c.args.p_args || c.args)]), [['file_declaration', true], ['complete_install', true], ['complete_install', false]]);
   assert.deepEqual(b.q().map(x => x.qid), ['Z', 'L'], 'the other login\'s item and the other tab\'s in-flight item are untouched');
 });
 
@@ -133,7 +134,7 @@ test('interactive filing (new backend) goes through file_declaration with p_job_
   assert.equal(await b.ctx.window.wimsSubmit('JOB-77', b.ctx.jobs[0]), null);
   const it = b.q()[0]; assert.equal(it.rpc, 'complete_install'); assert.equal(it.args.p_job_id, 'JOB-77'); assert.equal(it.owner, 'uid-1'); assert.ok(it.qid);
   net = true; await b.flush();
-  assert.deepEqual(b.q(), []); const last = b.calls[b.calls.length - 1]; assert.equal(last.name, 'file_declaration'); assert.equal(last.args.p_args.p_job_id, 'JOB-77');
+  assert.deepEqual(b.q(), []); const last = b.calls.filter(c => c.name === 'file_declaration').pop(); assert.equal(last.args.p_args.p_job_id, 'JOB-77');
 });
 
 test('job list column tiers: a server with only the ORIGINAL four return columns still loads the return identity (Codex #2)', async () => {
@@ -208,4 +209,74 @@ test('two tabs flushing the same queue at the same time send the item ONCE (Web 
   store.set('wims_pending_v1', JSON.stringify([{ qid: 'A', rpc: 'complete_install', args: { p_jo: 'R1' }, jo: 'R1', ts: 1, owner: 'uid-1' }]));
   await Promise.all([t1.flush(), t2.flush()]);
   assert.deepEqual(sends, ['tab1:R1'], 'exactly one send'); assert.deepEqual(JSON.parse(store.get('wims_pending_v1')), []);
+});
+
+// ---- Codex RC3 residuals: one ownership rule for every mutation; durable enqueue independent of network waits; FOC chronology ----
+const serialLocks = () => { const chain = { p: Promise.resolve() }; return { request: (name, fn) => { const run = chain.p.then(() => fn()); chain.p = run.catch(() => { }); return run; } }; };
+const sharedStore = () => new Map();
+
+test('release-held in one tab vs an offline append in another (Web Locks): both records survive, nothing is overwritten by a stale snapshot', async () => {
+  const store = sharedStore(); const locks = serialLocks();
+  // tab A accepts the released HELD report but is offline for anything else (so B's new report cannot simply be filed by A)
+  const A = boot({ store, handler: (name, args) => name === 'my_access' ? ok([{ role: 'technician' }]) : name === 'my_last_foc' ? ok([]) : ((args.p_args || args).p_jo === 'HELD' ? ok({ status: 'filed', receipt: 'r' }) : Promise.reject(new TypeError('Failed to fetch'))) }); A.ctx.navigator.locks = locks;
+  const B = boot({ store, jobs: [JOB1], handler: name => name === 'my_access' ? ok([{ role: 'technician' }]) : Promise.reject(new TypeError('Failed to fetch')) }); B.ctx.navigator.locks = locks;
+  store.set('wims_pending_v1', JSON.stringify([{ qid: 'H', rpc: 'complete_install', args: { p_jo: 'HELD' }, jo: 'HELD', ts: 1, owner: 'uid-1', held: 'existing conflict', kind: 'conflict' }]));
+  selectModem(B, 'J1', 'M1');
+  const [, r] = await Promise.all([A.ctx.window.wimsReleaseHeld('H'), B.ctx.window.wimsSubmit('J1', JOB1)]);
+  assert.equal(r, null, 'B queued its report'); 
+  const q = JSON.parse(store.get('wims_pending_v1'));
+  assert.ok(q.some(x => x.job === 'J1'), 'the newly acknowledged offline report is still there');
+  assert.ok(!q.some(x => x.qid === 'H'), 'the released report was sent and removed');
+});
+
+test('no Web Locks: two tabs append offline reports at the same time — both are retained (localStorage mutex); two flushes send once', async () => {
+  const store = sharedStore();
+  const mk = (job) => boot({ store, jobs: [job], handler: name => name === 'my_access' ? ok([{ role: 'technician' }]) : Promise.reject(new TypeError('Failed to fetch')) });
+  const J2 = { ...JOB1, id: 'J2', job_order_no: 'R2' };
+  const A = mk(JOB1), B = mk(J2);
+  for (const t of [A, B]) { t.ctx.navigator.locks = undefined; }
+  selectModem(A, 'J1', 'M1'); selectModem(B, 'J2', 'M2');
+  const [ra, rb] = await Promise.all([A.ctx.window.wimsSubmit('J1', JOB1), B.ctx.window.wimsSubmit('J2', J2)]);
+  assert.equal(ra, null); assert.equal(rb, null);
+  const q = JSON.parse(store.get('wims_pending_v1')); assert.deepEqual(q.map(x => x.job).sort(), ['J1', 'J2'], 'neither offline report is lost');
+  // two flushes without Web Locks: one send
+  const sends = [];
+  const mkF = () => { const b = boot({ store, handler: async (name, args) => { sends.push((args.p_args || args).p_jo); await new Promise(r => setTimeout(r, 5)); return ok({ status: 'filed', receipt: 'r' }); } }); b.ctx.navigator.locks = undefined; return b; };
+  store.set('wims_pending_v1', JSON.stringify([{ qid: 'A', rpc: 'complete_install', args: { p_jo: 'R1' }, jo: 'R1', ts: 1, owner: 'uid-1' }]));
+  const F1 = mkF(), F2 = mkF();
+  await Promise.all([F1.flush(), F2.flush()]);
+  assert.deepEqual(sends, ['R1'], 'exactly one send without Web Locks');
+});
+
+test('a pending replay does NOT block another tab from durably enqueueing: the lock is released before the network call', async () => {
+  const store = sharedStore(); const locks = serialLocks();
+  let release; const pending = new Promise(r => { release = r; });
+  const F = boot({ store, handler: () => pending }); F.ctx.navigator.locks = locks;
+  store.set('wims_pending_v1', JSON.stringify([{ qid: 'A', rpc: 'complete_install', args: { p_jo: 'R1' }, jo: 'R1', ts: 1, owner: 'uid-1' }]));
+  const flushing = F.flush();
+  for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r));
+  const B = boot({ store, jobs: [JOB1], handler: name => name === 'my_access' ? ok([{ role: 'technician' }]) : Promise.reject(new TypeError('Failed to fetch')) }); B.ctx.navigator.locks = locks;
+  selectModem(B, 'J1', 'M1');
+  const done = await Promise.race([B.ctx.window.wimsSubmit('J1', JOB1).then(() => 'queued'), new Promise(r => setTimeout(() => r('blocked'), 200))]);
+  assert.equal(done, 'queued', 'the append completed while the replay was still pending');
+  assert.ok(JSON.parse(store.get('wims_pending_v1')).some(x => x.job === 'J1'));
+  release(ok({ status: 'filed', receipt: 'r' })); await flushing;
+  const q = JSON.parse(store.get('wims_pending_v1')); assert.deepEqual(q.map(x => x.job), ['J1'], 'A sent and removed, B still queued');
+});
+
+test('FOC chronology: an accepted ticket, a queued install replay and an older interactive replay all leave the prefill at the SERVER\'s latest accepted end', async () => {
+  const server = { reel_no: 'R', end_m: 1200 };   // the team's latest accepted reading on the server
+  const mk = (status, extraJobs) => boot({ jobs: [JOB1].concat(extraJobs || []), handler: (name, args) => name === 'my_access' ? ok([{ role: 'technician' }]) : name === 'my_last_foc' ? ok([server]) : ok({ status, receipt: 'r', conflict_id: null, message: 'x' }) });
+  // accepted ticket
+  const T = mk('filed', [{ ...JOB1, id: 'T1', job_order_no: 'TK-1', load_type: 'SLR-TICKET' }]);
+  change(T, 'T1', 'focreel', 'R'); change(T, 'T1', 'focstart', '1500'); change(T, 'T1', 'focend', '1300');
+  assert.equal(await T.ctx.window.wimsSubmit('T1', T.ctx.jobs[1]), null);
+  assert.deepEqual(JSON.parse(JSON.stringify(T.ctx.window.wimsSessionFoc())), server, 'ticket: reloaded from the server');
+  // queued install replay
+  const Q = mk('replay'); Q.setQ([{ qid: 'A', rpc: 'complete_install', args: { p_jo: 'R1', p_foc_reel: 'R', p_foc_start: 1500, p_foc_end: 1300 }, jo: 'R1', ts: 1, owner: 'uid-1' }]);
+  await Q.flush(); assert.deepEqual(Q.q(), []); assert.deepEqual(JSON.parse(JSON.stringify(Q.ctx.window.wimsSessionFoc())), server, 'queued replay: reloaded from the server');
+  // older interactive replay after a newer filing never rewinds
+  const O = mk('replay'); selectModem(O, 'J1', 'M1'); change(O, 'J1', 'focreel', 'R'); change(O, 'J1', 'focstart', '1500'); change(O, 'J1', 'focend', '1300');
+  await O.ctx.window.wimsSubmit('J1', JOB1);
+  assert.deepEqual(JSON.parse(JSON.stringify(O.ctx.window.wimsSessionFoc())), server, 'older replay: the server chronology wins');
 });
