@@ -443,17 +443,22 @@
   function dKey(qid){ return DPFX+qid; }
   function qParse(v){ try{ var x=JSON.parse(v||'null'); return (x&&typeof x==='object')?x:null; }catch(e){ return null; } }
   function qKeys(pfx){ var out=[]; try{ var n=localStorage.length; for(var i=0;i<n;i++){ var k=localStorage.key(i); if(k&&k.indexOf(pfx)===0) out.push(k); } }catch(e){} return out; }
-  function isDone(qid){ try{ return !!localStorage.getItem(dKey(qid)); }catch(e){ return false; } }
-  function markDone(qid){ try{ localStorage.setItem(dKey(qid), JSON.stringify({at:Date.now()})); }catch(e){} }
-  function qHash(str){ var h=5381; for(var i=0;i<str.length;i++) h=((h<<5)+h+str.charCodeAt(i))|0; return (h>>>0).toString(36); }
-  function qLegacyId(it){ return it.qid||('legacy_'+(it.ts||0)+'_'+(it.jo||'')+'_'+qHash(JSON.stringify([it.rpc||'',it.args||null]))); }   // content identity: stable across tabs and across the old writer's rewrites
+  // content fingerprint of a legacy record: two independent 32-bit hashes (djb2 + sdbm) over the WHOLE record = 64 bits; the id
+  // carries it and so does the tombstone (sig), so a tombstone only ever suppresses the record it was written for
+  function qHash(str){ var h=5381, g=0; for(var i=0;i<str.length;i++){ var c=str.charCodeAt(i); h=((h<<5)+h+c)|0; g=(c+(g<<6)+(g<<16)-g)|0; } return (h>>>0).toString(36)+(g>>>0).toString(36); }
+  function qSig(it){ return qHash(JSON.stringify([it.rpc||'',it.args||null,it.ts||0,it.jo||'',it.owner||'',it.ouser||''])); }
+  function qLegacyId(it){ return it.qid||('legacy_'+(it.ts||0)+'_'+(it.jo||'')+'_'+qSig(it)); }   // content identity: stable across tabs and across the old writer's rewrites
+  // TERMINAL: a tombstone key, or (storage too full for a separate key) the record key itself holding a done marker
+  function isDone(qid, it){ try{ var d=qParse(localStorage.getItem(dKey(qid))); if(d){ return !(it&&d.sig&&d.sig!==qSig(it)); } var r=qParse(localStorage.getItem(qKey(qid))); return !!(r&&r.done); }catch(e){ return false; } }
+  function markDone(qid, sig){ try{ localStorage.setItem(dKey(qid), JSON.stringify({at:Date.now(), sig:sig||null})); return isDone(qid); }catch(e){ return false; } }
   function qLegacy(){ try{ var a=JSON.parse(localStorage.getItem(WQKEY)||'[]'); return Array.isArray(a)?a.filter(function(x){ return x&&typeof x==='object'; }):[]; }catch(e){ return []; } }
-  // every ACTIVE record: the per-key records plus the not-yet-migrated blob items, minus tombstoned ones, oldest first
+  // every ACTIVE record: the per-key records plus the not-yet-migrated blob items, minus terminal ones, oldest first
   function qAll(){
     var out=[], seen={};
-    qKeys(QPFX).forEach(function(k){ var id=k.slice(QPFX.length); if(isDone(id)){ try{ localStorage.removeItem(k); }catch(e){} return; }   // a stale resurrection of an accepted record heals here
-      var x=qParse(localStorage.getItem(k)); if(x){ x.qid=x.qid||id; seen[x.qid]=1; out.push(x); } });
-    qLegacy().forEach(function(it){ var id=qLegacyId(it); if(!seen[id]&&!isDone(id)){ it.qid=id; seen[id]=1; out.push(it); } });
+    qKeys(QPFX).forEach(function(k){ var id=k.slice(QPFX.length), x=qParse(localStorage.getItem(k));
+      if(!x||x.done||isDone(id)){ if(x&&x.done&&!markDone(id, x.sig)) return; try{ localStorage.removeItem(k); }catch(e){} return; }   // terminal (a stale resurrection of an accepted record heals here; a done marker becomes a tombstone when room allows)
+      x.qid=x.qid||id; seen[x.qid]=1; out.push(x); });
+    qLegacy().forEach(function(it){ var id=qLegacyId(it); if(!seen[id]&&!isDone(id, it)){ it.qid=id; seen[id]=1; out.push(it); } });
     out.sort(function(a,b){ return ((a.ts||0)-(b.ts||0))||String(a.qid).localeCompare(String(b.qid)); });
     return out;
   }
@@ -467,13 +472,25 @@
       var back=qParse(localStorage.getItem(qKey(item.qid))); return !!(back&&back.qid===item.qid);
     }catch(e){ return false; }
   }
-  function qGet(qid){ return qParse(localStorage.getItem(qKey(qid))); }
-  function qDrop(qid){ markDone(qid); try{ localStorage.removeItem(qKey(qid)); }catch(e){} }   // terminal: tombstone FIRST, then the record
-  function qPatch(qid, fn){ try{ if(isDone(qid)) return false; var x=qGet(qid); if(!x) return false; fn(x); localStorage.setItem(qKey(qid), JSON.stringify(x)); return true; }catch(e){ return false; } }
+  function qGet(qid){ var x=qParse(localStorage.getItem(qKey(qid))); return (x&&!x.done)?x:null; }
+  // ACCEPTED → terminal. The tombstone is written and VERIFIED before the record is removed; when storage cannot fit the separate
+  // marker, the record key itself is overwritten with a small done marker (which frees room) and verified; if even that fails the
+  // record is left as it is — a re-send costs one replay, never the loss of the only local acknowledgment (Codex RC6).
+  function qDrop(qid){
+    var x=qGet(qid), sig=x?qSig(x):null;
+    if(markDone(qid, sig)){ try{ localStorage.removeItem(qKey(qid)); }catch(e){} return true; }
+    try{ localStorage.setItem(qKey(qid), JSON.stringify({qid:qid, done:true, at:Date.now(), sig:sig})); }catch(e){}
+    var back=qParse(localStorage.getItem(qKey(qid))); return !!(back&&back.done);
+  }
+  function qPatch(qid, fn){ try{ if(isDone(qid)) return false; var x=qGet(qid); if(!x) return false; fn(x); if(isDone(qid)) return false; localStorage.setItem(qKey(qid), JSON.stringify(x)); return true; }catch(e){ return false; } }
   // FENCED finalize (RC5): a non-terminal outcome (held / conflict / retry) is written only by the tab whose claim token is still
   // on the record and only while the record is not terminal — a finalizer that resumes after its lease expired and another tab
   // accepted the report writes nothing (it cannot recreate an acknowledged record from its stale snapshot)
-  function qFinalize(qid, tok, fn){ return qPatch(qid, function(x){ if(!(x.lock&&x.lock.by===TAB_ID&&x.lock.tok===tok)) throw new Error('stale'); fn(x); }); }
+  function qFinalize(qid, tok, fn){
+    var ok=qPatch(qid, function(x){ if(!(x.lock&&x.lock.by===TAB_ID&&x.lock.tok===tok)) throw new Error('stale'); fn(x); });
+    if(ok&&isDone(qid)){ try{ var d=qParse(localStorage.getItem(dKey(qid))); if(d) localStorage.removeItem(qKey(qid)); }catch(e){} return false; }   // accepted elsewhere between this read and write → no stale record, no stale message
+    return ok;
+  }
   // CLAIM ARBITRATION (no longer a correctness dependency): the Web Locks API when the browser has it (Chrome / Android WebView
   // do), otherwise a localStorage token that FAILS CLOSED — a tab that cannot confirm ownership within the wait does NOT run the
   // claim (it skips this round). Should two tabs ever both believe they hold the token, the cost is one duplicate request: the
@@ -525,8 +542,10 @@
   function hydrateQueue(){
     var legacy=qLegacy(), failed=0, inBlob={};
     legacy.forEach(function(it){
-      var id=qLegacyId(it); inBlob[id]=1;
-      if(isDone(id)||qGet(id)) return;
+      var id=qLegacyId(it), ex=qGet(id), n=1;
+      while(ex&&qSig(ex)!==qSig(it)){ id=qLegacyId(it)+'_'+(++n); ex=qGet(id); }   // a different record under the same identity (collision) gets its own id
+      inBlob[id]=1;
+      if(ex||isDone(id, it)) return;
       it.qid=id;
       try{ localStorage.setItem(qKey(id), JSON.stringify(it)); }catch(e){}
       if(!qGet(id)) failed++;
