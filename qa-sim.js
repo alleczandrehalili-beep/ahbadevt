@@ -210,6 +210,9 @@
         installers_text: [job.crew_driver, job.crew_tech1, job.crew_tech2].filter(Boolean).join(' / ') || null, status: Core.initialStatus({ jo_date_closed: closed }, c, db.settings.initial_cutoff) });
       syncJob(a); log(a.id, 'created', { source: 'fieldops', status: a.status }); emit(a); return a;
     }
+    // Gate B cycle rule (Codex RC4 B3): a submission marker counts only for THIS return — one older than the return (left by a
+    // return opened under the restored qa-05h RPC during a rollback) is not a submission of the current cycle.
+    function submittedThisCycle(j) { return !!(j.qa_return_submitted_at && j.qa_returned_at && j.qa_return_submitted_at >= j.qa_returned_at); }
     // qa-05h: the team re-completes a returned JO (FieldOps flips status back to 'completed' → qa.on_job_completed fires).
     function recompleteJob(jobId) {
       var j = db.jobs.filter(function (x) { return x.id === jobId && !x.deleted_at; })[0];
@@ -218,7 +221,7 @@
       // qa-06 continuity: an OLD phone's plain status flip on a returned JO is accepted as the team's SUBMISSION when a new photo
       // exists after the return (never a closure); without one it is refused (jobs_return_freeze).
       if (j.qa_returned_at && !j.qa_return_resolved_at) {
-        if (j.qa_return_submitted_at) return null;
+        if (submittedThisCycle(j)) return null;
         var fresh = (j.photos || []).some(function (p) { return p.created_at && p.created_at > j.qa_returned_at; });
         if (!fresh) throw new Error('NO_NEW_PHOTO: upload the replacement photo first — no photo was added after the QA return (JO ' + jobId + ')');
         j.status = 'completed'; j.qa_return_submitted_at = iso(); j.qa_status = 'FOR QA CHECK'; j.updated_at = iso();
@@ -236,7 +239,7 @@
       if (!j.team || (o.team && j.team !== o.team)) throw new Error('Only the team that holds JO ' + jobId + ' can re-submit it');
       if (!j.qa_returned_at || j.qa_return_resolved_at) throw new Error('NOT_RETURNED: JO ' + jobId + ' is not returned by QA');
       if (!expectedReturnedAt || j.qa_returned_at !== expectedReturnedAt) throw new Error('RETURN_TOKEN_MISMATCH: JO ' + jobId + ' was returned again by QA — refresh the app and read the new remarks');
-      if (j.qa_return_submitted_at) return clone(j);
+      if (submittedThisCycle(j)) return clone(j);   // replay of THIS cycle only
       var fresh = o.newPhoto || (j.photos || []).some(function (p) { return p.created_at && p.created_at > j.qa_returned_at; });
       if (!fresh) throw new Error('NO_NEW_PHOTO: upload the replacement photo first — no photo was added after the QA return');
       j.status = 'completed'; j.qa_return_submitted_at = iso(); j.qa_status = 'FOR QA CHECK'; j.updated_at = iso();   // completed_at kept
@@ -589,7 +592,7 @@
         if ((o.role || 'head') === 'inspector' && !(j.qa_returned_by === by || auditOfJobAssignedTo(j, by))) return Promise.reject(new Error('QA Head, or the inspector who returned this JO, only'));
         var a = latestAuditOfJob(jobId);
         if (ok) {
-          if (!j.qa_return_submitted_at) return Promise.reject(new Error('NOT_SUBMITTED: the team has not re-submitted JO ' + jobId + ' yet'));
+          if (!submittedThisCycle(j)) return Promise.reject(new Error('NOT_SUBMITTED: the team has not re-submitted JO ' + jobId + ' yet (for this return)'));
           j.qa_return_resolved_at = iso(); j.qa_return_checked_by = by; j.updated_at = iso();
           j.history = appendHist(j.history, '✔ Photo replacement verified by QA (' + by + ')' + (nt ? ' — ' + nt : ''));
           if (a) syncJob(a); else j.qa_status = null;
@@ -606,7 +609,7 @@
       // open returns (reviewer worklist): the team has re-submitted first, then the oldest return first
       listReturnedJobs: function () {
         return Promise.resolve(db.jobs.filter(function (x) { return !x.deleted_at && x.qa_returned_at && !x.qa_return_resolved_at; })
-          .sort(function (a, b) { return (b.qa_return_submitted_at ? 1 : 0) - (a.qa_return_submitted_at ? 1 : 0) || String(a.qa_returned_at).localeCompare(String(b.qa_returned_at)); })
+          .sort(function (a, b) { return (submittedThisCycle(b) ? 1 : 0) - (submittedThisCycle(a) ? 1 : 0) || String(a.qa_returned_at).localeCompare(String(b.qa_returned_at)); })
           .map(function (x) { return { id: x.id, job_order_no: x.job_order_no || null, subscriber: x.subscriber || null, team: x.team || null, status: x.status || null,
             qa_return_remarks: x.qa_return_remarks || null, qa_returned_at: x.qa_returned_at, qa_returned_by: x.qa_returned_by || null, qa_return_submitted_at: x.qa_return_submitted_at || null }; }));
       },

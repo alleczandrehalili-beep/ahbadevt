@@ -15,7 +15,7 @@ const MOBILE_B = fs.readFileSync(new URL('./mobile-b.js', import.meta.url), 'utf
 
 function boot(opts) {
   const store = opts.store || new Map();
-  const localStorage = { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) };
+  const localStorage = { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k), get length() { return store.size; }, key: i => Array.from(store.keys())[i] ?? null };
   const calls = []; const timers = []; const toasts = []; const listeners = {}; const authListeners = []; const dom = { els: [] };
   let handler = opts.handler; let session = opts.loggedIn === false ? null : { user: { id: opts.uid || 'uid-1' } };
   const sb = {
@@ -36,10 +36,13 @@ function boot(opts) {
   vm.runInContext(SRC, ctx, { filename: 'mobile-wims.js' });
   const flush0 = timers.find(f => f.name === 'flushWims');   // the module's setTimeout(flushWims, 8000) at load
   const flush = async () => { await new Promise(r => setImmediate(r)); return flush0(); };
-  const q = () => JSON.parse(store.get('wims_pending_v1') || '[]');
-  return { ctx, calls, toasts, listeners, flush, q, setQ: a => store.set('wims_pending_v1', JSON.stringify(a)), store, dom,
+  const q = () => qOf(store);
+  return { ctx, calls, toasts, listeners, flush, q, setQ: a => store.set('wims_pending_v1', JSON.stringify(a)), store, dom, settle: tick,
     setHandler: fn => { handler = fn; }, signIn: (uid, team) => { session = { user: { id: uid } }; ctx.myTeam = team; authListeners.forEach(fn => fn('SIGNED_IN', session)); }, timers };
 }
+// RC5 storage: one record per key (wims_pending_v1.i.<qid>) + the legacy array blob (an old client's writes), oldest first
+const qOf = (store) => { const out = []; for (const [k, v] of store) if (k.startsWith('wims_pending_v1.i.')) out.push(JSON.parse(v)); for (const it of JSON.parse(store.get('wims_pending_v1') || '[]')) if (!out.some(x => x.qid === it.qid)) out.push(it); return out.sort((a, b) => ((a.ts || 0) - (b.ts || 0)) || String(a.qid).localeCompare(String(b.qid))); };
+const tick = async (n = 3) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
 const ok = (data) => ({ data, error: null });
 const err = (message, code) => ({ data: null, error: Object.assign(new Error(message), code ? { code } : {}) });
 const missingFn = () => err('Could not find the function wims.file_declaration(p_args, p_kind) in the schema cache', 'PGRST202');
@@ -70,10 +73,12 @@ test('success / rejection / success: only the rejected report is held; the other
 });
 
 test('an item enqueued DURING a flush is kept; only the acknowledged item is removed', async () => {
-  const b = boot({ handler: newServer(async () => { const cur = b.q(); cur.push({ qid: 'B', rpc: 'ticket_usage', args: { p_jo: 'TK-2' }, jo: 'TK-2', ts: 2 }); b.setQ(cur); return ok({ status: 'filed', receipt: 'rcpt-A' }); }) });
+  let appended = false;
+  const b = boot({ handler: newServer(async () => { if (!appended) { appended = true; const cur = JSON.parse(b.store.get('wims_pending_v1') || '[]'); cur.push({ qid: 'B', rpc: 'ticket_usage', args: { p_jo: 'TK-2' }, jo: 'TK-2', ts: 2 }); b.setQ(cur); } return ok({ status: 'filed', receipt: 'rcpt-A' }); }) });   // an OLD client writes the blob once
   b.setQ([{ qid: 'A', rpc: 'complete_install', args: { p_jo: 'R1' }, jo: 'R1', ts: 1 }]);
   await b.flush();
-  assert.deepEqual(b.q().map(x => x.qid), ['B']);
+  assert.deepEqual(b.q().map(x => x.qid), ['B'], 'the record an old client appended to the blob during the flush is kept');
+  await b.flush(); assert.deepEqual(b.q(), [], 'and migrated + sent on the next round');
 });
 
 test('server CONFLICT on replay = held as a conflict with the server conflict id; DECLARED_ALREADY from an old backend = held too', async () => {
@@ -95,7 +100,7 @@ test('changed INTERACTIVE filing on a job that already has its declaration: held
   const r = await b.ctx.window.wimsSubmit('JOB-1', job);
   assert.equal(r, null, 'completion proceeds (the original declaration stands)');
   const held = b.q(); assert.equal(held.length, 1); assert.equal(held[0].kind, 'conflict'); assert.equal(held[0].owner, 'uid-1'); assert.equal(held[0].args.p_modem_serial, 'M2'); assert.equal(held[0].args.p_job_id, 'JOB-1');
-  assert.deepEqual(JSON.parse(JSON.stringify(b.ctx.window.wimsLastOutcome)), { status: 'conflict', message: 'This JO already has a WIMS declaration; your changed entries were recorded', job: 'JOB-1', conflict_id: 'c-9', heldLocally: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(b.ctx.window.wimsLastOutcome)), { status: 'conflict', message: 'This JO already has a WIMS declaration; your changed entries were recorded', job: 'JOB-1', conflict_id: 'c-9', reason: null, heldLocally: true });
   assert.ok(b.dom.els.find(e => e.id === 'wimsHeldBar'));
 });
 
@@ -122,7 +127,7 @@ test('old backend (no wrapper, no p_job_id): replay uses the signature fallbacks
           { qid: 'L', rpc: 'complete_install', args: { p_jo: 'R5' }, jo: 'R5', ts: 1, owner: 'uid-1', lock: { by: 'other-tab', at: Date.now() } }]);
   await b.flush();
   assert.deepEqual(b.calls.filter(c => c.name !== 'my_last_foc').map(c => [c.name, 'p_job_id' in (c.args.p_args || c.args)]), [['file_declaration', true], ['complete_install', true], ['complete_install', false]]);
-  assert.deepEqual(b.q().map(x => x.qid), ['Z', 'L'], 'the other login\'s item and the other tab\'s in-flight item are untouched');
+  assert.deepEqual(b.q().map(x => x.qid).sort(), ['L', 'Z'], 'the other login\'s item and the other tab\'s in-flight item are untouched');
 });
 
 test('interactive filing (new backend) goes through file_declaration with p_job_id; offline → owned queued item with the canonical job id', async () => {
@@ -195,7 +200,7 @@ test('a structured conflict does NOT advance the session FOC prefill; a filed re
   assert.equal(b.ctx.window.wimsSessionFoc(), null, 'conflict: no carry-over');
   const b2 = mk('filed');
   selectModem(b2, 'J1', 'M2'); change(b2, 'J1', 'focreel', 'REEL-A'); change(b2, 'J1', 'focstart', '1500'); change(b2, 'J1', 'focend', '1300');
-  await b2.ctx.window.wimsSubmit('J1', JOB1);
+  await b2.ctx.window.wimsSubmit('J1', JOB1); await tick();
   assert.deepEqual(JSON.parse(JSON.stringify(b2.ctx.window.wimsSessionFoc())), { reel_no: 'REEL-A', end_m: 1300 }, 'filed: carried over');
 });
 
@@ -208,7 +213,7 @@ test('two tabs flushing the same queue at the same time send the item ONCE (Web 
   const t1 = mkTab('tab1'), t2 = mkTab('tab2');
   store.set('wims_pending_v1', JSON.stringify([{ qid: 'A', rpc: 'complete_install', args: { p_jo: 'R1' }, jo: 'R1', ts: 1, owner: 'uid-1' }]));
   await Promise.all([t1.flush(), t2.flush()]);
-  assert.deepEqual(sends, ['tab1:R1'], 'exactly one send'); assert.deepEqual(JSON.parse(store.get('wims_pending_v1')), []);
+  assert.deepEqual(sends, ['tab1:R1'], 'exactly one send'); assert.deepEqual(qOf(store), []);
 });
 
 // ---- Codex RC3 residuals: one ownership rule for every mutation; durable enqueue independent of network waits; FOC chronology ----
@@ -224,7 +229,7 @@ test('release-held in one tab vs an offline append in another (Web Locks): both 
   selectModem(B, 'J1', 'M1');
   const [, r] = await Promise.all([A.ctx.window.wimsReleaseHeld('H'), B.ctx.window.wimsSubmit('J1', JOB1)]);
   assert.equal(r, null, 'B queued its report'); 
-  const q = JSON.parse(store.get('wims_pending_v1'));
+  const q = qOf(store);
   assert.ok(q.some(x => x.job === 'J1'), 'the newly acknowledged offline report is still there');
   assert.ok(!q.some(x => x.qid === 'H'), 'the released report was sent and removed');
 });
@@ -238,11 +243,11 @@ test('no Web Locks: two tabs append offline reports at the same time — both ar
   selectModem(A, 'J1', 'M1'); selectModem(B, 'J2', 'M2');
   const [ra, rb] = await Promise.all([A.ctx.window.wimsSubmit('J1', JOB1), B.ctx.window.wimsSubmit('J2', J2)]);
   assert.equal(ra, null); assert.equal(rb, null);
-  const q = JSON.parse(store.get('wims_pending_v1')); assert.deepEqual(q.map(x => x.job).sort(), ['J1', 'J2'], 'neither offline report is lost');
-  // two flushes without Web Locks: one send
-  const sends = [];
-  const mkF = () => { const b = boot({ store, handler: async (name, args) => { sends.push((args.p_args || args).p_jo); await new Promise(r => setTimeout(r, 5)); return ok({ status: 'filed', receipt: 'r' }); } }); b.ctx.navigator.locks = undefined; return b; };
-  store.set('wims_pending_v1', JSON.stringify([{ qid: 'A', rpc: 'complete_install', args: { p_jo: 'R1' }, jo: 'R1', ts: 1, owner: 'uid-1' }]));
+  const q = qOf(store); assert.deepEqual(q.map(x => x.job).sort(), ['J1', 'J2'], 'neither offline report is lost');
+  // two flushes without Web Locks (fresh store): one send
+  const sends = []; const store2 = sharedStore();
+  const mkF = () => { const b = boot({ store: store2, handler: async (name, args) => { sends.push((args.p_args || args).p_jo); await new Promise(r => setTimeout(r, 5)); return ok({ status: 'filed', receipt: 'r' }); } }); b.ctx.navigator.locks = undefined; return b; };
+  store2.set('wims_pending_v1', JSON.stringify([{ qid: 'A', rpc: 'complete_install', args: { p_jo: 'R1' }, jo: 'R1', ts: 1, owner: 'uid-1' }]));
   const F1 = mkF(), F2 = mkF();
   await Promise.all([F1.flush(), F2.flush()]);
   assert.deepEqual(sends, ['R1'], 'exactly one send without Web Locks');
@@ -259,9 +264,9 @@ test('a pending replay does NOT block another tab from durably enqueueing: the l
   selectModem(B, 'J1', 'M1');
   const done = await Promise.race([B.ctx.window.wimsSubmit('J1', JOB1).then(() => 'queued'), new Promise(r => setTimeout(() => r('blocked'), 200))]);
   assert.equal(done, 'queued', 'the append completed while the replay was still pending');
-  assert.ok(JSON.parse(store.get('wims_pending_v1')).some(x => x.job === 'J1'));
+  assert.ok(qOf(store).some(x => x.job === 'J1'));
   release(ok({ status: 'filed', receipt: 'r' })); await flushing;
-  const q = JSON.parse(store.get('wims_pending_v1')); assert.deepEqual(q.map(x => x.job), ['J1'], 'A sent and removed, B still queued');
+  const q = qOf(store); assert.deepEqual(q.map(x => x.job), ['J1'], 'A sent and removed, B still queued');
 });
 
 test('FOC chronology: an accepted ticket, a queued install replay and an older interactive replay all leave the prefill at the SERVER\'s latest accepted end', async () => {
@@ -270,13 +275,117 @@ test('FOC chronology: an accepted ticket, a queued install replay and an older i
   // accepted ticket
   const T = mk('filed', [{ ...JOB1, id: 'T1', job_order_no: 'TK-1', load_type: 'SLR-TICKET' }]);
   change(T, 'T1', 'focreel', 'R'); change(T, 'T1', 'focstart', '1500'); change(T, 'T1', 'focend', '1300');
-  assert.equal(await T.ctx.window.wimsSubmit('T1', T.ctx.jobs[1]), null);
+  assert.equal(await T.ctx.window.wimsSubmit('T1', T.ctx.jobs[1]), null); await tick();
   assert.deepEqual(JSON.parse(JSON.stringify(T.ctx.window.wimsSessionFoc())), server, 'ticket: reloaded from the server');
   // queued install replay
   const Q = mk('replay'); Q.setQ([{ qid: 'A', rpc: 'complete_install', args: { p_jo: 'R1', p_foc_reel: 'R', p_foc_start: 1500, p_foc_end: 1300 }, jo: 'R1', ts: 1, owner: 'uid-1' }]);
-  await Q.flush(); assert.deepEqual(Q.q(), []); assert.deepEqual(JSON.parse(JSON.stringify(Q.ctx.window.wimsSessionFoc())), server, 'queued replay: reloaded from the server');
+  await Q.flush(); await tick(); assert.deepEqual(Q.q(), []); assert.deepEqual(JSON.parse(JSON.stringify(Q.ctx.window.wimsSessionFoc())), server, 'queued replay: reloaded from the server');
   // older interactive replay after a newer filing never rewinds
   const O = mk('replay'); selectModem(O, 'J1', 'M1'); change(O, 'J1', 'focreel', 'R'); change(O, 'J1', 'focstart', '1500'); change(O, 'J1', 'focend', '1300');
-  await O.ctx.window.wimsSubmit('J1', JOB1);
+  await O.ctx.window.wimsSubmit('J1', JOB1); await tick();
   assert.deepEqual(JSON.parse(JSON.stringify(O.ctx.window.wimsSessionFoc())), server, 'older replay: the server chronology wins');
+});
+
+// ---- Codex RC4 residuals: atomic per-record persistence (no mutex dependency), fail-closed claim, fenced + non-blocking FOC ----
+// every storage write a tab makes, by key
+function traced(store) { const writes = []; const ls = { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => { writes.push(['set', k]); store.set(k, String(v)); }, removeItem: k => { writes.push(['remove', k]); store.delete(k); }, get length() { return store.size; }, key: i => Array.from(store.keys())[i] ?? null }; return { ls, writes }; }
+const offlineTab = (store, job) => boot({ store, jobs: [job], handler: name => name === 'my_access' ? ok([{ role: 'technician' }]) : Promise.reject(new TypeError('Failed to fetch')) });
+
+test('RC4 B2 (structural): a tab only ever writes the record it is mutating — no whole-queue rewrite exists any more; another tab\'s acknowledged report can never be erased', async () => {
+  const store = sharedStore();
+  // tab A: owns record A, mid-flush with the network pending; tab B appends offline while A is "paused" in its network call; A then finalizes
+  let release, started; const pending = new Promise(r => { release = r; }), inFlight = new Promise(r => { started = r; });
+  const A = boot({ store, handler: (name, args) => (args.p_args || args).p_jo === 'R1' ? (started(), pending) : Promise.reject(new TypeError('Failed to fetch')) }); const tA = traced(store); A.ctx.localStorage = tA.ls; A.ctx.navigator.locks = undefined;
+  store.set('wims_pending_v1', JSON.stringify([{ qid: 'A', rpc: 'complete_install', args: { p_jo: 'R1' }, jo: 'R1', ts: 1, owner: 'uid-1' }]));
+  const flushing = A.flush(); await inFlight;                          // A is inside its network call (claim done, no lock held)
+  const B = offlineTab(store, JOB1); const tB = traced(store); B.ctx.localStorage = tB.ls; B.ctx.navigator.locks = undefined;
+  selectModem(B, 'J1', 'M1');
+  assert.equal(await B.ctx.window.wimsSubmit('J1', JOB1), null, 'B queued its report (acknowledged QUEUED)');
+  const bRec = qOf(store).find(x => x.job === 'J1'); assert.ok(bRec, 'B\'s record is durable');
+  assert.deepEqual(tB.writes, [['set', 'wims_pending_v1.i.' + bRec.qid]], 'B made exactly ONE storage write: its own record (no lock token, no blob, no other record)');
+  release(ok({ status: 'filed', receipt: 'r' })); await flushing;
+  assert.ok(!qOf(store).some(x => x.qid === 'A'), 'A sent and removed its own record');
+  assert.ok(qOf(store).some(x => x.job === 'J1'), 'B\'s acknowledged report survived A\'s finalize');
+  const aKeys = new Set(tA.writes.map(w => w[1]));
+  for (const k of aKeys) assert.ok(k === 'wims_pending_v1' || k === 'wims_pending_v1.lock' || k === 'wims_pending_v1.i.A', 'A wrote only: the blob (migration removal), the claim token, its own record — not ' + k);
+  assert.ok(!tA.writes.some(w => w[0] === 'set' && w[1] === 'wims_pending_v1'), 'the array blob is never written back (only removed after migration)');
+  assert.ok(!tA.writes.some(w => w[1] === 'wims_pending_v1.i.' + bRec.qid), 'A never touched B\'s record');
+});
+
+test('RC4 B2 (expired / stale owner, no Web Locks): a tab that resumes after its claim token expired finalizes only its own record; a report another tab appended meanwhile is intact', async () => {
+  const store = sharedStore(); let release, started; const pending = new Promise(r => { release = r; }), inFlight = new Promise(r => { started = r; });
+  const A = boot({ store, handler: (name, args) => (args.p_args || args).p_jo === 'R1' ? (started(), pending) : Promise.reject(new TypeError('Failed to fetch')) }); A.ctx.navigator.locks = undefined;
+  store.set('wims_pending_v1', JSON.stringify([{ qid: 'A', rpc: 'complete_install', args: { p_jo: 'R1' }, jo: 'R1', ts: 1, owner: 'uid-1' }]));
+  const flushing = A.flush(); await inFlight;
+  // model the owner paused far past the 8-second lease: the token (if any) is stale, and another tab appends and releases a held record
+  const stale = store.get('wims_pending_v1.lock'); if (stale) store.set('wims_pending_v1.lock', JSON.stringify({ ...JSON.parse(stale), at: Date.now() - 9001 }));
+  const B = offlineTab(store, JOB1); B.ctx.navigator.locks = undefined; selectModem(B, 'J1', 'M1');
+  assert.equal(await B.ctx.window.wimsSubmit('J1', JOB1), null);
+  store.set('wims_pending_v1.i.H', JSON.stringify({ qid: 'H', rpc: 'complete_install', args: { p_jo: 'HELD' }, jo: 'HELD', ts: 2, owner: 'uid-1', held: 'x', kind: 'conflict' }));
+  release(ok({ status: 'filed', receipt: 'r' })); await flushing;   // the stale owner resumes and finalizes
+  const q = qOf(store);
+  assert.ok(q.some(x => x.job === 'J1'), 'B\'s acknowledged report is intact'); assert.ok(q.some(x => x.qid === 'H'), 'the record added meanwhile is intact'); assert.ok(!q.some(x => x.qid === 'A'), 'A removed only its own record');
+});
+
+test('RC4 B2 (fail closed): without Web Locks a tab that cannot confirm ownership of the claim token does NOT claim or send anything and does not steal the token', async () => {
+  const store = sharedStore(); const sends = [];
+  store.set('wims_pending_v1.i.A', JSON.stringify({ qid: 'A', rpc: 'complete_install', args: { p_jo: 'R1' }, jo: 'R1', ts: 1, owner: 'uid-1' }));
+  store.set('wims_pending_v1.lock', JSON.stringify({ id: 'other-tab_x', at: Date.now() }));   // held by another tab, fresh
+  const F = boot({ store, handler: (name, args) => { sends.push((args.p_args || args).p_jo); return ok({ status: 'filed', receipt: 'r' }); } });
+  const t = traced(store); F.ctx.localStorage = t.ls; F.ctx.navigator.locks = undefined;
+  // keep the token fresh for the whole bounded wait (the other tab is alive and busy)
+  const keep = setInterval(() => store.set('wims_pending_v1.lock', JSON.stringify({ id: 'other-tab_x', at: Date.now() })), 500);
+  try { await F.flush(); } finally { clearInterval(keep); }
+  assert.deepEqual(sends, [], 'nothing sent'); assert.equal(JSON.parse(store.get('wims_pending_v1.i.A')).lock, undefined, 'record not claimed');
+  assert.ok(!t.writes.some(w => w[1] === 'wims_pending_v1.lock'), 'the token was not overwritten while another tab held it');
+});
+
+test('RC4 FOC: an OLDER background my_last_foc response landing after a newer accepted filing is dropped (fence); the accepted filing never waits for the read', async () => {
+  let n = 0, resolveOld, startedOld; const oldResponse = new Promise(r => { resolveOld = r; }), oldStarted = new Promise(r => { startedOld = r; });
+  const b = boot({ jobs: [JOB1], handler: name => {
+    if (name === 'my_access') return ok([{ role: 'technician' }]);
+    if (name === 'my_last_foc') { if (++n === 1) { startedOld(); return oldResponse; } return ok([{ reel_no: 'R', end_m: 1200 }]); }
+    return ok({ status: 'filed', receipt: 'r' }); } });
+  b.ctx.navigator.locks = serialLocks();
+  b.setQ([{ qid: 'A', rpc: 'complete_install', args: { p_jo: 'OLD-JO', p_foc_reel: 'R', p_foc_start: 1500, p_foc_end: 1300 }, jo: 'OLD-JO', ts: 1, owner: 'uid-1' }]);
+  const flushing = b.flush(); await oldStarted;                       // the queued replay's reload is pending (older request)
+  change(b, 'J1', 'modem', 'M1'); change(b, 'J1', 'focreel', 'R'); change(b, 'J1', 'focstart', '1300'); change(b, 'J1', 'focend', '1200');
+  const done = await Promise.race([b.ctx.window.wimsSubmit('J1', JOB1).then(() => 'completed'), new Promise(r => setTimeout(() => r('blocked'), 200))]);
+  assert.equal(done, 'completed', 'the accepted filing returned although a my_last_foc read is still pending');
+  await tick(); assert.equal(b.ctx.window.wimsSessionFoc().end_m, 1200, 'the newer filing set the prefill');
+  resolveOld(ok([{ reel_no: 'R', end_m: 1300 }])); await flushing; await tick();
+  assert.equal(b.ctx.window.wimsSessionFoc().end_m, 1200, 'the older response landing late did not overwrite the newer chronology');
+});
+
+test('RC4 FOC: a filing whose own my_last_foc read never answers still completes; the freshly filed reading stays as the prefill', async () => {
+  const b = boot({ jobs: [JOB1], handler: name => name === 'my_access' ? ok([{ role: 'technician' }]) : name === 'my_last_foc' ? new Promise(() => { }) : ok({ status: 'filed', receipt: 'accepted' }) });
+  change(b, 'J1', 'modem', 'M1'); change(b, 'J1', 'focreel', 'R'); change(b, 'J1', 'focstart', '1500'); change(b, 'J1', 'focend', '1300');
+  const done = await Promise.race([b.ctx.window.wimsSubmit('J1', JOB1).then(r => r === null ? 'completed' : 'error:' + r), new Promise(r => setTimeout(() => r('blocked'), 300))]);
+  assert.equal(done, 'completed');
+  assert.deepEqual(JSON.parse(JSON.stringify(b.ctx.window.wimsSessionFoc())), { reel_no: 'R', end_m: 1300 });
+});
+
+test('RC4 storage migration: a legacy blob is moved record by record with DETERMINISTIC ids (two tabs agree), removed only when every record is in its key; a blob an old client writes later is read again', async () => {
+  const store = sharedStore(); const locks = serialLocks();
+  store.set('wims_pending_v1', JSON.stringify([legacyItem('A', 1), legacyItem('B', 2)]));
+  const mk = () => { const b = boot({ store, handler: () => Promise.reject(new TypeError('Failed to fetch')) }); b.ctx.navigator.locks = locks; return b; };
+  const t1 = mk(), t2 = mk(); await Promise.all([t1.flush(), t2.flush()]);
+  assert.equal(store.has('wims_pending_v1'), false, 'blob removed after migration'); assert.equal(qOf(store).length, 2, 'no duplicate records from two tabs migrating the same blob');
+  assert.deepEqual(qOf(store).map(x => x.qid), ['legacy_1700000000001_A_0', 'legacy_1700000000002_B_1']);
+  // an old client (still running) appends to the blob afterwards → listed and migrated on the next round
+  store.set('wims_pending_v1', JSON.stringify([legacyItem('C', 3)]));
+  assert.deepEqual(t1.q().map(x => x.jo), ['A', 'B', 'C']); await t1.flush(); assert.equal(store.has('wims_pending_v1'), false); assert.equal(qOf(store).length, 3);
+});
+
+test('RC4: an under-review number (reused / duplicated generation) comes back as a recorded conflict with NO receipt — the report is held with the server\'s reason, completion proceeds', async () => {
+  const b = boot({ jobs: [JOB1], handler: name => name === 'my_access' ? ok([{ role: 'technician' }]) : ok({ status: 'conflict', receipt: null, conflict_id: 'c-ur', reason: 'under_review', message: 'This JO number has an earlier WIMS declaration under warehouse review (re-used / duplicated number); your report was recorded and NOT filed — stock was not deducted. The warehouse must bind the earlier declaration first.' }) });
+  selectModem(b, 'J1', 'M1');
+  assert.equal(await b.ctx.window.wimsSubmit('J1', JOB1), null, 'completion proceeds; the server holds the attempt and the case');
+  const held = b.q(); assert.equal(held.length, 1); assert.equal(held[0].kind, 'conflict'); assert.equal(held[0].conflict_id, 'c-ur'); assert.match(held[0].held, /under warehouse review/);
+  assert.equal(JSON.parse(JSON.stringify(b.ctx.window.wimsLastOutcome)).reason, 'under_review');
+  assert.match(b.toasts.at(-1), /under warehouse review/);
+  // the queued path says the real reason too
+  const q = boot({ handler: () => ok({ status: 'conflict', receipt: null, conflict_id: 'c-ur2', reason: 'under_review', message: 'under warehouse review' }) });
+  q.setQ([{ qid: 'A', rpc: 'complete_install', args: { p_jo: 'R1' }, jo: 'R1', ts: 1, owner: 'uid-1' }]);
+  await q.flush(); assert.equal(q.q()[0].kind, 'conflict'); assert.match(q.toasts.join('\n'), /nasa warehouse review ang mas naunang WIMS declaration/);
 });

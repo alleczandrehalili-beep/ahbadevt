@@ -373,10 +373,14 @@
     function renderRet(a, st) {
       var el = $('#qaRet'); if (!el) return;
       var draft = (state.retDraft && state.retDraft.job === a.job_id) ? state.retDraft : (state.retDraft = { job: a.job_id, open: false, text: '', again: false });
-      var open = st.qa_returned_at && !st.qa_return_resolved_at, sub = open && st.qa_return_submitted_at;
+      // submitted for THIS return only (a marker older than the return belongs to an earlier cycle); a ROLLBACK closure is a
+      // policy resolution, not a QA verification — labelled as such
+      var open = st.qa_returned_at && !st.qa_return_resolved_at, sub = open && st.qa_return_submitted_at && String(st.qa_return_submitted_at) >= String(st.qa_returned_at);
       var line = sub ? '<div class="qa-retline warn" style="background:#e8f1fb;color:#1d4f8a;border-color:#bcd3ee">📸 FOR QA CHECK — ' + esc(st.team || '—') + ' re-submitted on ' + fmtDate(st.qa_return_submitted_at) + ' (returned ' + fmtDate(st.qa_returned_at) + ': ' + esc(st.qa_return_remarks || '') + ')</div>'
         : open ? '<div class="qa-retline warn">↩ Returned to ' + esc(st.team || '—') + ' on ' + fmtDate(st.qa_returned_at) + ' by ' + esc(st.qa_returned_by || '—') + ': ' + esc(st.qa_return_remarks || '') + ' — waiting for the team</div>'
-        : st.qa_return_resolved_at ? '<div class="qa-retline ok">✔ Photo replacement verified by ' + esc(st.qa_return_checked_by || 'QA') + ' on ' + fmtDate(st.qa_return_resolved_at) + '</div>' : '';
+        : st.qa_return_resolved_at ? (st.qa_return_checked_by === 'ROLLBACK'
+            ? '<div class="qa-retline warn">⟲ Return closed by ROLLBACK policy on ' + fmtDate(st.qa_return_resolved_at) + ' — the replacement photo was NOT QA-verified</div>'
+            : '<div class="qa-retline ok">✔ Photo replacement verified by ' + esc(st.qa_return_checked_by || 'QA') + ' on ' + fmtDate(st.qa_return_resolved_at) + '</div>') : '';
       var can = !open && st.status === 'completed', busy = state.retBusy === a.job_id;   // a send in flight survives the form's re-renders
       el.innerHTML = line +
         (sub ? '<button class="qa-btn" id="qaRetOk" type="button"' + (busy ? ' disabled' : '') + '>✔ Verify — photo replaced</button> <button class="qa-btn warn" id="qaRetBtn" type="button"' + (busy ? ' disabled' : '') + '>↩ Not fixed — return again</button>' : '') +

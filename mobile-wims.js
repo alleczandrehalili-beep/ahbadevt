@@ -65,15 +65,19 @@
   }
   // FOC CONTINUITY: the START of this JO is LOCKED to the END of the team's
   // previous JO (server-enforced too). A different/new reel starts at 0.
-  var focPrev=null, focPrevLoaded=false;
-  async function loadPrevFoc(){
-    if(focPrevLoaded) return focPrev; focPrevLoaded=true;
-    try{ var r=await W().schema('wims').rpc('my_last_foc'); focPrev=(r&&r.data&&r.data[0])||null; }catch(e){ focPrev=null; }
-    return focPrev;
-  }
+  var focPrev=null, focPrevLoaded=false, focSeq=0;
   // After ANY accepted outcome (filed / replay, install or ticket, interactive or queued) the next JO's START comes from the
   // server's accepted chronology (my_last_foc = the team's latest filed reading), never from a local guess or an older replay.
-  async function refreshPrevFoc(){ var prev=focPrev; focPrevLoaded=false; try{ var r=await loadPrevFoc(); if(!r){ focPrev=prev; } }catch(e){ focPrev=prev; } return focPrev; }   // server unreachable → keep the freshly filed reading
+  // FENCED (Codex RC4): only the NEWEST request may write the cache — an older response that lands late is dropped — and no
+  // filing ever waits for this read (the completion returns as soon as the server accepted the report). Unreachable / empty
+  // → the cache is left as it is (a freshly filed reading stays).
+  function refreshPrevFoc(){
+    var seq=++focSeq; focPrevLoaded=true;
+    return Promise.resolve().then(function(){ return W().schema('wims').rpc('my_last_foc'); })
+      .then(function(r){ if(seq!==focSeq) return focPrev; var row=(r&&r.data&&r.data[0])||null; if(row) focPrev=row; return focPrev; })
+      .catch(function(){ return focPrev; });
+  }
+  async function loadPrevFoc(){ if(focPrevLoaded) return focPrev; return refreshPrevFoc(); }
   function lockedStart(s){   // ano dapat ang START ayon sa continuity rule
     if(!focPrev||focPrev.end_m==null) return null;              // walang history → editable
     var cur=(s.focReel||'').trim().toUpperCase(), prev=(focPrev.reel_no||'').trim().toUpperCase();
@@ -425,21 +429,44 @@
     return /fetch|network|timeout|abort|load failed|connection|offline/i.test(String(e.message||e));
   }
   var QMAX=50;
-  function qAll(){ try{ return JSON.parse(localStorage.getItem(WQKEY)||'[]')||[]; }catch(e){ return []; } }
-  // NEVER truncates: every record that is in the queue stays; capacity is enforced where a record is ADDED (qPut) and the write is
-  // verified by reading it back, so a caller knows whether its report is durable on this phone.
-  function qSave(a){ try{ localStorage.setItem(WQKEY, JSON.stringify(a)); return true; }catch(e){ return false; } }
+  // STORAGE (Codex RC4 B2): ONE RECORD PER KEY (wims_pending_v1.i.<qid>). Every queue mutation — append, hold, claim, drop,
+  // release — is a single-key setItem / removeItem, which Web Storage performs atomically, and a tab only ever writes the record
+  // it is mutating: no tab rewrites another tab's record, so a paused, stale or late-claiming tab cannot erase a report another
+  // tab verified and acknowledged. Correctness no longer depends on any mutex. The pre-RC5 array blob (wims_pending_v1) is
+  // migrated record by record (hydrateQueue) and is still READ by every listing, so an old client still writing the blob beside
+  // a new tab loses nothing either.
+  var QPFX=WQKEY+'.i.';
+  function qKey(qid){ return QPFX+qid; }
+  function qParse(v){ try{ var x=JSON.parse(v||'null'); return (x&&typeof x==='object')?x:null; }catch(e){ return null; } }
+  function qKeys(){ var out=[]; try{ var n=localStorage.length; for(var i=0;i<n;i++){ var k=localStorage.key(i); if(k&&k.indexOf(QPFX)===0) out.push(k); } }catch(e){} return out; }
+  function qLegacyId(it,i){ return it.qid||('legacy_'+(it.ts||0)+'_'+(it.jo||'')+'_'+i); }   // deterministic: two tabs migrating the same blob agree
+  function qLegacy(){ try{ var a=JSON.parse(localStorage.getItem(WQKEY)||'[]'); return Array.isArray(a)?a.filter(function(x){ return x&&typeof x==='object'; }):[]; }catch(e){ return []; } }
+  // every record: the per-key records plus the not-yet-migrated blob items, oldest first
+  function qAll(){
+    var out=[], seen={};
+    qKeys().forEach(function(k){ var x=qParse(localStorage.getItem(k)); if(x){ x.qid=x.qid||k.slice(QPFX.length); seen[x.qid]=1; out.push(x); } });
+    qLegacy().forEach(function(it,i){ var id=qLegacyId(it,i); if(!seen[id]){ it.qid=id; out.push(it); } });
+    out.sort(function(a,b){ return ((a.ts||0)-(b.ts||0))||String(a.qid).localeCompare(String(b.qid)); });
+    return out;
+  }
+  // NEVER truncates: capacity is enforced where a record is ADDED and the write is verified by reading it back, so a caller knows
+  // whether its report is durable on this phone.
   function qPut(item){
     try{
-      var q=qAll(); if(q.length>=QMAX) return false;
-      q.push(item); if(!qSave(q)) return false;
-      return qAll().some(function(x){ return x.qid===item.qid; });
+      if(!item||!item.qid) return false;
+      if(qAll().length>=QMAX) return false;
+      localStorage.setItem(qKey(item.qid), JSON.stringify(item));
+      var back=qParse(localStorage.getItem(qKey(item.qid))); return !!(back&&back.qid===item.qid);
     }catch(e){ return false; }
   }
-  // ONE ownership rule for every queue mutation (append, hold, claim, drop, hydrate, release): the Web Locks API when the
-  // browser has it (Chrome / Android WebView do), otherwise a localStorage mutex (token + settle delay + re-read, bounded wait).
-  // Reentrant within a tab (a mutation inside a locked section runs inline). Network calls are NEVER made while holding it.
-  var LOCKKEY='wims_pending_v1.lock', lockDepth=0;
+  function qGet(qid){ return qParse(localStorage.getItem(qKey(qid))); }
+  function qDrop(qid){ try{ localStorage.removeItem(qKey(qid)); }catch(e){} }
+  function qPatch(qid, fn){ try{ var x=qGet(qid); if(!x) return false; fn(x); localStorage.setItem(qKey(qid), JSON.stringify(x)); return true; }catch(e){ return false; } }
+  // CLAIM ARBITRATION (no longer a correctness dependency): the Web Locks API when the browser has it (Chrome / Android WebView
+  // do), otherwise a localStorage token that FAILS CLOSED — a tab that cannot confirm ownership within the wait does NOT run the
+  // claim (it skips this round). Should two tabs ever both believe they hold the token, the cost is one duplicate request: the
+  // server answers the second with the same receipt (replay). Network calls are NEVER made while holding it.
+  var LOCKKEY='wims_pending_v1.lock', lockDepth=0, LOCK_BUSY={busy:true};
   function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
   async function lsMutex(fn){
     var mine=TAB_ID+'_'+Math.random().toString(36).slice(2,6), t0=Date.now(), got=false;
@@ -453,8 +480,9 @@
       }
       await sleep(25);
     }
+    if(!got) return LOCK_BUSY;                             // fail closed: ownership not confirmed → nothing runs
     try{ return await fn(); }
-    finally{ if(got){ try{ var c=JSON.parse(localStorage.getItem(LOCKKEY)||'null'); if(c&&c.id===mine) localStorage.removeItem(LOCKKEY); }catch(e){} } }
+    finally{ try{ var c=JSON.parse(localStorage.getItem(LOCKKEY)||'null'); if(c&&c.id===mine) localStorage.removeItem(LOCKKEY); }catch(e){} }
   }
   async function withQueueLock(fn){
     if(lockDepth>0) return fn();                           // already inside this tab's locked section
@@ -471,20 +499,26 @@
   function _wMine(it){ if(!it) return false; if(!it.owner) return true;   // legacy item (bago ang Phase 1) — iisang login lang ang phone noon
     var u=''; try{ u=(typeof myTeam!=='undefined'&&myTeam)||''; }catch(e){}
     return (_wUid&&it.owner===_wUid)||(u&&(it.owner===('u:'+u)||it.ouser===u)); }
-  function qDrop(qid){ qSave(qAll().filter(function(x){ return x.qid!==qid; })); }
-  function qPatch(qid, fn){ var q=qAll(); q.forEach(function(x){ if(x.qid===qid) fn(x); }); qSave(q); }
   function isDeclaredAlready(e){ return /^DECLARED_ALREADY/.test(String(e&&e.message||'')); }
   function isMissingFn(e){ return /could not find the function|schema cache/i.test(String(e&&e.message||'')); }
-  // Legacy items (bago ang Phase 1) ay walang qid. Bago ang KAHIT ANONG await, bawat item ay binibigyan ng STABLE na id at
-  // isinusulat pabalik; pagkatapos ay by-id na ang bawat hakbang (walang index na gumagalaw kapag may natanggal).
+  // Legacy records (the array blob of an older client; items before Phase 1 have no qid): each gets a STABLE, deterministic id and
+  // its own key BEFORE any await; the blob is removed only once every record is verifiably in its key (a record already
+  // migrated by another tab is left alone). Returns the ids of every record, oldest first.
   var TAB_ID=Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,6);
   function hydrateQueue(){
-    var q=qAll(), changed=false;
-    q.forEach(function(it,i){ if(it&&!it.qid){ it.qid='legacy_'+(it.ts||0)+'_'+(it.jo||'')+'_'+i+'_'+Math.random().toString(36).slice(2,6); changed=true; } });
-    if(changed) qSave(q);
-    return q.map(function(x){ return x.qid; });
+    var legacy=qLegacy();
+    if(legacy.length){
+      var ok=true;
+      legacy.forEach(function(it,i){
+        it.qid=qLegacyId(it,i);
+        if(qGet(it.qid)) return;
+        try{ localStorage.setItem(qKey(it.qid), JSON.stringify(it)); }catch(e){}
+        if(!qGet(it.qid)) ok=false;
+      });
+      if(ok){ try{ localStorage.removeItem(WQKEY); }catch(e){} }
+    }
+    return qAll().map(function(x){ return x.qid; });
   }
-  function qGet(qid){ return qAll().filter(function(x){ return x.qid===qid; })[0]||null; }
   // Replay signature fallbacks = parehong hagdan ng interactive na tawag: LUMANG backend na walang p_job_id / pulled / kit_remarks / FOC2 / FOC params
   var FALLBACK_KEYS=[['p_job_id'],['p_pulled_serials','p_pulled_note'],['p_kit_remarks'],['p_foc2_reel','p_foc2_end'],['p_foc_reel','p_foc_start','p_foc_end']];
   async function rpcWithFallback(rpc, args){
@@ -510,7 +544,7 @@
     if(r&&r.error) return {status:'error', message:String(r.error.message||r.error), code:r.error.code||'', error:r.error};
     var d=(r&&r.data)||{};
     if(d.status==='error') return {status:'error', message:String(d.message||''), code:d.code||'', error:{message:d.message,code:d.code}};
-    return {status:d.status||'filed', receipt:d.receipt, conflict_id:d.conflict_id, message:d.message||''};
+    return {status:d.status||'filed', receipt:d.receipt, conflict_id:d.conflict_id, reason:d.reason||null, message:d.message||''};
   }
   var flushing=false;
   // Hinahawakan (hindi tinatapon) ang report na tinanggihan ng server (validation) o may CONFLICT sa naka-file nang declaration:
@@ -522,37 +556,37 @@
       var sess=null; try{ var sr=await W().auth.getSession(); sess=sr&&sr.data&&sr.data.session; }catch(e){ sess=null; }
       if(!sess) return;                                   // walang session — hintayin ang login (SIGNED_IN ang magti-trigger)
       var ids=await withQueueLock(hydrateQueue);
+      if(ids===LOCK_BUSY) return;                         // another tab is arbitrating claims right now — next round (fail closed)
       for(var i=0;i<ids.length;i++){
         var id=ids[i];
-        // CLAIM under the lock (latest state, by id); another tab's fresh claim or a held / foreign item is skipped
+        // CLAIM under the arbitration lock (latest state, by id); another tab's fresh claim or a held / foreign record is skipped
         var it=await withQueueLock(function(){
           var x=qGet(id); if(!x||x.held||!_wMine(x)) return null;
           if(x.lock&&x.lock.by!==TAB_ID&&(Date.now()-(x.lock.at||0))<90000) return null;
           qPatch(id, function(y){ y.lock={by:TAB_ID, at:Date.now()}; }); return qGet(id);
         });
+        if(it===LOCK_BUSY) return;
         if(!it) continue;
         var res=null, failure=null;
         try{ res=await fileDeclaration(it.rpc, it.args); if(res.status==='error') throw (res.error||new Error(res.message)); }   // NO lock held during the network call
         catch(e){ failure=e; }
-        // FINALIZE under the lock, against the latest state (an append by another tab in the meantime is untouched)
-        await withQueueLock(function(){
-          if(failure){
-            if(isNetErr(failure)){ qPatch(id, function(x){ delete x.lock; }); return; }   // offline / session — mananatili, susubukan ulit
-            var msg=String(failure&&failure.message||failure);
-            qPatch(id, function(x){ x.held=msg; x.heldAt=Date.now(); x.kind='rejected'; delete x.lock; });
-            say('⚠ WIMS report for JO '+(it.jo||'?')+' was NOT accepted: '+msg+' — naka-hold para sa warehouse review');
-            return;
-          }
-          cpeCache=null;
-          if(res.status==='conflict'){
-            qPatch(id, function(x){ x.held=res.message||'Conflict with the filed declaration'; x.heldAt=Date.now(); x.kind='conflict'; x.conflict_id=res.conflict_id||null; delete x.lock; });
-            say('⚠ JO '+(it.jo||'?')+': may WIMS declaration NA ang JO na ito — hindi binago ang inventory; naka-hold ang report para sa warehouse review.');
-          } else {
-            qDrop(id);
-            say('📦 Queued WIMS report filed — JO '+(it.jo||'?'));
-          }
-        });
-        if(!failure&&(res.status==='filed'||res.status==='replay')) await refreshPrevFoc();   // accepted chronology from the server
+        // FINALIZE: single-key writes on THIS record only (atomic) — a record another tab added or changed meanwhile is untouched
+        if(failure){
+          if(isNetErr(failure)){ qPatch(id, function(x){ delete x.lock; }); continue; }   // offline / session — mananatili, susubukan ulit
+          var msg=String(failure&&failure.message||failure);
+          qPatch(id, function(x){ x.held=msg; x.heldAt=Date.now(); x.kind='rejected'; delete x.lock; });
+          say('⚠ WIMS report for JO '+(it.jo||'?')+' was NOT accepted: '+msg+' — naka-hold para sa warehouse review');
+          continue;
+        }
+        cpeCache=null;
+        if(res.status==='conflict'){
+          qPatch(id, function(x){ x.held=res.message||'Conflict with the filed declaration'; x.heldAt=Date.now(); x.kind='conflict'; x.conflict_id=res.conflict_id||null; delete x.lock; });
+          say('⚠ JO '+(it.jo||'?')+': '+(res.reason==='under_review'?'nasa warehouse review ang mas naunang WIMS declaration ng JO number na ito — hindi na-file; naka-hold ang report.':'may WIMS declaration NA ang JO na ito — hindi binago ang inventory; naka-hold ang report para sa warehouse review.'));
+        } else {
+          qDrop(id);
+          say('📦 Queued WIMS report filed — JO '+(it.jo||'?'));
+        }
+        if(res.status==='filed'||res.status==='replay') refreshPrevFoc();   // accepted chronology from the server — fenced, never awaited
       }
     }finally{ flushing=false; renderHeldBar(); }
   }
@@ -594,9 +628,9 @@
     renderHeldBar(); return ok;
   }
   async function outcome(res, jobId, rpc, args, okMsg){
-    window.wimsLastOutcome={status:res.status, message:res.message||'', job:jobId, conflict_id:res.conflict_id||null};
+    window.wimsLastOutcome={status:res.status, message:res.message||'', job:jobId, conflict_id:res.conflict_id||null, reason:res.reason||null};
     if(res.status==='conflict'){
-      var kept=await withQueueLock(function(){ return holdInteractive(jobId, rpc, args, args.p_jo, 'conflict', res.message||'Conflict with the filed declaration', res.conflict_id); });
+      var kept=holdInteractive(jobId, rpc, args, args.p_jo, 'conflict', res.message||'Conflict with the filed declaration', res.conflict_id);   // one atomic record write
       if(kept) say('⚠ '+(res.message||'May WIMS declaration NA ang JO na ito — hindi binago ang inventory.')+' Naka-hold ang report (⚠ banner).');
       else say('⚠ '+(res.message||'May WIMS declaration NA ang JO na ito.')+' Nasa warehouse review ang bagong entries (server copy'+(res.conflict_id?' '+String(res.conflict_id).slice(0,8):'')+'); hindi na nakasya sa phone queue.');
       window.wimsLastOutcome.heldLocally=!!kept;
@@ -607,7 +641,10 @@
   }
   window.wimsSessionFoc=function(){ return focPrev; };   // read-only: what the next JO's START is prefilled from
   window.wimsHeldReports=function(){ return qAll().filter(function(x){ return !!x.held; }); };
-  window.wimsReleaseHeld=async function(qid){ await withQueueLock(function(){ qPatch(qid, function(x){ delete x.held; delete x.heldAt; delete x.kind; delete x.lock; }); }); renderHeldBar(); return flushWims(); };
+  window.wimsReleaseHeld=async function(qid){
+    var r=await withQueueLock(function(){ hydrateQueue(); qPatch(qid, function(x){ delete x.held; delete x.heldAt; delete x.kind; delete x.lock; }); return true; });   // own record only (atomic)
+    if(r===LOCK_BUSY){ qPatch(qid, function(x){ delete x.held; delete x.heldAt; delete x.kind; delete x.lock; }); }   // a blob-only record waits for the next hydrate
+    renderHeldBar(); return flushWims(); };
   try{ window.addEventListener('online', function(){ setTimeout(flushWims, 2000); }); }catch(e){}
   setInterval(flushWims, 60000);
   setTimeout(flushWims, 8000);
@@ -655,7 +692,11 @@
         _rpc='ticket_usage'; _args=targs; _jo=targs.p_jo;
         var tres=await fileDeclaration('ticket_usage', targs);
         if(tres.status==='error') throw (tres.error||new Error(tres.message));
-        if(tres.status==='filed'||tres.status==='replay') await refreshPrevFoc();
+        if(thS&&thE&&tres.status==='filed'){
+          focPrev={ reel_no:(s.foc2On&&s.foc2Reel)?s.foc2Reel:(s.focReel||null),
+                    end_m:(s.foc2On&&!isNaN(parseFloat(s.foc2End)))?parseFloat(s.foc2End):parseFloat(s.focEnd) };
+        }
+        if(tres.status==='filed'||tres.status==='replay') refreshPrevFoc();   // fenced; the completion does not wait for it
         cpeCache=null;
         return await outcome(tres, jobId, 'ticket_usage', targs, '📦 WIMS usage filed — deducted from your inventory');
       }
@@ -705,7 +746,7 @@
         focPrev={ reel_no:(s.foc2On&&s.foc2Reel)?s.foc2Reel:(s.focReel||null),
                   end_m:(s.foc2On&&!isNaN(parseFloat(s.foc2End)))?parseFloat(s.foc2End):parseFloat(s.focEnd) };
       }
-      if(ires.status==='filed'||ires.status==='replay') await refreshPrevFoc();
+      if(ires.status==='filed'||ires.status==='replay') refreshPrevFoc();   // fenced; the completion does not wait for it
       cpeCache=null;   // installed CPE leaves the issued pool
       return await outcome(ires, jobId, 'complete_install', args, '📦 WIMS material report filed');
     }catch(e){
@@ -713,7 +754,7 @@
       // LUMANG backend na nag-raise ng DECLARED_ALREADY (walang conflict table sa server): tanging kopya ng report ay ang phone —
       // kailangang MAISULAT nang tiyak bago payagan ang completion; kung hindi, HARANG na may malinaw na dahilan.
       if(isDeclaredAlready(e)){
-        var kept=await withQueueLock(function(){ return holdInteractive(jobId, _rpc, _args, _jo, 'conflict', String(e.message||'')); });
+        var kept=holdInteractive(jobId, _rpc, _args, _jo, 'conflict', String(e.message||''));
         if(!kept) return '⚠ WIMS: may declaration na ang JO na ito at HINDI maisave sa phone ang bagong report (puno ang WIMS queue — i-review/i-retry ang mga naka-hold na report, o ipaalam sa warehouse) bago i-complete.';
         return null;
       }
@@ -723,7 +764,7 @@
         // 4C F4 (owner 2026-10-07) + Phase 1: kapag puno ang queue O bigo ang pagsulat, HUWAG magpanggap na "QUEUED" —
         // tapat na error → hinaharang ng file-first ang completion. Ang write ay bineberipika (qPut).
         var qitem={qid:Date.now()+'_'+Math.random().toString(36).slice(2,6),rpc:_rpc,args:_args,jo:_jo,job:jobId,ts:Date.now(),owner:_wOwner(),ouser:(function(){ try{ return myTeam||''; }catch(e){ return ''; } })()};
-        var put=await withQueueLock(function(){ return qPut(qitem); });
+        var put=qPut(qitem);   // one atomic record write; verified by read-back
         if(!put){
           return '⚠ WIMS offline queue is full or this phone could not save the report ('+QMAX+' max) — this report was NOT queued. Review/retry the held reports (⚠ banner) or contact the warehouse, then try again.';
         }

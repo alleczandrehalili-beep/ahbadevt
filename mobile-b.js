@@ -74,7 +74,9 @@
     // ↩ Ibinalik ng QA at hindi pa na-re-complete (trigger ang nagse-set ng qa_return_resolved_at).
     const isQaReturned = j => !!(j && j.qa_returned_at && !j.qa_return_resolved_at);
     // ↩ Gate B (2026-10-09): re-submitted by the team, waiting for the QA reviewer to verify (the return is still open).
-    const isQaSubmitted = j => isQaReturned(j) && !!j.qa_return_submitted_at;
+    // Re-submitted means submitted for THIS return: a marker older than the return (left by an earlier cycle) does not count.
+    const qaCycleStamp = v => { const t = Date.parse(v || ''); return isNaN(t) ? null : t; };
+    const isQaSubmitted = j => { if (!isQaReturned(j) || !j.qa_return_submitted_at) return false; const s = qaCycleStamp(j.qa_return_submitted_at), r = qaCycleStamp(j.qa_returned_at); return (s != null && r != null) ? s >= r : String(j.qa_return_submitted_at) >= String(j.qa_returned_at); };
     const photoLabelsFor = job => (job&&PHOTO_LABELS_BY_TYPE[job.load_type])||PHOTO_LABELS;
     const photosReqFor = job => photoLabelsFor(job).length;
     const relaxedPay = job => !!(job&&PHOTO_LABELS_BY_TYPE[job.load_type]);   // Transfer/IPTV: optional ang payment

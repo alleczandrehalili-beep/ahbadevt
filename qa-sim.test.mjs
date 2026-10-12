@@ -669,3 +669,26 @@ test('return JO: jobReturnStatus shape; subcon-mode sim denies the return method
   await assert.rejects(sub.closeReturn('JO-R1', t.toISOString(), true), /Not allowed/);
   await assert.rejects(sub.listReturnedJobs(), /Not allowed/);
 });
+
+// Codex RC4 B3: a submission marker OLDER than the open return (left by a return opened under the restored qa-05h RPC while qa-06
+// was rolled back) is not a submission of this cycle: the reviewer cannot close on it, the old-phone status flip is still refused
+// without a new photo, the team's current-token re-complete submits THIS cycle, then the reviewer closes.
+test('Gate B: a stale submission marker from an earlier cycle never counts — close refused, re-complete submits the current cycle', async () => {
+  let t = new Date('2026-10-12T02:00:00Z'); const api = Sim.create({ now: () => t, seed: RJ_SEED() });
+  const a = api._completeJob(rjJob());
+  await api.assignAudits([a.id], { inspector: 'AHBA_QA01', date: '2026-10-12', by: 'HEAD' });
+  const r = await api.returnJobForPhotos('JO-R1', 'retake NAP', { by: 'HEAD' });
+  const t1 = r.qa_returned_at;
+  job(api, 'JO-R1').qa_return_submitted_at = '2026-10-11T20:00:00.000Z';   // older than the return: an earlier cycle's marker
+  await assert.rejects(api.closeReturn('JO-R1', t1, true, 'looks fine', { by: 'HEAD' }), /NOT_SUBMITTED/);
+  assert.throws(() => api._recompleteJob('JO-R1'), /NO_NEW_PHOTO/, 'old-phone flip: the stale marker is not a replay either');
+  assert.throws(() => api._recompleteReturned('JO-R1', t1, { team: 'AHBA_T01' }), /NO_NEW_PHOTO/, 'RPC: not treated as a replay of the stale marker');
+  const list0 = await api.listReturnedJobs(); assert.equal(list0.length, 1);
+  job(api, 'JO-R1').photos = [{ path: 'r1/nap3.jpg', label: 'NAP', created_at: '2026-10-12T02:30:00Z' }];
+  t = new Date('2026-10-12T03:00:00Z');
+  const s1 = api._recompleteReturned('JO-R1', t1, { team: 'AHBA_T01' });
+  assert.equal(s1.status, 'completed'); assert.equal(s1.qa_return_submitted_at, '2026-10-12T03:00:00.000Z'); assert.equal(s1.qa_return_resolved_at, null);
+  assert.ok(s1.qa_return_submitted_at >= s1.qa_returned_at, 'the marker now belongs to this cycle');
+  const c = await api.closeReturn('JO-R1', t1, true, 'ok', { by: 'HEAD' });
+  assert.ok(c.qa_return_resolved_at); assert.equal(c.qa_return_checked_by, 'HEAD');
+});
