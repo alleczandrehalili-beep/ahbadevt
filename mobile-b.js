@@ -81,9 +81,12 @@
         const thumb=has?`<div class="thumbs">${arr.map(p=>`<span style="position:relative;display:inline-block"><img src="${pubUrl(p)}" alt=""><button type="button" data-delp="${p}" data-deljob="${id}" title="Delete" style="position:absolute;top:-6px;right:-6px;background:#c2503a;color:#fff;border:0;border-radius:50%;width:19px;height:19px;font-size:11px;line-height:1;padding:0">✕</button></span>`).join('')}</div>`:'';
         return `<div class="pslot ${has?'done':''}"><div class="pslot-head"><span>${i+1}. ${l}</span><span class="pchk ${has?'ok':'need'}">${has?'✓':'•'}</span></div>${thumb}<div style="display:flex;gap:6px;margin-top:6px"><label class="addphoto pmini">${svg('camera')} Camera<input type="file" accept="image/*" capture="environment" hidden data-up="${id}" data-label="${lab}"></label><label class="addphoto pmini">${svg('note')} Album<input type="file" accept="image/*" hidden data-up="${id}" data-label="${lab}"></label></div></div>`;
       }).join('');
+      // Owner 2026-10-13: TINANGGAL ang bulk "Quick upload" — bawat slot ay isa-isang
+      // pinipili/kinukunan para SIGURADO ang tech na tama ang picture sa tamang label
+      // (dati, ang maramihang pili ay basta pumupuno sa remaining slots in order —
+      // madalas magkamali ng pagkakapareha).
       return `<div class="photos"><div class="photos-head"><span>Proof photos (${REQ} required)</span><span class="count ${done>=REQ?'ok':'need'}">${done}/${REQ}</span></div>
-        <label class="addphoto" style="margin:4px 0 8px;background:#e9f6f0;border-color:#a8e6c9;color:#0e7a55;font-weight:800">📁 Quick upload — select many from the album<input type="file" accept="image/*" multiple hidden data-bulk="${id}"></label>
-        <div style="font-size:10px;color:#8a9894;margin:-4px 0 6px">The selected photos will go into the remaining slots in order (1→${REQ}).</div>
+        <div style="font-size:10px;color:#8a9894;margin:2px 0 6px">Upload one photo per slot — make sure the picture matches the label.</div>
         <div class="pslots">${rows}</div></div>`;
     }
     let knownJobIds=null;   // for detecting newly-arrived loads (sound)
@@ -270,20 +273,6 @@
       }catch(e){ toast('Delete failed: '+e.message); }
     }
     // Bulk: pick many photos at once → auto-assign to the remaining empty slots in order, upload in parallel
-    async function uploadBulk(jobId, fileList){
-      const files=[...fileList]; if(!files.length)return;
-      const L=photoLabelsFor(jobById(jobId));
-      const done=labelsDone(jobId);
-      const empty=L.filter(l=>!done.has(l));
-      if(!empty.length){ toast(`All ${L.length} are complete — no empty slot`); return; }
-      const pairs=files.slice(0,empty.length).map((f,i)=>({f,label:empty[i]}));
-      const extra=files.length-pairs.length;
-      toast(`Uploading ${pairs.length} photo(s)…`);
-      let ok=0;
-      await Promise.all(pairs.map(async ({f,label})=>{ try{ await uploadOne(jobId,f,label); ok++; }catch(e){ console.warn('bulk',e.message); } }));
-      render();
-      toast(`${photoCount(jobId)}/${L.length} complete${extra>0?` · ${extra} extra (full)`:''}${ok<pairs.length?` · ${pairs.length-ok} queued (will upload when online)`:''}`);
-    }
     async function uploadPhotos(jobId, fileList, label){
       const files=[...fileList]; if(!files.length)return;
       label=label||'';
@@ -707,7 +696,6 @@
       const _tkb=$('#tkOpen'); if(_tkb) _tkb.onclick=openTicket;
       el.querySelectorAll('[data-next]').forEach(b=>b.onclick=()=>advance(b.dataset.id,b.dataset.next));
       el.querySelectorAll('[data-up]').forEach(inp=>inp.onchange=()=>{const id=inp.dataset.up,files=inp.files;uploadPhotos(id,files,inp.dataset.label);inp.value='';});
-      el.querySelectorAll('[data-bulk]').forEach(inp=>inp.onchange=()=>{const id=inp.dataset.bulk,files=inp.files;uploadBulk(id,files);inp.value='';});
       el.querySelectorAll('[data-delp]').forEach(b=>b.onclick=()=>deletePhoto(b.dataset.deljob,b.dataset.delp));
       el.querySelectorAll('[data-exp]').forEach(b=>b.onclick=()=>openMobileExpense(b.dataset.exp));
       el.querySelectorAll('[data-neg]').forEach(b=>b.onclick=()=>openNegative(b.dataset.neg));
