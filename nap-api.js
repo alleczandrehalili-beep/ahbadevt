@@ -15,7 +15,7 @@
   // writes use .select(): under RLS a forbidden update/delete is not an error, it just changes 0 rows. Report that, never "saved".
   function changed(p) {
     return unwrap(p).then(function (rows) {
-      if (!rows || !rows.length) { var e = new Error('NAP_NOOP: walang nabago (wala kang pahintulot o wala na ang record)'); e.code = 'NAP_NOOP'; throw e; }
+      if (!rows || !rows.length) { var e = new Error('NAP_NOOP: nothing changed (you do not have permission, or the record no longer exists)'); e.code = 'NAP_NOOP'; throw e; }
     });
   }
 
@@ -54,7 +54,7 @@
         return unwrap(client.storage.from(BUCKET).createSignedUrls(paths, 3600)).then(function (rows) {
           return (rows || []).map(function (r) {
             var url = r.signedUrl || r.signedURL || null;
-            return { path: r.path, url: r.error ? null : url, error: r.error ? String(r.error) : (url ? null : 'walang signed URL') };
+            return { path: r.path, url: r.error ? null : url, error: r.error ? String(r.error) : (url ? null : 'no signed URL') };
           });
         });
       },

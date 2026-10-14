@@ -36,20 +36,20 @@
     d.style.cssText = 'position:fixed;inset:0;z-index:100;background:var(--bg,#fff);overflow:auto;padding:14px 14px 90px';
     d.innerHTML = '<style>#napModal input[type=text],#napModal input:not([type]),#napModal input[inputmode],#napModal select{box-sizing:border-box;max-width:100%}</style>' +
       '<h3 id="napTitle" style="margin:0 0 4px">NAP Audit</h3><p id="napSub" style="font-size:12px;opacity:.7;margin:0 0 10px"></p>' +
-      '<div id="napPick"><div id="napDisp"></div><label class="lbl">Malapit na NAP (GPS ng team)</label><div id="napNear" style="max-height:200px;overflow:auto;border:1px solid #d6dde2;border-radius:8px"></div>' +
-      '<input id="napSearch" placeholder="O i-type ang stencil (QCY003 LP114 NP6-7-8)" style="width:100%;margin-top:8px;padding:8px"></div>' +
+      '<div id="napPick"><div id="napDisp"></div><label class="lbl">Nearby NAPs (team GPS)</label><div id="napNear" style="max-height:200px;overflow:auto;border:1px solid #d6dde2;border-radius:8px"></div>' +
+      '<input id="napSearch" placeholder="Or type the stencil (QCY003 LP114 NP6-7-8)" style="width:100%;margin-top:8px;padding:8px"></div>' +
       '<div id="napForm" hidden>' +
       '<div id="napBox" style="font-weight:600;margin:6px 0"></div><div id="napInfo" style="font-size:12px;opacity:.75"></div>' +
       '<label class="lbl" for="napNp">NAP No.</label><select id="napNp" style="width:100%;padding:8px"></select>' +
       '<div id="napGps" style="font-size:12px;margin:8px 0"></div>' +
       '<label class="lbl">Audited Port</label><div id="napGrid"></div><div id="napTags"></div>' +
-      '<label class="lbl" style="margin-top:8px">Photo ng NAP reading <em style="color:#c2503a">*required</em></label>' +
+      '<label class="lbl" style="margin-top:8px">Photo of the NAP reading <em style="color:#c2503a">*required</em></label>' +
       '<div style="display:flex;gap:8px"><label class="addphoto" style="flex:1">Camera<input type="file" accept="image/*" capture="environment" id="napCam" hidden></label><label class="addphoto" style="flex:1">Album<input type="file" accept="image/*" multiple id="napAlb" hidden></label></div>' +
       '<div id="napThumbs" class="thumbs" style="margin-top:6px"></div>' +
-      '<div id="napNf" style="margin-top:8px"><a href="#" id="napNfLink" style="font-size:12px">Hindi nahanap o hindi ma-access ang NAP</a><div id="napNfBox" hidden><input id="napNfWhy" placeholder="Dahilan" style="width:100%;padding:8px;margin-top:6px"></div></div>' +
+      '<div id="napNf" style="margin-top:8px"><a href="#" id="napNfLink" style="font-size:12px">NAP not found or not accessible</a><div id="napNfBox" hidden><input id="napNfWhy" placeholder="Reason" style="width:100%;padding:8px;margin-top:6px"></div></div>' +
       '<div id="napErr" style="color:#c2503a;font-size:13px;margin-top:8px"></div></div>' +
       '<div style="position:fixed;left:0;right:0;bottom:0;padding:10px 14px;background:var(--bg,#fff);display:flex;gap:8px;border-top:1px solid #d6dde2">' +
-      '<button class="btn-ghost" id="napCancel" style="flex:1">Cancel</button><button class="btn-primary" id="napSave" style="flex:1" disabled>I-submit ang audit</button></div>';
+      '<button class="btn-ghost" id="napCancel" style="flex:1">Cancel</button><button class="btn-primary" id="napSave" style="flex:1" disabled>Submit audit</button></div>';
     document.body.appendChild(d);
     q('napCancel').onclick = function () { if (st && st.saving) return; close(false); };
     q('napSearch').oninput = renderNear;
@@ -77,12 +77,12 @@
     st = { box: null, np: null, ports: Array(8).fill(null), tags: {}, files: [], notFound: false, job: opts.job || null, full: !!opts.declaredFull, done: opts.onDone || null, clientId: uuid(), saving: false, cancel: opts.onCancel || null };
     var mine = st;
     q('napTitle').textContent = st.full ? 'NAP Details (Full NAP)' : 'NAP Audit';
-    q('napSub').textContent = st.job ? 'Para sa JO ' + st.job.id : 'Pipiliin ang NAP na pinuntahan ng team.';
+    q('napSub').textContent = st.job ? 'For JO ' + st.job.id : 'Select the NAP your team visited.';
     q('napPick').hidden = false; q('napForm').hidden = true; q('napErr').textContent = ''; q('napSearch').value = ''; renderThumbs();
     q('napModal').hidden = false; q('napSave').disabled = true;
     renderDisp();   // last known list shows at once; the refresh below never depends on the board list
     loadDispatch(mine);
-    try { boxes = boxes.length ? boxes : await api.boxStatus(); } catch (e) { q('napErr').textContent = 'Hindi ma-load ang NAP list: ' + e.message; }
+    try { boxes = boxes.length ? boxes : await api.boxStatus(); } catch (e) { q('napErr').textContent = 'Cannot load the NAP list: ' + e.message; }
     if (st !== mine) return;
     // a GPS fix only refreshes the list and the distance line: re-rendering the form would drop focus from the acct no. inputs
     navigator.geolocation && navigator.geolocation.getCurrentPosition(function (p) { if (st !== mine || st.saving) return; pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy, t: Date.now() }; renderNear(); renderDisp(); if (st.box) renderGps(); },
@@ -90,7 +90,7 @@
     renderNear();
     if (st.job && st.job.napcode) { var p = C.parseStencil(st.job.napcode.replace(/ P\d+.*$/, '')); if (p) { var hit = boxes.find(function (b) { return b.stencil.indexOf(p.prefix) === 0 && b.np_numbers.indexOf(p.nps[0]) >= 0; }); if (hit) pick(hit, p.nps[0]); } }
   }
-  // "Dispatched sa inyo": independent of the board list. A failing my_dispatch is logged and shows nothing.
+  // "Dispatched to your team": independent of the board list. A failing my_dispatch is logged and shows nothing.
   function loadDispatch(mine) {
     var p; try { p = Promise.resolve(api.myDispatch()); } catch (e) { p = Promise.reject(e); }
     return p.then(function (rows) { dispatched = Array.isArray(rows) ? rows : []; }, function (e) { if (window.console) console.warn('NAP my_dispatch', e); dispatched = []; })
@@ -101,12 +101,12 @@
   function renderDisp() {
     var el = q('napDisp'); if (!el) return;
     if (!dispatched.length) { el.innerHTML = ''; el.onclick = null; return; }
-    el.innerHTML = '<label class="lbl">Dispatched sa inyo (' + dispatched.length + ')</label><div style="border:1px solid #d6dde2;border-radius:8px;margin-bottom:10px">' + dispatched.map(function (it, i) {
+    el.innerHTML = '<label class="lbl">Dispatched to your team (' + dispatched.length + ')</label><div style="border:1px solid #d6dde2;border-radius:8px;margin-bottom:10px">' + dispatched.map(function (it, i) {
       var has = it.lat != null && it.lng != null, d = pos && has ? Math.round(C.haversineM(pos.lat, pos.lng, +it.lat, +it.lng)) + ' m' : '';
       return '<button type="button" data-i="' + i + '" style="display:block;width:100%;padding:8px;border:0;border-bottom:1px solid #eee;background:none;text-align:left;box-sizing:border-box">' +
         '<span style="display:flex;justify-content:space-between;gap:8px"><span style="font-family:monospace;overflow-wrap:anywhere">' + esc(it.stencil) + '</span><span style="opacity:.6;white-space:nowrap">' + esc(d) + '</span></span>' +
         '<span style="display:block;font-size:12px;opacity:.75">' + esc([it.street, it.barangay].filter(Boolean).join(', ')) + (it.due_date ? ' · due ' + esc(fmtDue(it.due_date)) : '') + '</span>' +
-        (has ? '' : '<span style="display:block;font-size:12px;color:#d98518">walang coordinates pa: sa unang audit ito itatakda</span>') + '</button>';
+        (has ? '' : '<span style="display:block;font-size:12px;color:#d98518">no coordinates yet: they will be set on the first audit</span>') + '</button>';
     }).join('') + '</div>';
     el.onclick = function (e) { var b = e.target.closest('button'); if (b && st && !st.saving && dispatched[+b.dataset.i]) pick(dispBox(dispatched[+b.dataset.i])); };
   }
@@ -115,7 +115,7 @@
     if (term) list = boxes.filter(function (b) { return b.stencil.toUpperCase().indexOf(term) >= 0; }).slice(0, 12).map(function (b) { return { b: b, d: pos && b.lat != null && b.lng != null ? C.haversineM(pos.lat, pos.lng, b.lat, b.lng) : null }; });
     else if (pos) list = C.nearest(boxes.map(function (b) { var x = {}; for (var k in b) x[k] = b[k]; x.kind0 = b.kind; x.kind = 'installable'; return x; }), pos, 'install', 12).map(function (b) { return { b: b, d: b.distance_m }; });
     else list = [];
-    q('napNear').innerHTML = list.length ? list.map(function (x, i) { return '<button type="button" data-i="' + i + '" style="display:flex;justify-content:space-between;width:100%;padding:8px;border:0;border-bottom:1px solid #eee;background:none;text-align:left"><span style="font-family:monospace">' + esc(x.b.stencil) + '</span><span style="opacity:.6">' + (x.d == null ? '' : Math.round(x.d) + ' m') + '</span></button>'; }).join('') : '<div style="padding:8px;opacity:.6">' + (pos ? 'Walang NAP na nahanap.' : 'Naghihintay ng GPS… o mag-type ng stencil.') + '</div>';
+    q('napNear').innerHTML = list.length ? list.map(function (x, i) { return '<button type="button" data-i="' + i + '" style="display:flex;justify-content:space-between;width:100%;padding:8px;border:0;border-bottom:1px solid #eee;background:none;text-align:left"><span style="font-family:monospace">' + esc(x.b.stencil) + '</span><span style="opacity:.6">' + (x.d == null ? '' : Math.round(x.d) + ' m') + '</span></button>'; }).join('') : '<div style="padding:8px;opacity:.6">' + (pos ? 'No NAP found.' : 'Waiting for GPS… or type a stencil.') + '</div>';
     q('napNear').onclick = function (e) { var b = e.target.closest('button'); if (b) pick(list[+b.dataset.i].b); };
   }
   function pick(b, np) {
@@ -127,7 +127,7 @@
   }
   function renderForm() {
     var b = st.box;
-    q('napBox').textContent = b.stencil; q('napInfo').textContent = (b.street || '') + ' · ' + (b.dwelling || '') + ' · Converge: ' + (b.converge_available == null ? '?' : b.converge_available) + ' available (hindi verified)';
+    q('napBox').textContent = b.stencil; q('napInfo').textContent = (b.street || '') + ' · ' + (b.dwelling || '') + ' · Converge: ' + (b.converge_available == null ? '?' : b.converge_available) + ' available (not verified)';
     renderGps();
     var head = '<div style="display:grid;grid-template-columns:30px repeat(6,1fr);gap:2px;font-size:9.5px;text-align:center;white-space:pre-line"><span></span>' + C.PORT_STATUSES.map(function (s) { return '<span>' + short[s] + '</span>'; }).join('');
     var rows = ''; for (var i = 0; i < 8; i++) { rows += '<span style="font-weight:600;align-self:center">P' + (i + 1) + '</span>' + C.PORT_STATUSES.map(function (s) { return '<label style="display:flex;justify-content:center;padding:7px 0"><input type="radio" name="np' + i + '" value="' + esc(s) + '" aria-label="P' + (i + 1) + ' ' + esc(s) + '"' + (st.ports[i] === s ? ' checked' : '') + '></label>'; }).join(''); }
@@ -135,12 +135,12 @@
   }
   function renderGps() {
     var b = st.box, far = pos && b.lat != null ? C.haversineM(pos.lat, pos.lng, b.lat, b.lng) : null;
-    q('napGps').innerHTML = !pos ? '<span style="opacity:.7">Walang GPS. Maisusumite pa rin, pero mapupunta sa review.</span>'
-      : far == null ? '<span style="opacity:.7">Walang coordinates ang NAP na ito. Maisusumite pa rin.</span>'
-      : C.gpsFlag(far) ? '<span style="color:#d98518">Mahigit 50 m (' + Math.round(far) + ' m) ang layo mo sa NAP. Maisusumite pa rin, pero mapupunta sa review.</span>' : '<span style="color:#1c8a4a">Nasa NAP ka (' + Math.round(far) + ' m).</span>';
+    q('napGps').innerHTML = !pos ? '<span style="opacity:.7">No GPS. You can still submit, but it will go to review.</span>'
+      : far == null ? '<span style="opacity:.7">This NAP has no coordinates. You can still submit.</span>'
+      : C.gpsFlag(far) ? '<span style="color:#d98518">You are more than 50 m (' + Math.round(far) + ' m) from the NAP. You can still submit, but it will go to review.</span>' : '<span style="color:#1c8a4a">You are at the NAP (' + Math.round(far) + ' m).</span>';
   }
   function renderTags() {
-    var h = ''; st.ports.forEach(function (v, i) { if (v === S.AWT) h += '<div style="margin-top:6px"><label class="lbl" for="napT' + i + '">Acct no. sa label ng P' + (i + 1) + '</label><input id="napT' + i + '" inputmode="numeric" value="' + esc(st.tags[i] || '') + '" style="width:100%;padding:8px"></div>'; });
+    var h = ''; st.ports.forEach(function (v, i) { if (v === S.AWT) h += '<div style="margin-top:6px"><label class="lbl" for="napT' + i + '">Acct no. on the label of P' + (i + 1) + '</label><input id="napT' + i + '" inputmode="numeric" value="' + esc(st.tags[i] || '') + '" style="width:100%;padding:8px"></div>'; });
     q('napTags').innerHTML = h;
     q('napTags').querySelectorAll('input').forEach(function (el) { el.oninput = function () { st.tags[+el.id.slice(4)] = el.value; validate(); }; });
   }
@@ -188,7 +188,7 @@
     if (!cur || cur.saving) return;
     if (!validate()) return;
     setSaving(true);
-    var btn = q('napSave'); btn.disabled = true; btn.textContent = 'Ina-upload…';
+    var btn = q('napSave'); btn.disabled = true; btn.textContent = 'Uploading…';
     var team = ctx.team || 'ADMIN', res;
     var fix = await freshFix(cur);   // snapshot: nothing below reads the shared pos
     try {
@@ -199,17 +199,17 @@
         ports: cur.notFound ? [] : payloadPorts(), photos: paths });
     } catch (e) {
       var m = String(e && e.message || e), coded = /^NAP_[A-Z0-9_]+:\s*/.test(m);
-      setSaving(false); q('napErr').textContent = coded ? m.replace(/^NAP_[A-Z0-9_]+:\s*/, '') : 'Hindi na-save: ' + m + '. Subukan ulit.';
-      btn.textContent = 'I-submit ang audit'; btn.disabled = false;   // form was valid when save started and is unchanged (inert)
+      setSaving(false); q('napErr').textContent = coded ? m.replace(/^NAP_[A-Z0-9_]+:\s*/, '') : 'Not saved: ' + m + '. Please try again.';
+      btn.textContent = 'Submit audit'; btn.disabled = false;   // form was valid when save started and is unchanged (inert)
       return;
     }
-    // saved: everything below runs outside the save try, so a failing callback can never show "Hindi na-save"
-    var done = cur.done, nf = cur.notFound; cur.cancel = null; setSaving(false); btn.textContent = 'I-submit ang audit'; close(true);
+    // saved: everything below runs outside the save try, so a failing callback can never show "Not saved"
+    var done = cur.done, nf = cur.notFound; cur.cancel = null; setSaving(false); btn.textContent = 'Submit audit'; close(true);
     try {
-      var reviewOk = res.review_status === 'ok', msg = reviewOk ? 'Na-save ang NAP audit' : 'Na-save. Nasa review ang audit.';
-      if (res.dispatch_done) msg = nf ? msg + ' · ipinaalam sa dispatcher' : reviewOk ? 'Tapos na ang dispatch ng NAP na ito' : msg + ' · tapos na ang dispatch ng NAP na ito';
-      if (res.geo_result === 'applied' || res.geo_result === 'moved') msg += ' · na-update ang lokasyon ng NAP';
-      else if (res.geo_result === 'proposed') msg += ' · isinumite ang bagong lokasyon para sa review';
+      var reviewOk = res.review_status === 'ok', msg = reviewOk ? 'NAP audit saved' : 'Saved. The audit is under review.';
+      if (res.dispatch_done) msg = nf ? msg + ' · dispatcher notified' : reviewOk ? 'Dispatch for this NAP is complete' : msg + ' · dispatch for this NAP is complete';
+      if (res.geo_result === 'applied' || res.geo_result === 'moved') msg += ' · NAP location updated';
+      else if (res.geo_result === 'proposed') msg += ' · new location submitted for review';
       ctx.toast(msg);
     } catch (e2) { /* toast is cosmetic */ }
     try { api.myDispatch().then(function (rows) { dispatched = Array.isArray(rows) ? rows : dispatched; }, function (e4) { if (window.console) console.warn('NAP my_dispatch', e4); }); } catch (e5) { /* background refresh only */ }

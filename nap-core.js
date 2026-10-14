@@ -74,14 +74,14 @@
     var statusOk = ports.every(function (p) { return PORT_STATUSES.indexOf(p.status) >= 0; });
     var intOk = ports.every(function (p) { return Number.isInteger(p.port); });
     if (ports.length !== 8 || Object.keys(nums).length !== 8 || !statusOk || !intOk)
-      errors.push({ code: 'NAP_PORTS_INCOMPLETE', msg: 'Kailangan ng status ang lahat ng P1 hanggang P8.' });
+      errors.push({ code: 'NAP_PORTS_INCOMPLETE', msg: 'Every port from P1 to P8 needs a status.' });
     var noTag = ports.filter(function (p) { return p.status === STATUS.AWT && !String(p.tag_acct || '').trim(); }).map(function (p) { return 'P' + p.port; });
-    if (noTag.length) errors.push({ code: 'NAP_TAG_REQUIRED', msg: 'Ilagay ang acct no. sa label ng ' + noTag.join(', ') + '.' });
-    if (!(a.photos >= 1)) errors.push({ code: 'NAP_PHOTO_REQUIRED', msg: 'Kailangan ng kahit isang photo ng NAP reading.' });
+    if (noTag.length) errors.push({ code: 'NAP_TAG_REQUIRED', msg: 'Enter the acct no. on the label of ' + noTag.join(', ') + '.' });
+    if (!(a.photos >= 1)) errors.push({ code: 'NAP_PHOTO_REQUIRED', msg: 'At least one photo of the NAP reading is required.' });
     if (a.declaredFull) {
       var free = ports.filter(function (p) { return isUsable(p.status); }).map(function (p) { return 'P' + p.port; });
-      if (free.length) errors.push({ code: 'NAP_FULL_HAS_FREE', msg: 'Hindi Full NAP: ' + free.join(', ') + ' ay libre. I-install doon o baguhin ang audit.' });
-      if (!String(a.jobId == null ? '' : a.jobId).trim()) errors.push({ code: 'NAP_JOB_REQUIRED', msg: 'Kailangan ng JO para sa Full NAP.' });
+      if (free.length) errors.push({ code: 'NAP_FULL_HAS_FREE', msg: 'Not a Full NAP: ' + free.join(', ') + ' is free. Install there or change the audit.' });
+      if (!String(a.jobId == null ? '' : a.jobId).trim()) errors.push({ code: 'NAP_JOB_REQUIRED', msg: 'A JO is required for a Full NAP.' });
     }
     return { ok: errors.length === 0, errors: errors };
   }
@@ -133,14 +133,14 @@
       ti = h.findIndex(function (c) { return /^team$/i.test(c); });
       di = h.findIndex(function (c) { return /^(due|due[ _]?date|date|date[ _]?activity|petsa)$/i.test(c); });
       start = 1;
-      if (ti < 0 && di < 0) warnings.push('May header ang listahan pero walang nakilalang team o due column (gamitin ang TEAM at DUE DATE / DATE ACTIVITY). Walang team ang mga hilera.');
-      else if (ti < 0) warnings.push('Walang nakilalang TEAM column sa header. Walang team ang mga hilera.');
+      if (ti < 0 && di < 0) warnings.push('The list has a header but no team or due column was recognized (use TEAM and DUE DATE / DATE ACTIVITY). Rows have no team.');
+      else if (ti < 0) warnings.push('No TEAM column recognized in the header. Rows have no team.');
     }
     for (var i = start; i < data.length; i++) {
       var r = data[i], st = normStencil(si >= 0 ? r[si] : '');
       if (!st) { skipped++; continue; }
       var raw = di >= 0 ? r[di] : '', due = parseDueDate(raw);
-      if (String(raw == null ? '' : raw).trim() !== '' && !due) warnings.push('Hindi mabasa ang petsa "' + raw + '" sa ' + st);
+      if (String(raw == null ? '' : raw).trim() !== '' && !due) warnings.push('Cannot read the date "' + raw + '" in ' + st);
       rows.push({ stencil: st, team: ti >= 0 && r[ti] != null ? String(r[ti]).trim().toUpperCase() : '', due: due });
     }
     return { rows: rows, skipped: skipped, warnings: warnings };
