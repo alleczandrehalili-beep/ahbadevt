@@ -51,6 +51,10 @@
       searchBoxes: function (q, limit) {
         return unwrap(nap().rpc('search_boxes', { p_q: String(q == null ? '' : q), p_limit: limit == null ? 20 : limit })).then(function (r) { return r || []; });
       },
+      // Phase 7 (Full NAP flow only): DEACTIVATED boxes by typed stencil -> [{box_id, stencil, barangay, street}]. Field or board; 2+ characters; limit <= 20.
+      searchInactiveBoxes: function (q, limit) {
+        return unwrap(nap().rpc('search_inactive_boxes', { p_q: String(q == null ? '' : q), p_limit: limit == null ? 10 : limit })).then(function (r) { return r || []; });
+      },
       // One page of one barangay's boxes, ordered by stencil (kind 'aging' = stale oldest first, then unverified).
       boxesInBarangay: function (o) {
         o = o || {};

@@ -6,6 +6,9 @@
   // (nap.boxes_near, 1.5 km, 60 nearest); typing a stencil asks nap.search_boxes (debounced, 3+ characters).
   var NEAR_M = 1500, NEAR_N = 60, SEARCH_MIN = 3, SEARCH_MS = 400;
   var near = [], nearState = 'idle', found = [], findState = 'idle', findSeq = 0, findTimer = null;
+  // Phase 7 (nap-16): Full NAP flow only, "This job's NAP is deactivated": a search over DEACTIVATED boxes (nap.search_inactive_boxes)
+  var deactFound = [], deactState = 'idle', deactSeq = 0, deactTimer = null;
+  var SAVE_LABEL = 'Submit audit', SAVE_LABEL_DEACT = 'Submit deactivated-NAP record';
   var short = {}; short[S.AWT] = 'Active\nw/ tag'; short[S.AWO] = 'Active\nw/o tag'; short[S.VACANT] = 'Vacant'; short[S.RELEASED] = 'Released'; short[S.HILOSS] = 'Hi Loss'; short[S.DEFECTIVE] = 'Defec-\ntive';
   function q(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -41,13 +44,23 @@
     d.innerHTML = '<style>#napModal input[type=text],#napModal input:not([type]),#napModal input[inputmode],#napModal select{box-sizing:border-box;max-width:100%}</style>' +
       '<h3 id="napTitle" style="margin:0 0 4px">NAP Audit</h3><p id="napSub" style="font-size:12px;opacity:.7;margin:0 0 10px"></p>' +
       '<div id="napPick"><div id="napDisp"></div><label class="lbl">Nearby NAPs (team GPS)</label><div id="napNear" style="max-height:200px;overflow:auto;border:1px solid #d6dde2;border-radius:8px"></div>' +
-      '<input id="napSearch" placeholder="Or type the stencil (QCY003 LP114 NP6-7-8)" style="width:100%;margin-top:8px;padding:8px"></div>' +
+      '<input id="napSearch" placeholder="Or type the stencil (QCY003 LP114 NP6-7-8)" style="width:100%;margin-top:8px;padding:8px">' +
+      '<div id="napDeactLinkWrap" hidden style="margin-top:14px;padding-top:10px;border-top:1px dashed #d6dde2"><a href="#" id="napDeactLink" style="font-size:13px">This job\'s NAP is deactivated</a>' +
+      '<div style="font-size:11.5px;opacity:.7;margin-top:2px">Only when the JO\'s NAP was removed or deactivated in the NAP master. Needs GPS and a photo; the dispatcher reviews it.</div></div></div>' +
+      '<div id="napDeactPick" hidden><label class="lbl" for="napDeactSearch">Deactivated NAPs</label>' +
+      '<input id="napDeactSearch" placeholder="Type the stencil of the JO\'s NAP (QCY003 LP114)" style="width:100%;padding:8px">' +
+      '<div id="napDeactList" style="max-height:240px;overflow:auto;border:1px solid #d6dde2;border-radius:8px;margin-top:8px"></div>' +
+      '<a href="#" id="napDeactBack" style="display:inline-block;font-size:12px;margin-top:10px">Back: the NAP is active (pick it from the list)</a></div>' +
       '<div id="napForm" hidden>' +
-      '<div id="napBox" style="font-weight:600;margin:6px 0"></div><div id="napInfo" style="font-size:12px;opacity:.75"></div>' +
-      '<label class="lbl" for="napNp">NAP No.</label><select id="napNp" style="width:100%;padding:8px"></select>' +
+      '<div id="napBox" style="font-weight:600;margin:6px 0;overflow-wrap:anywhere"></div><div id="napInfo" style="font-size:12px;opacity:.75"></div>' +
+      '<div id="napDeactInfo" hidden style="margin:8px 0;padding:8px;border:1px solid #c2503a;border-radius:8px;font-size:12.5px">' +
+      '<div><b style="color:#c2503a">DEACTIVATED NAP</b>: no port reading. Saving this record lets you close the JO as FULL NAP; the dispatcher reviews it.</div>' +
+      '<label class="lbl" for="napDeactNote" style="display:block;margin-top:6px">Note (optional)</label><input id="napDeactNote" maxlength="300" placeholder="What you saw on site" style="width:100%;padding:8px">' +
+      '<a href="#" id="napDeactRepick" style="display:inline-block;font-size:12px;margin-top:6px">Pick a different NAP</a></div>' +
+      '<div id="napPortsWrap"><label class="lbl" for="napNp">NAP No.</label><select id="napNp" style="width:100%;padding:8px"></select></div>' +
       '<div id="napGps" style="font-size:12px;margin:8px 0"></div>' +
-      '<label class="lbl">Audited Port</label><div id="napGrid"></div><div id="napTags"></div>' +
-      '<label class="lbl" style="margin-top:8px">Photo of the NAP reading <em style="color:#c2503a">*required</em></label>' +
+      '<div id="napGridWrap"><label class="lbl">Audited Port</label><div id="napGrid"></div><div id="napTags"></div></div>' +
+      '<label class="lbl" id="napPhotoLbl" style="margin-top:8px">Photo of the NAP reading <em style="color:#c2503a">*required</em></label>' +
       '<div style="display:flex;gap:8px"><label class="addphoto" style="flex:1">Camera<input type="file" accept="image/*" capture="environment" id="napCam" hidden></label><label class="addphoto" style="flex:1">Album<input type="file" accept="image/*" multiple id="napAlb" hidden></label></div>' +
       '<div id="napThumbs" class="thumbs" style="margin-top:6px"></div>' +
       '<div id="napNf" style="margin-top:8px"><a href="#" id="napNfLink" style="font-size:12px">NAP not found or not accessible</a><div id="napNfBox" hidden><input id="napNfWhy" placeholder="Reason" style="width:100%;padding:8px;margin-top:6px"></div></div>' +
@@ -61,6 +74,11 @@
     q('napCam').onchange = q('napAlb').onchange = function (e) { addFiles(e.target.files); e.target.value = ''; };
     q('napNfLink').onclick = function (e) { e.preventDefault(); if (st.saving) return; st.notFound = !st.notFound; q('napNfBox').hidden = !st.notFound; validate(); };
     q('napNfWhy').oninput = validate;
+    q('napDeactLink').onclick = function (e) { e.preventDefault(); if (st && !st.saving) enterDeact(); };
+    q('napDeactBack').onclick = function (e) { e.preventDefault(); if (st && !st.saving) leaveDeact(); };
+    q('napDeactRepick').onclick = function (e) { e.preventDefault(); if (st && !st.saving) enterDeact(); };
+    q('napDeactSearch').oninput = onDeactSearch;
+    q('napGps').addEventListener('click', function (e) { if (e.target.id === 'napGpsRetry') { e.preventDefault(); if (st && !st.saving) requestGps(st); } });
     q('napSave').onclick = save;
     q('napGrid').addEventListener('change', function (e) { var r = e.target; if (!st.saving && r.name && r.name.indexOf('np') === 0) { st.ports[+r.name.slice(2)] = r.value; renderTags(); validate(); } });
   }
@@ -78,11 +96,13 @@
     if (st && st.cancel) { var pc = st.cancel; st.cancel = null; pc(); }   // resolve the stranded submitForJob promise (false)
     pos = null;
     q('napForm').inert = false; q('napCancel').disabled = false;
-    st = { box: null, np: null, ports: Array(8).fill(null), tags: {}, files: [], notFound: false, job: opts.job || null, full: !!opts.declaredFull, done: opts.onDone || null, clientId: uuid(), saving: false, cancel: opts.onCancel || null };
+    st = { box: null, np: null, ports: Array(8).fill(null), tags: {}, files: [], notFound: false, deact: false, job: opts.job || null, full: !!opts.declaredFull, done: opts.onDone || null, clientId: uuid(), saving: false, cancel: opts.onCancel || null };
     var mine = st;
     q('napTitle').textContent = st.full ? 'NAP Details (Full NAP)' : 'NAP Audit';
     q('napSub').textContent = st.job ? 'For JO ' + st.job.id : 'Select the NAP your team visited.';
     q('napPick').hidden = false; q('napForm').hidden = true; q('napErr').textContent = ''; q('napSearch').value = ''; renderThumbs();
+    q('napDeactPick').hidden = true; q('napDeactLinkWrap').hidden = !(st.full && st.job); q('napSave').textContent = SAVE_LABEL;
+    deactFound = []; deactState = 'idle'; deactSeq++; clearTimeout(deactTimer);
     near = []; nearState = 'gps'; found = []; findState = 'idle'; findSeq++; clearTimeout(findTimer);
     q('napModal').hidden = false; q('napSave').disabled = true;
     q('napDisp').innerHTML = '';   // a fresh list (filter cleared) on every open
@@ -93,8 +113,8 @@
     try {
       if (navigator.geolocation) {
         gpsOk = true;
-        navigator.geolocation.getCurrentPosition(function (p) { if (st !== mine || st.saving) return; pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy, t: Date.now() }; loadNear(mine); renderDisp(); if (st.box) renderGps(); },
-          function () { if (st !== mine || st.saving) return; pos = null; nearState = 'nogps'; renderNear(); renderDisp(); if (st.box) renderGps(); }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 });
+        navigator.geolocation.getCurrentPosition(function (p) { if (st !== mine || st.saving) return; pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy, t: Date.now() }; loadNear(mine); renderDisp(); if (st.box) { renderGps(); if (st.deact) validate(); } },
+          function () { if (st !== mine || st.saving) return; pos = null; nearState = 'nogps'; renderNear(); renderDisp(); if (st.box) { renderGps(); if (st.deact) validate(); } }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 });
       }
     } catch (e) { gpsOk = false; }
     if (!gpsOk) nearState = 'nogps';
@@ -215,7 +235,7 @@
     st.box = b; st.np = np || b.np_numbers[0]; st.ports = Array(8).fill(null); st.tags = {};
     q('napPick').hidden = true; q('napForm').hidden = false;
     q('napNp').innerHTML = b.np_numbers.map(function (n) { return '<option value="' + n + '"' + (n === st.np ? ' selected' : '') + '>NP' + n + '</option>'; }).join('');
-    q('napNf').hidden = false;
+    q('napNf').hidden = false; setFormMode(false);
     renderForm();
   }
   function renderForm() {
@@ -227,6 +247,11 @@
     q('napGrid').innerHTML = head + rows + '</div>'; renderTags(); validate();
   }
   function renderGps() {
+    if (st.deact) {
+      q('napGps').innerHTML = pos ? '<span style="color:#1c8a4a">GPS ready' + (pos.acc != null ? ' (±' + Math.round(pos.acc) + ' m)' : '') + '. The distance to the old NAP is recorded for the review.</span>'
+        : '<span style="color:#c2503a">Waiting for GPS. GPS is required for this record.</span> <a href="#" id="napGpsRetry">Try again</a>';
+      return;
+    }
     var b = st.box, far = pos && b.lat != null ? C.haversineM(pos.lat, pos.lng, b.lat, b.lng) : null;
     q('napGps').innerHTML = !pos ? '<span style="opacity:.7">No GPS. You can still submit, but it will go to review.</span>'
       : far == null ? '<span style="opacity:.7">This NAP has no coordinates. You can still submit.</span>'
@@ -256,7 +281,8 @@
   function validate() {
     var ok, err = '';
     if (st.saving) { q('napSave').disabled = true; return false; }
-    if (st.notFound) { ok = (q('napNfWhy').value || '').trim().length > 2; }
+    if (st.deact) { var dv = C.validateDeactRecord({ jobId: st.job && st.job.id, boxId: st.box && st.box.box_id, photos: st.files.length, gps: pos }); ok = dv.ok; err = dv.errors.map(function (e) { return e.msg; }).join(' '); }
+    else if (st.notFound) { ok = (q('napNfWhy').value || '').trim().length > 2; }
     else { var v = C.validateAudit({ ports: payloadPorts().map(function (p) { return p.status ? p : { port: p.port, status: null }; }), photos: st.files.length, declaredFull: st.full, jobId: st.job && st.job.id }); ok = v.ok; err = v.errors.map(function (e) { return e.msg; }).join(' '); }
     q('napErr').textContent = err; q('napSave').disabled = !ok; return ok;
   }
@@ -281,44 +307,122 @@
     if (!cur || cur.saving) return;
     if (!validate()) return;
     setSaving(true);
-    var btn = q('napSave'); btn.disabled = true; btn.textContent = 'Uploading…';
+    var btn = q('napSave'), label = cur.deact ? SAVE_LABEL_DEACT : SAVE_LABEL; btn.disabled = true; btn.textContent = 'Uploading…';
     var team = ctx.team || 'ADMIN', res;
     var fix = await freshFix(cur);   // snapshot: nothing below reads the shared pos
+    if (cur.deact && !fix) {         // the deactivated-NAP record needs GPS (the server refuses it too)
+      setSaving(false); q('napErr').textContent = 'GPS is required for this record: turn on location, wait for the fix, then submit again.';
+      btn.textContent = label; btn.disabled = false; return;
+    }
     try {
+      if (cur.deact) {
+        var dpaths = []; for (var k = 0; k < cur.files.length; k++) dpaths.push(await api.uploadPhoto(team, cur.clientId, k + 1, cur.files[k]));
+        res = await api.submitAudit({ client_id: cur.clientId, box_id: cur.box.box_id, technicians: ctx.technicians(), job_id: cur.job.id, jo_nap_inactive: true,
+          gps_lat: fix.lat, gps_lng: fix.lng, gps_acc: fix.acc != null ? fix.acc : null, not_found_reason: (q('napDeactNote').value || '').trim() || null, photos: dpaths });
+      } else {
       var paths = []; if (!cur.notFound) for (var i = 0; i < cur.files.length; i++) paths.push(await api.uploadPhoto(team, cur.clientId, i + 1, cur.files[i]));
       else if (cur.files.length) paths.push(await api.uploadPhoto(team, cur.clientId, 1, cur.files[0]));
       res = await api.submitAudit({ client_id: cur.clientId, box_id: cur.box.box_id, np: cur.np, technicians: ctx.technicians(), job_id: cur.job ? cur.job.id : null,
         gps_lat: fix ? fix.lat : null, gps_lng: fix ? fix.lng : null, gps_acc: fix && fix.acc != null ? fix.acc : null, declared_full: cur.full && !cur.notFound, not_found: cur.notFound, not_found_reason: cur.notFound ? q('napNfWhy').value.trim() : null,
         ports: cur.notFound ? [] : payloadPorts(), photos: paths });
+      }
     } catch (e) {
       var m = String(e && e.message || e), coded = /^NAP_[A-Z0-9_]+:\s*/.test(m);
       setSaving(false); q('napErr').textContent = coded ? m.replace(/^NAP_[A-Z0-9_]+:\s*/, '') : 'Not saved: ' + m + '. Please try again.';
-      btn.textContent = 'Submit audit'; btn.disabled = false;   // form was valid when save started and is unchanged (inert)
+      btn.textContent = label; btn.disabled = false;   // form was valid when save started and is unchanged (inert)
       return;
     }
     // saved: everything below runs outside the save try, so a failing callback can never show "Not saved"
-    var done = cur.done, nf = cur.notFound; cur.cancel = null; setSaving(false); btn.textContent = 'Submit audit'; close(true);
+    var done = cur.done, nf = cur.notFound; cur.cancel = null; setSaving(false); btn.textContent = label; close(true);
     try {
-      var reviewOk = res.review_status === 'ok', msg = reviewOk ? 'NAP audit saved' : 'Saved. The audit is under review.';
-      if (res.dispatch_done) msg = nf ? msg + ' · dispatcher notified' : reviewOk ? 'Dispatch for this NAP is complete' : msg + ' · dispatch for this NAP is complete';
-      if (res.geo_result === 'applied' || res.geo_result === 'moved') msg += ' · NAP location updated';
-      else if (res.geo_result === 'proposed') msg += ' · new location submitted for review';
-      ctx.toast(msg);
+      if (cur.deact) ctx.toast('Saved: deactivated-NAP record for JO ' + cur.job.id + '. The dispatcher will review it.');
+      else {
+        var reviewOk = res.review_status === 'ok', msg = reviewOk ? 'NAP audit saved' : 'Saved. The audit is under review.';
+        if (res.dispatch_done) msg = nf ? msg + ' · dispatcher notified' : reviewOk ? 'Dispatch for this NAP is complete' : msg + ' · dispatch for this NAP is complete';
+        if (res.geo_result === 'applied' || res.geo_result === 'moved') msg += ' · NAP location updated';
+        else if (res.geo_result === 'proposed') msg += ' · new location submitted for review';
+        ctx.toast(msg);
+      }
     } catch (e2) { /* toast is cosmetic */ }
     try { api.myDispatch().then(function (rows) { dispatched = Array.isArray(rows) ? rows : dispatched; }, function (e4) { if (window.console) console.warn('NAP my_dispatch', e4); }); } catch (e5) { /* background refresh only */ }
     if (done) { try { done(res, nf); } catch (e3) { if (window.console) console.error('NAP done callback', e3); } }
   }
+  // ---------- phase 7: "This job's NAP is deactivated" (Full NAP flow only) ----------
+  function setFormMode(deact) {
+    q('napPortsWrap').hidden = deact; q('napGridWrap').hidden = deact; q('napDeactInfo').hidden = !deact;
+    q('napPhotoLbl').innerHTML = deact ? 'Photo of the spot (where the NAP was) <em style="color:#c2503a">*required</em>' : 'Photo of the NAP reading <em style="color:#c2503a">*required</em>';
+    q('napSave').textContent = deact ? SAVE_LABEL_DEACT : SAVE_LABEL;
+  }
+  function enterDeact() {
+    if (!(st.full && st.job)) return;
+    st.deact = true; st.box = null; st.notFound = false; q('napNfBox').hidden = true;
+    q('napPick').hidden = true; q('napForm').hidden = true; q('napDeactPick').hidden = false; q('napErr').textContent = ''; q('napSave').disabled = true;
+    q('napTitle').textContent = 'NAP Details (Full NAP): NAP deactivated';
+    q('napSub').textContent = 'For JO ' + st.job.id + '. Search the JO\'s deactivated NAP, then add a photo. GPS is required.';
+    renderDeactList();
+    if (!pos) requestGps(st);
+    try { q('napDeactSearch').focus(); } catch (e) { /* focus is cosmetic */ }
+  }
+  function leaveDeact() {
+    st.deact = false; st.box = null;
+    q('napDeactPick').hidden = true; q('napForm').hidden = true; q('napPick').hidden = false; q('napErr').textContent = ''; q('napSave').disabled = true;
+    q('napTitle').textContent = 'NAP Details (Full NAP)'; q('napSub').textContent = 'For JO ' + st.job.id;
+    setFormMode(false);
+  }
+  // one more GPS attempt for this open (the record cannot be saved without a fix)
+  function requestGps(mine) {
+    try {
+      if (!navigator.geolocation) return;
+      navigator.geolocation.getCurrentPosition(function (p) { if (st !== mine || st.saving) return; pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy, t: Date.now() }; if (st.box) { renderGps(); validate(); } },
+        function () { if (st !== mine || st.saving) return; if (st.box) renderGps(); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 });
+    } catch (e) { /* no GPS API: the GPS line keeps saying it is required */ }
+  }
+  function onDeactSearch() {
+    var term = C.normStencil(q('napDeactSearch').value), mine = st, seq = ++deactSeq;
+    clearTimeout(deactTimer);
+    if (term.length < SEARCH_MIN) { deactFound = []; deactState = term ? 'short' : 'idle'; renderDeactList(); return; }
+    deactState = 'loading'; renderDeactList();
+    deactTimer = setTimeout(function () {
+      var p; try { p = Promise.resolve(api.searchInactiveBoxes(term, 10)); } catch (e) { p = Promise.reject(e); }
+      p.then(function (rows) { if (st !== mine || seq !== deactSeq) return; deactFound = Array.isArray(rows) ? rows : []; deactState = 'ok'; renderDeactList(); },
+        function (e) { if (st !== mine || seq !== deactSeq) return; deactFound = []; deactState = 'error:' + String(e && e.message || e).replace(/^NAP_[A-Z0-9_]+:\s*/, ''); renderDeactList(); });
+    }, SEARCH_MS);
+  }
+  function renderDeactList() {
+    var el = q('napDeactList'); if (!el) return;
+    var typed = C.normStencil(q('napDeactSearch').value), msg = '', list = deactState === 'ok' ? deactFound : [];
+    if (!typed || deactState === 'idle') msg = 'Type at least ' + SEARCH_MIN + ' characters of the stencil, for example QCY003 LP114.';
+    else if (deactState === 'short') msg = 'Type at least ' + SEARCH_MIN + ' characters of the stencil.';
+    else if (deactState === 'loading') msg = 'Searching…';
+    else if (deactState.indexOf('error:') === 0) msg = 'Cannot search: ' + deactState.slice(6);
+    else if (!list.length) msg = 'No deactivated NAP matches "' + typed + '". If the NAP is still active, go back and pick it from the list.';
+    el.innerHTML = list.length ? list.map(function (b, i) {
+      return '<button type="button" data-i="' + i + '" style="display:block;width:100%;padding:8px;border:0;border-bottom:1px solid #eee;background:none;text-align:left;box-sizing:border-box">' +
+        '<span style="font-family:monospace;overflow-wrap:anywhere">' + esc(b.stencil) + '</span> <span style="font-size:11px;color:#c2503a;font-weight:600">DEACTIVATED</span>' +
+        '<span style="display:block;font-size:11.5px;opacity:.75;overflow-wrap:anywhere">' + esc([b.street, b.barangay].filter(Boolean).join(', ')) + '</span></button>';
+    }).join('') : '<div style="padding:8px;opacity:.6">' + esc(msg) + '</div>';
+    el.onclick = function (e) { var b = e.target.closest('button'); if (b && st && st.deact && !st.saving && list[+b.dataset.i]) pickDeact(list[+b.dataset.i]); };
+  }
+  function pickDeact(b) {
+    st.box = { box_id: b.box_id, stencil: b.stencil, street: b.street, barangay: b.barangay, lat: null, lng: null };
+    st.np = null; st.ports = Array(8).fill(null); st.tags = {};
+    q('napDeactPick').hidden = true; q('napForm').hidden = false; q('napNf').hidden = true; q('napDeactNote').value = '';
+    q('napBox').textContent = b.stencil + ' · DEACTIVATED';
+    q('napInfo').textContent = [b.street, b.barangay].filter(Boolean).join(', ') || 'No street / barangay on file';
+    setFormMode(true); renderGps(); validate();
+  }
+
   function close(saved) {
     if (!saved && st && st.saving) return;
     q('napModal').hidden = true; thumbUrls.forEach(function (u) { URL.revokeObjectURL(u); }); thumbUrls = []; q('napThumbs').innerHTML = '';
     if (!saved && st && st.cancel) { var c = st.cancel; st.cancel = null; c(); }
   }
 
-  // Full NAP flow: resolves true only when an audit with declared_full was saved for this job.
+  // Full NAP flow: resolves true only when an audit with declared_full, or a deactivated-NAP record (phase 7), was saved for this job.
   function submitForJob(job) {
     return new Promise(function (resolve) {
       var prev = st;
-      open({ job: job, declaredFull: true, onDone: function (res, notFound) { resolve(!notFound); }, onCancel: function () { resolve(false); } })
+      open({ job: job, declaredFull: true, onDone: function (res, notFound) { resolve(C.fullNapOutcome(res, notFound)); }, onCancel: function () { resolve(false); } })
         .catch(function () { resolve(false); });   // open() failed: never leave the caller hanging
       if (st === prev) resolve(false);   // open() ignored: a save is in flight
     });
