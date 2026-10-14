@@ -324,6 +324,15 @@
       const m=$('#negModal'); const jobId=m.dataset.job; const mode=m.dataset.mode==='cancel'?'cancel':'negative';
       const sel=$('#neg_remark').value, other=$('#neg_other').value.trim();
       if(sel==='OTHERS'&&!other){ showErr('#negErr','Please specify the reason.'); return; }
+      // NAP pilot: GC pilot teams must complete the NAP Details before a FULL NAP can be saved (server trigger enforces it too).
+      if(mode==='negative' && sel==='FULL NAP' && window.NapMobile && await NapMobile.gateActive()){
+        const job=jobs.find(x=>x.id===jobId)||{id:jobId};
+        closeNegative();
+        const done=await NapMobile.submitForJob({id:job.id, napcode:job.napcode||job.nap||''});
+        if(!done){ openNegative(jobId,'negative'); showErr('#negErr','Kailangan ng kumpletong NAP Details para sa FULL NAP.'); return; }
+        negPhotoFiles=[]; // the audit photos are already stored with the audit
+        return saveNegativeAfterNap(jobId);
+      }
       if(!negPhotoFiles.length){ showErr('#negErr', mode==='cancel'?'At least one reference photo is required to cancel this load.':'At least one reference photo is required to mark Incomplete.'); return; }
       const remark=sel==='OTHERS'?('OTHERS: '+other):sel;
       const btn=$('#negSave'); btn.disabled=true; btn.textContent='Uploading photo…';
@@ -362,6 +371,33 @@
         else if(saveWrite.queued){ toast('Saved — will sync when back online'); setSync('syncing', syncQCount()+' pending sync'); }
       }catch(e){ showErr('#negErr','Failed: '+e.message); }
       btn.disabled=false; btn.textContent = ($('#negModal').dataset.mode==='cancel'?'Cancel job':'Save as Negative');
+    }
+
+    // NAP pilot: FULL NAP close-out after a saved NAP audit (declared_full). No single-photo upload (the audit holds the photos).
+    // Does the jobs update itself FIRST so the server NAP_GATE trigger's rejection is seen (saveWrite/saveJobPatch would swallow it into the retry queue).
+    async function saveNegativeAfterNap(jobId){
+      try{
+        const now=new Date().toISOString();
+        const j=jobs.find(x=>x.id===jobId);
+        const hist=appendHist(await freshHist(jobId, j&&j.history), 'Negative: FULL NAP (NAP audit linked) (by '+myTeam+(shiftAccount?' / '+shiftAccount:'')+')');
+        const patch={status:'negative', negative_remark:'FULL NAP', negative_at:now, updated_at:now, history:hist};
+        if(shiftAccount){ patch.work_account=shiftAccount; patch.crew_driver=shiftDriver; patch.crew_tech1=shiftTech1; patch.crew_tech2=shiftTech2; }
+        const _pre={status:(j&&j.status)||'', team:(j&&j.team)||''};   // server-confirmed pre-action state (P5), same as saveNegative
+        const r=await sb.from('jobs').update(patch).eq('id', jobId).select('id');
+        if(r.error && /NAP_GATE/.test(r.error.message||'')){
+          // server gate rejected it: show the message, reopen the modal, touch neither the local jobs array nor the sync queue
+          openNegative(jobId,'negative');
+          showErr('#negErr', (r.error.message||'').split('NAP_GATE:').pop().trim());
+          return;
+        }
+        // confirmed row -> synced now; any other error or 0 rows -> the normal saveJobPatch path (queues transient failures, reports permanent ones) like the other negative saves
+        const synced=(!r.error && Array.isArray(r.data) && r.data.length>=1) ? true : await saveJobPatch(jobId, patch, _pre);
+        try{ if(synced && j&&j.created_by&&typeof pushNotify==='function') pushNotify({team:j.created_by,title:'⚠ JO incomplete',body:(j.subscriber||jobId)+' — FULL NAP'}); }catch(e){}
+        if(j){ Object.assign(j, patch); logTrack('status:'+patch.status, j.area||j.city); }
+        closeNegative(); viewMode='negative'; render();
+        if(synced) toast('Marked as Incomplete');
+        else if(saveWrite.queued){ toast('Saved — will sync when back online'); setSync('syncing', syncQCount()+' pending sync'); }
+      }catch(e){ showErr('#negErr','Failed: '+e.message); }
     }
 
     // Re-read the latest history straight from the cloud right before appending, so a concurrent
@@ -723,6 +759,8 @@
       try{ const mfc=$('#mFmsConcern'); if(mfc) mfc.classList.toggle('hidden', !(/^AHBA/i.test(myTeam||'') && window.MobileFMS)); }catch(e){}
       $('#teamName').textContent=headerName();
       show('appView'); setSync('syncing','Connecting…'); signature=''; knownJobIds=null; primeAudio();
+      // NAP pilot: NAP Audit tile + Full NAP gate. Runs once per signed-in team (startApp re-runs after the vehicle-concern screen); never blocks the app.
+      try{ if(window.NapMobile && startApp._napTeam!==myTeam){ startApp._napTeam=myTeam; NapMobile.init({sb:sb, team:myTeam, name:myName, technicians:function(){return [shiftTech1,shiftTech2].filter(Boolean).join(', ');}, toast:toast}); } }catch(e){ console.warn('[NAP] init',e&&e.message); }
       refresh();
       // Coalesce realtime bursts + the poll into ≤1 refetch per ~4s — lighter on the DB, still live.
       if(!startApp._coal){ startApp._coal=function(){ var now=Date.now(), gap=now-(startApp._rlast||0); if(gap>=4000){ startApp._rlast=now; refresh(); return; } if(startApp._rt) return; startApp._rt=setTimeout(function(){ startApp._rt=null; startApp._rlast=Date.now(); refresh(); }, 4000-gap); }; }
@@ -938,6 +976,7 @@
       if(typeof _qaMount!=='undefined'&&_qaMount){ try{_qaMount.destroy();}catch(e){} _qaMount=null; }   // QA inspector: drop realtime + online listeners
       try{ localStorage.removeItem(shiftKey()); }catch(e){}   // clear saved shift → next login picks account manually
       shiftAccount=''; shiftDriver=''; shiftTech1=''; shiftTech2='';
+      try{ const nt=document.getElementById('napTile'); if(nt) nt.remove(); startApp._napTeam=''; }catch(e){}   // NAP pilot: drop the floating tile so it never shows on the login screen / for the next user
       try{ await sb.auth.signOut(); }catch(e){}
       myTeam=''; jobs=[]; $('#uName').value=''; $('#uPass').value='';
       toast(message||'Signed off');
