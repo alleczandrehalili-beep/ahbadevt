@@ -24,28 +24,46 @@
     return { prefix: m[1].toUpperCase(), nps: m[2].split('-').map(Number) };
   }
 
-  // ports: ALL port rows of the box [{status, verified_at}], Unverified ones included (total = ports.length). Same rule as the
-  // nap.box_status view. A port is checked when its status is not Unverified and verified_at is a valid date.
+  // ports: the box's port rows [{status, verified_at}]. Same rule as the nap.box_status view. A port is checked when its status is not
+  // Unverified and verified_at is a valid date. total = o.total when given (phase 2B: 8 x the box's NAP numbers, because port rows exist
+  // only after an audit), else ports.length (boxes with pre-created Unverified rows, like the Bahay Toro pilot).
   //   free        = checked Vacant/Released ports verified within freshnessDays (an old free port does not count)
   //   installable = free > 0
   //   full        = every port checked, all occupied, newest check within freshnessDays x fullMultiplier
   //   issue       = newest check within freshnessDays and a Hi Loss / Defective port
   //   stale       = anything else that was checked; unverified = nothing checked
   function boxStatus(ports, now, o) {
-    var c = opt(o), t = toMs(now), all = ports || [];
+    var c = opt(o), t = toMs(now), all = ports || [], total = o && o.total != null ? o.total : all.length;
     var seen = all.filter(function (p) { return p.status !== STATUS.UNVERIFIED && p.verified_at != null && isFinite(toMs(p.verified_at)); });
-    if (!seen.length) return { kind: 'unverified', free: 0, checked: 0, bad: 0, total: all.length, ageDays: null };
+    if (!seen.length) return { kind: 'unverified', free: 0, checked: 0, bad: 0, total: total, ageDays: null };
     var age = function (p) { return (t - toMs(p.verified_at)) / DAY; };
     var newest = Math.max.apply(null, seen.map(function (p) { return toMs(p.verified_at); }));
     var ageFrac = (t - newest) / DAY;
     var free = seen.filter(function (p) { return isUsable(p.status) && age(p) <= c.freshnessDays; }).length;
     var bad = seen.filter(function (p) { return p.status === STATUS.HILOSS || p.status === STATUS.DEFECTIVE; }).length;
-    var full = seen.length === all.length && seen.every(function (p) { return isOccupied(p.status); });
+    var full = seen.length === total && seen.every(function (p) { return isOccupied(p.status); });
     var kind = free > 0 ? 'installable'
       : full && ageFrac <= c.freshnessDays * c.fullMultiplier ? 'full'
       : ageFrac <= c.freshnessDays && bad > 0 ? 'issue'
       : 'stale';
-    return { kind: kind, free: free, checked: seen.length, bad: bad, total: all.length, ageDays: Math.max(0, Math.floor(ageFrac)) };
+    return { kind: kind, free: free, checked: seen.length, bad: bad, total: total, ageDays: Math.max(0, Math.floor(ageFrac)) };
+  }
+  // 8 ports per NAP number (nap.box_status.total since phase 2B)
+  function boxTotal(npNumbers) { return 8 * (Array.isArray(npNumbers) ? npNumbers.length : 0); }
+
+  // A JO's NAPCODE ('QCY003 LP114 NP6', 'qcy003 lp114 np6 p3' or the full 'QCY003 LP114 NP6-7-8') -> the search_boxes text for its
+  // FIRST NAP number and what a matching box must satisfy. null when the code is not a stencil.
+  function jobNapQuery(napcode) {
+    var p = parseStencil(normStencil(napcode).replace(/ P\d+.*$/, ''));
+    if (!p) return null;
+    return { q: p.prefix + ' NP' + p.nps[0], prefix: p.prefix, np: p.nps[0] };
+  }
+  // The box of that NAP number among search results: same LP (prefix + ' NP', so LP11 never matches LP114) and the NAP number listed.
+  function matchJobBox(rows, jq) {
+    if (!jq) return null;
+    return (rows || []).find(function (b) {
+      return b && String(b.stencil || '').indexOf(jq.prefix + ' NP') === 0 && Array.isArray(b.np_numbers) && b.np_numbers.indexOf(jq.np) >= 0;
+    }) || null;
   }
 
   function haversineM(lat1, lng1, lat2, lng2) {
@@ -201,5 +219,6 @@
 
   return { STATUS: STATUS, PORT_STATUSES: PORT_STATUSES, DEFAULTS: DEFAULTS, isUsable: isUsable, isOccupied: isOccupied,
     parseStencil: parseStencil, boxStatus: boxStatus, haversineM: haversineM, nearest: nearest, validateAudit: validateAudit, gpsFlag: gpsFlag,
-    normStencil: normStencil, parseDueDate: parseDueDate, parseDispatchRows: parseDispatchRows, parseDispatchText: parseDispatchText, geoDecision: geoDecision, within: within, parseLatLng: parseLatLng };
+    normStencil: normStencil, parseDueDate: parseDueDate, parseDispatchRows: parseDispatchRows, parseDispatchText: parseDispatchText, geoDecision: geoDecision, within: within, parseLatLng: parseLatLng,
+    boxTotal: boxTotal, jobNapQuery: jobNapQuery, matchJobBox: matchJobBox };
 });

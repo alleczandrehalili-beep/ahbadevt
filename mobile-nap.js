@@ -1,7 +1,11 @@
 // AHBA FieldOps — NAP Audit screen (pilot). Self-contained: builds its own modal. Needs NapCore, NapApi and the mobile globals listed in ctx.
 (function () {
   'use strict';
-  var C = NapCore, S = C.STATUS, api, ctx, role = 'none', gate = false, boxes = [], pos = null, dispatched = [];
+  var C = NapCore, S = C.STATUS, api, ctx, role = 'none', gate = false, pos = null, dispatched = [];
+  // Phase 2B (whole QC, ~46k boxes): the phone NEVER downloads the box list. With a GPS fix it asks for the boxes near it
+  // (nap.boxes_near, 1.5 km, 60 nearest); typing a stencil asks nap.search_boxes (debounced, 3+ characters).
+  var NEAR_M = 1500, NEAR_N = 60, SEARCH_MIN = 3, SEARCH_MS = 400;
+  var near = [], nearState = 'idle', found = [], findState = 'idle', findSeq = 0, findTimer = null;
   var short = {}; short[S.AWT] = 'Active\nw/ tag'; short[S.AWO] = 'Active\nw/o tag'; short[S.VACANT] = 'Vacant'; short[S.RELEASED] = 'Released'; short[S.HILOSS] = 'Hi Loss'; short[S.DEFECTIVE] = 'Defec-\ntive';
   function q(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -52,7 +56,7 @@
       '<button class="btn-ghost" id="napCancel" style="flex:1">Cancel</button><button class="btn-primary" id="napSave" style="flex:1" disabled>Submit audit</button></div>';
     document.body.appendChild(d);
     q('napCancel').onclick = function () { if (st && st.saving) return; close(false); };
-    q('napSearch').oninput = renderNear;
+    q('napSearch').oninput = onSearchInput;
     q('napNp').onchange = function () { if (st.saving) return; st.np = +q('napNp').value; st.ports = Array(8).fill(null); st.tags = {}; renderForm(); };
     q('napCam').onchange = q('napAlb').onchange = function (e) { addFiles(e.target.files); e.target.value = ''; };
     q('napNfLink').onclick = function (e) { e.preventDefault(); if (st.saving) return; st.notFound = !st.notFound; q('napNfBox').hidden = !st.notFound; validate(); };
@@ -79,16 +83,53 @@
     q('napTitle').textContent = st.full ? 'NAP Details (Full NAP)' : 'NAP Audit';
     q('napSub').textContent = st.job ? 'For JO ' + st.job.id : 'Select the NAP your team visited.';
     q('napPick').hidden = false; q('napForm').hidden = true; q('napErr').textContent = ''; q('napSearch').value = ''; renderThumbs();
+    near = []; nearState = 'gps'; found = []; findState = 'idle'; findSeq++; clearTimeout(findTimer);
     q('napModal').hidden = false; q('napSave').disabled = true;
     renderDisp();   // last known list shows at once; the refresh below never depends on the board list
     loadDispatch(mine);
-    try { boxes = boxes.length ? boxes : await api.boxStatus(); } catch (e) { q('napErr').textContent = 'Cannot load the NAP list: ' + e.message; }
-    if (st !== mine) return;
     // a GPS fix only refreshes the list and the distance line: re-rendering the form would drop focus from the acct no. inputs
-    navigator.geolocation && navigator.geolocation.getCurrentPosition(function (p) { if (st !== mine || st.saving) return; pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy, t: Date.now() }; renderNear(); renderDisp(); if (st.box) renderGps(); },
-      function () { if (st !== mine || st.saving) return; pos = null; renderNear(); renderDisp(); if (st.box) renderGps(); }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 });
+    var gpsOk = false;
+    try {
+      if (navigator.geolocation) {
+        gpsOk = true;
+        navigator.geolocation.getCurrentPosition(function (p) { if (st !== mine || st.saving) return; pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy, t: Date.now() }; loadNear(mine); renderDisp(); if (st.box) renderGps(); },
+          function () { if (st !== mine || st.saving) return; pos = null; nearState = 'nogps'; renderNear(); renderDisp(); if (st.box) renderGps(); }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 });
+      }
+    } catch (e) { gpsOk = false; }
+    if (!gpsOk) nearState = 'nogps';
     renderNear();
-    if (st.job && st.job.napcode) { var p = C.parseStencil(st.job.napcode.replace(/ P\d+.*$/, '')); if (p) { var hit = boxes.find(function (b) { return b.stencil.indexOf(p.prefix) === 0 && b.np_numbers.indexOf(p.nps[0]) >= 0; }); if (hit) pick(hit, p.nps[0]); } }
+    // Full NAP flow: the JO's NAPCODE names one NAP number; find its box with one small search (never the whole list)
+    var jq = st.job && st.job.napcode ? C.jobNapQuery(st.job.napcode) : null;
+    if (jq) {
+      try {
+        var rows = await api.searchBoxes(jq.q, 10);
+        if (st !== mine || st.box || st.saving) return;
+        var hit = C.matchJobBox(rows, jq);
+        if (hit) pick(hit, jq.np);
+        else q('napSub').textContent = 'For JO ' + st.job.id + ': NAP ' + jq.q + ' was not found. Pick the NAP below or type its stencil.';
+      } catch (e) {
+        if (st === mine && !st.box) q('napErr').textContent = 'Cannot look up the JO NAP: ' + (e && e.message || e) + '. Type the stencil instead.';
+      }
+    }
+  }
+  // Boxes near the phone (server-side radius search). A failure keeps the typed search working.
+  function loadNear(mine) {
+    if (!pos) return Promise.resolve();
+    nearState = 'loading'; renderNear();
+    var p; try { p = Promise.resolve(api.boxesNear({ lat: pos.lat, lng: pos.lng, radius: NEAR_M, limit: NEAR_N })); } catch (e) { p = Promise.reject(e); }
+    return p.then(function (rows) { if (st !== mine) return; near = Array.isArray(rows) ? rows : []; nearState = 'ok'; renderNear(); },
+      function (e) { if (st !== mine) return; near = []; nearState = 'error'; if (window.console) console.warn('NAP boxes_near', e); renderNear(); });
+  }
+  function onSearchInput() {
+    var term = C.normStencil(q('napSearch').value), mine = st, seq = ++findSeq;
+    clearTimeout(findTimer);
+    if (term.length < SEARCH_MIN) { found = []; findState = term ? 'short' : 'idle'; renderNear(); return; }
+    findState = 'loading'; renderNear();
+    findTimer = setTimeout(function () {
+      var p; try { p = Promise.resolve(api.searchBoxes(term, 12)); } catch (e) { p = Promise.reject(e); }
+      p.then(function (rows) { if (st !== mine || seq !== findSeq) return; found = Array.isArray(rows) ? rows : []; findState = 'ok'; renderNear(); },
+        function (e) { if (st !== mine || seq !== findSeq) return; found = []; findState = 'error:' + String(e && e.message || e).replace(/^NAP_[A-Z0-9_]+:\s*/, ''); renderNear(); });
+    }, SEARCH_MS);
   }
   // "Dispatched to your team": independent of the board list. A failing my_dispatch is logged and shows nothing.
   function loadDispatch(mine) {
@@ -111,12 +152,23 @@
     el.onclick = function (e) { var b = e.target.closest('button'); if (b && st && !st.saving && dispatched[+b.dataset.i]) pick(dispBox(dispatched[+b.dataset.i])); };
   }
   function renderNear() {
-    var term = (q('napSearch').value || '').trim().toUpperCase(), list;
-    if (term) list = boxes.filter(function (b) { return b.stencil.toUpperCase().indexOf(term) >= 0; }).slice(0, 12).map(function (b) { return { b: b, d: pos && b.lat != null && b.lng != null ? C.haversineM(pos.lat, pos.lng, b.lat, b.lng) : null }; });
-    else if (pos) list = C.nearest(boxes.map(function (b) { var x = {}; for (var k in b) x[k] = b[k]; x.kind0 = b.kind; x.kind = 'installable'; return x; }), pos, 'install', 12).map(function (b) { return { b: b, d: b.distance_m }; });
-    else list = [];
-    q('napNear').innerHTML = list.length ? list.map(function (x, i) { return '<button type="button" data-i="' + i + '" style="display:flex;justify-content:space-between;width:100%;padding:8px;border:0;border-bottom:1px solid #eee;background:none;text-align:left"><span style="font-family:monospace">' + esc(x.b.stencil) + '</span><span style="opacity:.6">' + (x.d == null ? '' : Math.round(x.d) + ' m') + '</span></button>'; }).join('') : '<div style="padding:8px;opacity:.6">' + (pos ? 'No NAP found.' : 'Waiting for GPS… or type a stencil.') + '</div>';
-    q('napNear').onclick = function (e) { var b = e.target.closest('button'); if (b) pick(list[+b.dataset.i].b); };
+    var el = q('napNear'); if (!el) return;
+    var typed = C.normStencil(q('napSearch').value), list = [], msg = '';
+    if (typed) {
+      if (findState === 'short') msg = 'Type at least ' + SEARCH_MIN + ' characters of the stencil.';
+      else if (findState === 'loading') msg = 'Searching…';
+      else if (findState.indexOf('error:') === 0) msg = 'Cannot search: ' + findState.slice(6);
+      else { list = found.map(function (b) { return { b: b, d: pos && b.lat != null && b.lng != null ? C.haversineM(pos.lat, pos.lng, b.lat, b.lng) : null }; }); if (!list.length) msg = 'No NAP matches "' + typed + '".'; }
+    } else if (nearState === 'ok') {
+      list = near.map(function (b) { return { b: b, d: b.distance_m }; });
+      if (!list.length) msg = 'No NAP with coordinates within ' + (NEAR_M / 1000) + ' km. Type the stencil.';
+    } else if (nearState === 'loading') msg = 'Loading the NAPs near you…';
+    else if (nearState === 'error') msg = 'Cannot load the NAPs near you. Type the stencil instead.';
+    else if (nearState === 'nogps') msg = 'No GPS. Type the stencil (at least ' + SEARCH_MIN + ' characters), for example QCY003 LP114.';
+    else msg = 'Waiting for GPS… or type a stencil.';
+    el.innerHTML = list.length ? list.map(function (x, i) { return '<button type="button" data-i="' + i + '" style="display:flex;justify-content:space-between;gap:8px;width:100%;padding:8px;border:0;border-bottom:1px solid #eee;background:none;text-align:left"><span style="font-family:monospace;overflow-wrap:anywhere">' + esc(x.b.stencil) + '</span><span style="opacity:.6;white-space:nowrap">' + (x.d == null ? (x.b.lat == null ? 'no coordinates' : '') : Math.round(x.d) + ' m') + '</span></button>'; }).join('')
+      : '<div style="padding:8px;opacity:.6">' + esc(msg) + '</div>';
+    el.onclick = function (e) { var b = e.target.closest('button'); if (b && st && !st.saving && list[+b.dataset.i]) pick(list[+b.dataset.i].b); };
   }
   function pick(b, np) {
     st.box = b; st.np = np || b.np_numbers[0]; st.ports = Array(8).fill(null); st.tags = {};

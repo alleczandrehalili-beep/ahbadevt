@@ -36,7 +36,43 @@
     return {
       myRole: function () { return unwrap(nap().rpc('my_role')); },
       gateApplies: function () { return unwrap(nap().rpc('gate_applies_me')).then(Boolean); },
+      // EVERY box, paged 1000 at a time. Phase 2B (whole QC, ~46k boxes = 46 requests and ~15 MB): no screen calls this any more.
+      // The dashboard uses barangaySummary + boxesInBarangay, the mobile boxesNear + searchBoxes. Kept for small tools and tests only.
       boxStatus: function () { return getAll('box_status', function (q) { return q.order('stencil'); }); },
+      // One row per barangay (about 140 rows): counts per kind, boxes without coordinates, fresh free ports, newest check.
+      barangaySummary: function () { return unwrap(nap().rpc('barangay_summary')).then(function (r) { return r || []; }); },
+      // box_status rows within o.radius m (default 150, server max 5000) of o.lat/o.lng, nearest first, each with distance_m (limit <= 500).
+      boxesNear: function (o) {
+        o = o || {};
+        return unwrap(nap().rpc('boxes_near', { p_lat: o.lat, p_lng: o.lng, p_radius_m: o.radius == null ? 150 : o.radius, p_limit: o.limit == null ? 100 : o.limit }))
+          .then(function (r) { return r || []; });
+      },
+      // Typed stencil search (exact, single-NP form like 'QCY003 LP114 NP6', prefix, contains). Server needs 2+ characters; limit <= 50.
+      searchBoxes: function (q, limit) {
+        return unwrap(nap().rpc('search_boxes', { p_q: String(q == null ? '' : q), p_limit: limit == null ? 20 : limit })).then(function (r) { return r || []; });
+      },
+      // One page of one barangay's boxes, ordered by stencil (kind 'aging' = stale oldest first, then unverified).
+      boxesInBarangay: function (o) {
+        o = o || {};
+        return unwrap(nap().rpc('boxes_in_barangay', { p_barangay: o.barangay, p_kind: o.kind || null, p_limit: o.limit == null ? PAGE : o.limit, p_offset: o.offset || 0 }))
+          .then(function (r) { return r || []; });
+      },
+      // Every box of one barangay, PAGE rows per request. PostgREST may cap a response at its max-rows setting (1000 on Supabase),
+      // so a short page only ends the loop when o.expected (the barangay_summary count) is unknown; otherwise the loop runs until
+      // o.expected rows arrived or a page comes back empty. o.onPage(rowsSoFar) reports progress. At most 60 requests.
+      boxesInBarangayAll: function (o) {
+        o = o || {};
+        var self = this, out = [], size = o.pageSize || PAGE, n = 0;
+        function next(offset) {
+          return self.boxesInBarangay({ barangay: o.barangay, kind: o.kind, limit: size, offset: offset }).then(function (rows) {
+            out = out.concat(rows); n++;
+            if (o.onPage) { try { o.onPage(out.length); } catch (e) { /* progress only */ } }
+            var done = !rows.length || (o.expected != null ? out.length >= o.expected : rows.length < size) || n >= 60;
+            return done ? out : next(offset + rows.length);
+          });
+        }
+        return next(0);
+      },
       boxPorts: function (boxId) { return unwrap(nap().from('ports').select('np,port,status,tag_acct,verified_at').eq('box_id', boxId).order('np').order('port')); },
       nearest: function (o) { return unwrap(nap().rpc('nearest_installable', { p_lat: o.lat, p_lng: o.lng, p_mode: o.mode || 'install', p_limit: o.limit == null ? 5 : o.limit })); },
       submitAudit: function (payload) { return unwrap(nap().rpc('submit_audit', { p: payload })); },
