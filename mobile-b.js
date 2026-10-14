@@ -762,13 +762,16 @@
         signOff('Auto-logged out: past 7PM and 2 hours of inactivity');
       }
     }
+    // NAP pilot: NAP Audit tile + Full NAP gate. Called from startApp (technicians) and startQA (QA inspectors, who never reach startApp).
+    // Runs once per signed-in team; the guard is set only after init resolved, so an offline start retries on the next call. Never blocks the app.
+    function napPilotInit(){
+      try{ if(window.NapMobile && napPilotInit._napTeam!==myTeam && napPilotInit._napBusy!==myTeam){ const t=myTeam; napPilotInit._napBusy=t; Promise.resolve(NapMobile.init({sb:sb, team:t, name:myName, technicians:function(){return [shiftTech1,shiftTech2].filter(Boolean).join(', ');}, toast:toast})).then(function(){ if(myTeam===t) napPilotInit._napTeam=t; }, function(e){ console.warn('[NAP] init',e&&e.message); }).then(function(){ if(napPilotInit._napBusy===t) napPilotInit._napBusy=''; }); } }catch(e){ console.warn('[NAP] init',e&&e.message); }
+    }
     function startApp(){
       try{ const mfc=$('#mFmsConcern'); if(mfc) mfc.classList.toggle('hidden', !(/^AHBA/i.test(myTeam||'') && window.MobileFMS)); }catch(e){}
       $('#teamName').textContent=headerName();
       show('appView'); setSync('syncing','Connecting…'); signature=''; knownJobIds=null; primeAudio();
-      // NAP pilot: NAP Audit tile + Full NAP gate. Runs once per signed-in team (startApp re-runs after the vehicle-concern screen); never blocks the app.
-      // The guard is set only after init resolved; an offline start (role not readable) retries on the next startApp call.
-      try{ if(window.NapMobile && startApp._napTeam!==myTeam && startApp._napBusy!==myTeam){ const t=myTeam; startApp._napBusy=t; Promise.resolve(NapMobile.init({sb:sb, team:t, name:myName, technicians:function(){return [shiftTech1,shiftTech2].filter(Boolean).join(', ');}, toast:toast})).then(function(){ if(myTeam===t) startApp._napTeam=t; }, function(e){ console.warn('[NAP] init',e&&e.message); }).then(function(){ if(startApp._napBusy===t) startApp._napBusy=''; }); } }catch(e){ console.warn('[NAP] init',e&&e.message); }
+      napPilotInit();
       refresh();
       // Coalesce realtime bursts + the poll into ≤1 refetch per ~4s — lighter on the DB, still live.
       if(!startApp._coal){ startApp._coal=function(){ var now=Date.now(), gap=now-(startApp._rlast||0); if(gap>=4000){ startApp._rlast=now; refresh(); return; } if(startApp._rt) return; startApp._rt=setTimeout(function(){ startApp._rt=null; startApp._rlast=Date.now(); refresh(); }, 4000-gap); }; }
@@ -984,7 +987,7 @@
       if(typeof _qaMount!=='undefined'&&_qaMount){ try{_qaMount.destroy();}catch(e){} _qaMount=null; }   // QA inspector: drop realtime + online listeners
       try{ localStorage.removeItem(shiftKey()); }catch(e){}   // clear saved shift → next login picks account manually
       shiftAccount=''; shiftDriver=''; shiftTech1=''; shiftTech2='';
-      try{ const nt=document.getElementById('napTile'); if(nt) nt.remove(); startApp._napTeam=''; startApp._napBusy=''; }catch(e){}   // NAP pilot: drop the floating tile so it never shows on the login screen / for the next user
+      try{ const nt=document.getElementById('napTile'); if(nt) nt.remove(); napPilotInit._napTeam=''; napPilotInit._napBusy=''; }catch(e){}   // NAP pilot: drop the floating tile so it never shows on the login screen / for the next user
       try{ await sb.auth.signOut(); }catch(e){}
       myTeam=''; jobs=[]; $('#uName').value=''; $('#uPass').value='';
       toast(message||'Signed off');
