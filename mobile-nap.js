@@ -85,6 +85,7 @@
     q('napPick').hidden = false; q('napForm').hidden = true; q('napErr').textContent = ''; q('napSearch').value = ''; renderThumbs();
     near = []; nearState = 'gps'; found = []; findState = 'idle'; findSeq++; clearTimeout(findTimer);
     q('napModal').hidden = false; q('napSave').disabled = true;
+    q('napDisp').innerHTML = '';   // a fresh list (filter cleared) on every open
     renderDisp();   // last known list shows at once; the refresh below never depends on the board list
     loadDispatch(mine);
     // a GPS fix only refreshes the list and the distance line: re-rendering the form would drop focus from the acct no. inputs
@@ -139,17 +140,57 @@
   }
   function fmtDue(d) { return d ? String(d).slice(0, 10) : ''; }
   function dispBox(it) { return { box_id: it.box_id, stencil: it.stencil, street: [it.street, it.barangay].filter(Boolean).join(', '), barangay: it.barangay, dwelling: it.dwelling, lat: it.lat, lng: it.lng, np_numbers: Array.isArray(it.np_numbers) && it.np_numbers.length ? it.np_numbers : [1], converge_available: it.converge_available }; }
+  // A team may now hold 50-400 items (dispatch plans): compact rows in a scrolling box, nearest first when the phone has a fix (else by
+  // due date, then stencil), a count per barangay that filters with one tap, and a text filter (stencil / street / barangay).
+  // Only DISP_MAX rows are drawn at a time; the filter reaches the rest. The filter box is built once per open, so typing keeps focus.
+  var DISP_MAX = 150, dispQ = '', dispB = '';
+  function dispSorted() {
+    var withD = dispatched.map(function (it, i) { var has = it.lat != null && it.lng != null; return { it: it, i: i, d: pos && has ? C.haversineM(pos.lat, pos.lng, +it.lat, +it.lng) : null }; });
+    return withD.sort(function (a, b) {
+      if (pos && (a.d == null) !== (b.d == null)) return a.d == null ? 1 : -1;
+      if (pos && a.d != null && a.d !== b.d) return a.d - b.d;
+      var da = a.it.due_date || '9999', db = b.it.due_date || '9999';
+      return da < db ? -1 : da > db ? 1 : String(a.it.stencil) < String(b.it.stencil) ? -1 : String(a.it.stencil) > String(b.it.stencil) ? 1 : 0;
+    });
+  }
   function renderDisp() {
     var el = q('napDisp'); if (!el) return;
-    if (!dispatched.length) { el.innerHTML = ''; el.onclick = null; return; }
-    el.innerHTML = '<label class="lbl">Dispatched to your team (' + dispatched.length + ')</label><div style="border:1px solid #d6dde2;border-radius:8px;margin-bottom:10px">' + dispatched.map(function (it, i) {
-      var has = it.lat != null && it.lng != null, d = pos && has ? Math.round(C.haversineM(pos.lat, pos.lng, +it.lat, +it.lng)) + ' m' : '';
-      return '<button type="button" data-i="' + i + '" style="display:block;width:100%;padding:8px;border:0;border-bottom:1px solid #eee;background:none;text-align:left;box-sizing:border-box">' +
-        '<span style="display:flex;justify-content:space-between;gap:8px"><span style="font-family:monospace;overflow-wrap:anywhere">' + esc(it.stencil) + '</span><span style="opacity:.6;white-space:nowrap">' + esc(d) + '</span></span>' +
-        '<span style="display:block;font-size:12px;opacity:.75">' + esc([it.street, it.barangay].filter(Boolean).join(', ')) + (it.due_date ? ' · due ' + esc(fmtDue(it.due_date)) : '') + '</span>' +
-        (has ? '' : '<span style="display:block;font-size:12px;color:#d98518">no coordinates yet: they will be set on the first audit</span>') + '</button>';
-    }).join('') + '</div>';
-    el.onclick = function (e) { var b = e.target.closest('button'); if (b && st && !st.saving && dispatched[+b.dataset.i]) pick(dispBox(dispatched[+b.dataset.i])); };
+    if (!dispatched.length) { el.innerHTML = ''; el.onclick = null; el.oninput = null; return; }
+    if (!q('napDispList')) {
+      dispQ = ''; dispB = '';
+      el.innerHTML = '<label class="lbl" id="napDispH"></label><div id="napDispB" style="display:flex;flex-wrap:wrap;gap:4px;margin:2px 0 6px"></div>' +
+        '<input id="napDispQ" type="search" placeholder="Filter your list: stencil, street or barangay" style="width:100%;box-sizing:border-box;padding:7px;margin-bottom:6px" hidden>' +
+        '<div id="napDispList" style="max-height:45vh;overflow:auto;border:1px solid #d6dde2;border-radius:8px;margin-bottom:10px"></div>';
+      q('napDispQ').oninput = function () { dispQ = C.normStencil(this.value); renderDisp(); };
+      el.onclick = function (e) {
+        var c = e.target.closest('[data-b]');
+        if (c) { dispB = dispB === c.dataset.b ? '' : c.dataset.b; renderDisp(); return; }
+        var b = e.target.closest('[data-i]');
+        if (b && st && !st.saving && dispatched[+b.dataset.i]) pick(dispBox(dispatched[+b.dataset.i]));
+      };
+    }
+    var counts = {}; dispatched.forEach(function (it) { var k = String(it.barangay || '').trim() || 'UNASSIGNED'; counts[k] = (counts[k] || 0) + 1; });
+    var names = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a] || (a < b ? -1 : a > b ? 1 : 0); });
+    if (dispB && !counts[dispB]) dispB = '';
+    var rows = dispSorted().filter(function (x) {
+      var it = x.it, k = String(it.barangay || '').trim() || 'UNASSIGNED';
+      if (dispB && k !== dispB) return false;
+      return !dispQ || C.normStencil([it.stencil, it.street, it.barangay].join(' ')).indexOf(dispQ) >= 0;
+    });
+    q('napDispH').textContent = 'Dispatched to your team (' + dispatched.length + ')' + (rows.length !== dispatched.length ? ': showing ' + rows.length : '');
+    q('napDispB').innerHTML = names.length > 1 ? names.map(function (k) {
+      var on = k === dispB;
+      return '<button type="button" data-b="' + esc(k) + '" style="border:1px solid ' + (on ? '#0f5f8c' : '#d6dde2') + ';background:' + (on ? '#0f5f8c' : 'none') + ';color:' + (on ? '#fff' : 'inherit') + ';border-radius:12px;padding:3px 9px;font-size:12px">' + esc(k) + ' ' + counts[k] + '</button>';
+    }).join('') : '';
+    q('napDispQ').hidden = dispatched.length <= 8;
+    q('napDispList').innerHTML = rows.slice(0, DISP_MAX).map(function (x) {
+      var it = x.it, has = it.lat != null && it.lng != null, d = x.d != null ? Math.round(x.d) + ' m' : '';
+      return '<button type="button" data-i="' + x.i + '" style="display:block;width:100%;padding:6px 8px;border:0;border-bottom:1px solid #eee;background:none;text-align:left;box-sizing:border-box">' +
+        '<span style="display:flex;justify-content:space-between;gap:8px"><span style="font-family:monospace;font-size:13px;overflow-wrap:anywhere">' + esc(it.stencil) + '</span><span style="opacity:.6;white-space:nowrap;font-size:12px">' + esc(d) + '</span></span>' +
+        '<span style="display:block;font-size:11.5px;opacity:.75;overflow-wrap:anywhere">' + esc([it.street, it.barangay].filter(Boolean).join(', ')) + (it.due_date ? ' · due ' + esc(fmtDue(it.due_date)) : '') +
+        (has ? '' : ' · <span style="color:#d98518">no coordinates yet</span>') + '</span></button>';
+    }).join('') + (rows.length > DISP_MAX ? '<div style="padding:8px;font-size:12px;opacity:.7">' + (rows.length - DISP_MAX) + ' more: filter by barangay or type to narrow the list.</div>' : '') +
+      (!rows.length ? '<div style="padding:8px;opacity:.6">Nothing matches the filter.</div>' : '');
   }
   function renderNear() {
     var el = q('napNear'); if (!el) return;
