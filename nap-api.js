@@ -4,7 +4,7 @@
   else root.NapApi = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
-  var BUCKET = 'nap-photos', PAGE = 1000;
+  var BUCKET = 'nap-photos', PAGE = 1000, OPEN_STATUSES = ['pending', 'blocked', 'unassigned'], OPEN_MAX = 2000;
 
   function fail(error) {
     var msg = (error && error.message) || String(error);
@@ -79,12 +79,26 @@
       dispatchAssign: function (payload) { return unwrap(nap().rpc('dispatch_assign', { p: payload })); },
       dispatchCancel: function (payload) { return unwrap(nap().rpc('dispatch_cancel', { p: payload })); },
       myDispatch: function () { return unwrap(nap().rpc('my_dispatch')); },
+      // Newest `limit` items, PLUS every open item (pending / blocked / unassigned, up to OPEN_MAX): a busy week of done items must never push
+      // an old pending or blocked item out of the list or skew the per-team counts. Each row also carries audit:{review_status} when linked.
       listDispatchItems: function (o) {
         o = o || {};
-        var q = nap().from('dispatch_items').select('*, boxes:box_id(stencil,street,barangay)').order('created_at', { ascending: false }).limit(o.limit || 300);
-        if (o.status) q = q.eq('status', o.status);
-        if (o.team) q = q.eq('team', o.team);
-        return unwrap(q);
+        function build() {
+          var q = nap().from('dispatch_items').select('*, boxes:box_id(stencil,street,barangay), audit:audit_id(review_status)').order('created_at', { ascending: false });
+          if (o.status) q = q.eq('status', o.status);
+          if (o.team) q = q.eq('team', o.team);
+          return q;
+        }
+        var statusIsOpen = !!o.status && OPEN_STATUSES.indexOf(o.status) >= 0;
+        if (statusIsOpen) return unwrap(build().limit(OPEN_MAX));
+        var recent = unwrap(build().limit(o.limit || 300));
+        if (o.status) return recent;
+        var open = unwrap(build().in('status', OPEN_STATUSES).limit(OPEN_MAX));
+        return Promise.all([recent, open]).then(function (parts) {
+          var seen = {}, out = [];
+          parts[0].concat(parts[1]).forEach(function (r) { if (!seen[r.id]) { seen[r.id] = true; out.push(r); } });
+          return out.sort(function (x, y) { return x.created_at < y.created_at ? 1 : x.created_at > y.created_at ? -1 : 0; });
+        });
       },
       listGeoHistory: function (o) {
         o = o || {};

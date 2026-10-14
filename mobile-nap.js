@@ -85,8 +85,8 @@
     try { boxes = boxes.length ? boxes : await api.boxStatus(); } catch (e) { q('napErr').textContent = 'Hindi ma-load ang NAP list: ' + e.message; }
     if (st !== mine) return;
     // a GPS fix only refreshes the list and the distance line: re-rendering the form would drop focus from the acct no. inputs
-    navigator.geolocation && navigator.geolocation.getCurrentPosition(function (p) { if (st !== mine) return; pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy, t: Date.now() }; renderNear(); renderDisp(); if (st.box) renderGps(); },
-      function () { if (st !== mine) return; pos = null; renderNear(); renderDisp(); if (st.box) renderGps(); }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 });
+    navigator.geolocation && navigator.geolocation.getCurrentPosition(function (p) { if (st !== mine || st.saving) return; pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy, t: Date.now() }; renderNear(); renderDisp(); if (st.box) renderGps(); },
+      function () { if (st !== mine || st.saving) return; pos = null; renderNear(); renderDisp(); if (st.box) renderGps(); }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 });
     renderNear();
     if (st.job && st.job.napcode) { var p = C.parseStencil(st.job.napcode.replace(/ P\d+.*$/, '')); if (p) { var hit = boxes.find(function (b) { return b.stencil.indexOf(p.prefix) === 0 && b.np_numbers.indexOf(p.nps[0]) >= 0; }); if (hit) pick(hit, p.nps[0]); } }
   }
@@ -167,15 +167,19 @@
     else { var v = C.validateAudit({ ports: payloadPorts().map(function (p) { return p.status ? p : { port: p.port, status: null }; }), photos: st.files.length, declaredFull: st.full, jobId: st.job && st.job.id }); ok = v.ok; err = v.errors.map(function (e) { return e.msg; }).join(' '); }
     q('napErr').textContent = err; q('napSave').disabled = !ok; return ok;
   }
-  // Fresh high-accuracy fix right before saving when pos is missing or older than 60 s. Never blocks or fails the save.
-  function freshFix() {
-    if (pos && pos.t && Date.now() - pos.t <= 60000) return Promise.resolve();
+  // GPS fix for ONE audit attempt: the first one is kept on cur.fix and reused by every retry of the same audit (same client_id), so a retry
+  // never submits different coordinates. A recent open-time fix is used as is; otherwise one fresh high-accuracy fix is requested.
+  // Never blocks or fails the save, and never touches the shared pos (open-time callbacks are ignored while saving).
+  function freshFix(cur) {
+    if (cur.fix) return Promise.resolve(cur.fix);
+    var p0 = pos;
+    if (p0 && p0.t && Date.now() - p0.t <= 60000) { cur.fix = p0; return Promise.resolve(p0); }
     return new Promise(function (resolve) {
       var fin = false, tm = setTimeout(function () { done(); }, 7000);
-      function done() { if (fin) return; fin = true; clearTimeout(tm); resolve(); }
+      function done() { if (fin) return; fin = true; clearTimeout(tm); resolve(cur.fix || null); }
       try {
         if (!navigator.geolocation) return done();
-        navigator.geolocation.getCurrentPosition(function (p) { if (!fin) pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy, t: Date.now() }; done(); }, done, { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 });
+        navigator.geolocation.getCurrentPosition(function (p) { if (!fin) cur.fix = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy, t: Date.now() }; done(); }, done, { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 });
       } catch (e) { done(); }
     });
   }
@@ -186,12 +190,12 @@
     setSaving(true);
     var btn = q('napSave'); btn.disabled = true; btn.textContent = 'Ina-upload…';
     var team = ctx.team || 'ADMIN', res;
-    await freshFix();
+    var fix = await freshFix(cur);   // snapshot: nothing below reads the shared pos
     try {
       var paths = []; if (!cur.notFound) for (var i = 0; i < cur.files.length; i++) paths.push(await api.uploadPhoto(team, cur.clientId, i + 1, cur.files[i]));
       else if (cur.files.length) paths.push(await api.uploadPhoto(team, cur.clientId, 1, cur.files[0]));
       res = await api.submitAudit({ client_id: cur.clientId, box_id: cur.box.box_id, np: cur.np, technicians: ctx.technicians(), job_id: cur.job ? cur.job.id : null,
-        gps_lat: pos ? pos.lat : null, gps_lng: pos ? pos.lng : null, gps_acc: pos && pos.acc != null ? pos.acc : null, declared_full: cur.full && !cur.notFound, not_found: cur.notFound, not_found_reason: cur.notFound ? q('napNfWhy').value.trim() : null,
+        gps_lat: fix ? fix.lat : null, gps_lng: fix ? fix.lng : null, gps_acc: fix && fix.acc != null ? fix.acc : null, declared_full: cur.full && !cur.notFound, not_found: cur.notFound, not_found_reason: cur.notFound ? q('napNfWhy').value.trim() : null,
         ports: cur.notFound ? [] : payloadPorts(), photos: paths });
     } catch (e) {
       var m = String(e && e.message || e), coded = /^NAP_[A-Z0-9_]+:\s*/.test(m);
@@ -202,8 +206,8 @@
     // saved: everything below runs outside the save try, so a failing callback can never show "Hindi na-save"
     var done = cur.done, nf = cur.notFound; cur.cancel = null; setSaving(false); btn.textContent = 'I-submit ang audit'; close(true);
     try {
-      var msg = res.review_status === 'ok' ? 'Na-save ang NAP audit' : 'Na-save. Nasa review ang audit.';
-      if (res.dispatch_done) msg = nf ? msg + ' · ipinaalam sa dispatcher' : 'Tapos na ang dispatch ng NAP na ito';
+      var reviewOk = res.review_status === 'ok', msg = reviewOk ? 'Na-save ang NAP audit' : 'Na-save. Nasa review ang audit.';
+      if (res.dispatch_done) msg = nf ? msg + ' · ipinaalam sa dispatcher' : reviewOk ? 'Tapos na ang dispatch ng NAP na ito' : msg + ' · tapos na ang dispatch ng NAP na ito';
       if (res.geo_result === 'applied' || res.geo_result === 'moved') msg += ' · na-update ang lokasyon ng NAP';
       else if (res.geo_result === 'proposed') msg += ' · isinumite ang bagong lokasyon para sa review';
       ctx.toast(msg);

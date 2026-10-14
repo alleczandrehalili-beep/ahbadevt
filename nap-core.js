@@ -133,6 +133,8 @@
       ti = h.findIndex(function (c) { return /^team$/i.test(c); });
       di = h.findIndex(function (c) { return /^(due|due[ _]?date|date|date[ _]?activity|petsa)$/i.test(c); });
       start = 1;
+      if (ti < 0 && di < 0) warnings.push('May header ang listahan pero walang nakilalang team o due column (gamitin ang TEAM at DUE DATE / DATE ACTIVITY). Walang team ang mga hilera.');
+      else if (ti < 0) warnings.push('Walang nakilalang TEAM column sa header. Walang team ang mga hilera.');
     }
     for (var i = start; i < data.length; i++) {
       var r = data[i], st = normStencil(si >= 0 ? r[si] : '');
