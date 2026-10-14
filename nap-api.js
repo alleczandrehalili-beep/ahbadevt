@@ -72,7 +72,28 @@
       getSettings: function () {
         return unwrap(nap().from('settings').select('key,value')).then(function (rows) { var o = {}; rows.forEach(function (r) { o[r.key] = r.value; }); return o; });
       },
-      setSetting: function (key, value) { return changed(nap().from('settings').upsert({ key: key, value: String(value) }, { onConflict: 'key' }).select('key')); }
+      setSetting: function (key, value) { return changed(nap().from('settings').upsert({ key: key, value: String(value) }, { onConflict: 'key' }).select('key')); },
+      dispatchMatch: function (rows) { return unwrap(nap().rpc('dispatch_match', { p_rows: rows })); },
+      dispatchCreate: function (payload) { return unwrap(nap().rpc('dispatch_create', { p: payload })); },
+      dispatchFromBoxes: function (payload) { return unwrap(nap().rpc('dispatch_from_boxes', { p: payload })); },
+      dispatchAssign: function (payload) { return unwrap(nap().rpc('dispatch_assign', { p: payload })); },
+      dispatchCancel: function (payload) { return unwrap(nap().rpc('dispatch_cancel', { p: payload })); },
+      myDispatch: function () { return unwrap(nap().rpc('my_dispatch')); },
+      listDispatchItems: function (o) {
+        o = o || {};
+        var q = nap().from('dispatch_items').select('*, boxes:box_id(stencil,street,barangay)').order('created_at', { ascending: false }).limit(o.limit || 300);
+        if (o.status) q = q.eq('status', o.status);
+        if (o.team) q = q.eq('team', o.team);
+        return unwrap(q);
+      },
+      listGeoHistory: function (o) {
+        o = o || {};
+        var q = nap().from('box_geo_history').select('*, boxes:box_id(stencil)').order('created_at', { ascending: false }).limit(o.limit || 100);
+        if (o.result) q = q.eq('result', o.result);
+        if (o.boxId) q = q.eq('box_id', o.boxId);
+        return unwrap(q);
+      },
+      geoReview: function (payload) { return unwrap(nap().rpc('geo_review', { p: payload })); }
     };
   }
   return { create: create, BUCKET: BUCKET };

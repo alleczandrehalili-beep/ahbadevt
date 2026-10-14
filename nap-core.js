@@ -88,6 +88,116 @@
 
   function gpsFlag(distanceM, o) { return distanceM != null && distanceM > opt(o).gpsFlagM; }
 
+  // ---------- dispatch helpers ----------
+  function normStencil(s) { return String(s == null ? '' : s).trim().replace(/\s+/g, ' ').toUpperCase(); }
+
+  var MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+  function iso(y, m, d) {
+    if (!(m >= 1 && m <= 12 && d >= 1 && d <= 31)) return '';
+    var t = new Date(Date.UTC(y, m - 1, d));
+    if (t.getUTCFullYear() !== y || t.getUTCMonth() !== m - 1 || t.getUTCDate() !== d) return '';
+    return t.toISOString().slice(0, 10);
+  }
+  function parseDueDate(v) {
+    if (v == null || v === '') return '';
+    if (v instanceof Date) {
+      if (isNaN(v)) return '';
+      // SheetJS (cellDates) returns LOCAL-midnight Dates, sometimes up to <60s early (tz quirks). Add 59s (NOT 12h: that
+      // would roll 23:59 over into the next day), then read LOCAL fields. 12h was requested but contradicts the 23:59 case.
+      var d = new Date(v.getTime() + 59 * 1000);
+      return iso(d.getFullYear(), d.getMonth() + 1, d.getDate());
+    }
+    if (typeof v === 'number') {
+      if (!(v > 20000 && v < 80000)) return '';
+      return new Date(Date.UTC(1899, 11, 30) + Math.floor(v) * 86400000).toISOString().slice(0, 10);
+    }
+    var s = String(v).trim(), m;
+    if ((m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s))) return iso(+m[1], +m[2], +m[3]);
+    if ((m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s))) return iso(+m[3], +m[1], +m[2]);
+    if ((m = /^(\d{1,2})-([A-Za-z]{3})[A-Za-z]*-(\d{2}|\d{4})$/.exec(s))) {
+      var mo = MONTHS[m[2].toLowerCase()], y = +m[3]; if (y < 100) y += 2000;
+      return mo ? iso(y, mo, +m[1]) : '';
+    }
+    return '';
+  }
+
+  // grid: array of arrays. Header row optional (a cell named stencil / nap...). Returns rows ready for nap.dispatch_match.
+  function parseDispatchRows(grid) {
+    var rows = [], skipped = 0, warnings = [];
+    var data = (grid || []).filter(function (r) { return r && r.some(function (c) { return String(c == null ? '' : c).trim() !== ''; }); });
+    var si = 0, ti = 1, di = 2, start = 0;
+    var STENCIL_H = /^(nap[ _]?stencil|stencil|nap([ _]?name)?)$/i;
+    if (data.length && data[0].some(function (c) { return STENCIL_H.test(String(c == null ? '' : c).trim()); })) {
+      var h = data[0].map(function (c) { return String(c == null ? '' : c).trim(); });
+      si = h.findIndex(function (c) { return STENCIL_H.test(c); });
+      ti = h.findIndex(function (c) { return /^team$/i.test(c); });
+      di = h.findIndex(function (c) { return /^(due|due[ _]?date|date|date[ _]?activity|petsa)$/i.test(c); });
+      start = 1;
+    }
+    for (var i = start; i < data.length; i++) {
+      var r = data[i], st = normStencil(si >= 0 ? r[si] : '');
+      if (!st) { skipped++; continue; }
+      var raw = di >= 0 ? r[di] : '', due = parseDueDate(raw);
+      if (String(raw == null ? '' : raw).trim() !== '' && !due) warnings.push('Hindi mabasa ang petsa "' + raw + '" sa ' + st);
+      rows.push({ stencil: st, team: ti >= 0 && r[ti] != null ? String(r[ti]).trim().toUpperCase() : '', due: due });
+    }
+    return { rows: rows, skipped: skipped, warnings: warnings };
+  }
+
+  function splitDelimited(text, delim) {
+    var rows = [], row = [], cell = '', q = false;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === delim) { row.push(cell); cell = ''; }
+      else if (ch === '\r' || ch === '\n') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+      else cell += ch;
+    }
+    row.push(cell); rows.push(row);
+    return rows;
+  }
+  function parseDispatchText(text) {
+    var t = String(text == null ? '' : text).replace(/^\uFEFF/, '');
+    if (!t.trim()) return { rows: [], skipped: 0, warnings: [] };
+    var first = t.split(/\r\n|\n|\r/).find(function (l) { return l.trim() !== ''; }) || '';
+    var unq = first.replace(/"[^"]*("|$)/g, '');  // ignore delimiters inside double quotes
+    var count = function (c) { return unq.split(c).length - 1; };
+    var delim = count('\t') > 0 ? '\t' : count(',') >= count(';') && count(',') > 0 ? ',' : count(';') > 0 ? ';' : ',';
+    return parseDispatchRows(splitDelimited(t, delim));
+  }
+
+  // Mirrors the SQL rule in nap.submit_audit (geo block). accuracyM / distanceM in meters.
+  function geoDecision(o) {
+    o = o || {};
+    var c = { accMaxM: 30, moveMaxM: 300, refineM: 50, minMoveM: 3 };
+    for (var k in c) if (o[k] != null) c[k] = o[k];
+    if (o.accuracyM == null || !(o.accuracyM >= 0)) return { action: 'none', reason: 'no_accuracy' };
+    if (o.accuracyM > c.accMaxM) return { action: 'none', reason: 'low_accuracy' };
+    if (!o.hasCoords) return { action: 'applied', reason: 'no_coords' };
+    if (typeof o.distanceM !== 'number' || !isFinite(o.distanceM)) return { action: 'none', reason: 'no_distance' };
+    if (o.distanceM < c.minMoveM) return { action: 'none', reason: 'no_change' };
+    if (o.distanceM <= c.refineM) return { action: 'applied', reason: 'refine' };
+    if (o.distanceM <= c.moveMaxM) return { action: 'moved', reason: 'moved' };
+    return { action: 'proposed', reason: 'too_far' };
+  }
+
+  function within(boxes, from, radiusM) {
+    return (boxes || [])
+      .filter(function (b) { return b && b.lat != null && b.lng != null; })
+      .map(function (b) { var x = {}; for (var k in b) x[k] = b[k]; x.distance_m = haversineM(from.lat, from.lng, b.lat, b.lng); return x; })
+      .filter(function (b) { return b.distance_m <= radiusM; })
+      .sort(function (a, b) { return a.distance_m - b.distance_m; });
+  }
+  function parseLatLng(text) {
+    var m = /^\s*(-?\d{1,3}(?:\.\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/.exec(String(text == null ? '' : text));
+    if (!m) return null;
+    var lat = parseFloat(m[1]), lng = parseFloat(m[2]);
+    if (!(lat >= 4 && lat <= 22 && lng >= 116 && lng <= 128)) return null;
+    return { lat: lat, lng: lng };
+  }
+
   return { STATUS: STATUS, PORT_STATUSES: PORT_STATUSES, DEFAULTS: DEFAULTS, isUsable: isUsable, isOccupied: isOccupied,
-    parseStencil: parseStencil, boxStatus: boxStatus, haversineM: haversineM, nearest: nearest, validateAudit: validateAudit, gpsFlag: gpsFlag };
+    parseStencil: parseStencil, boxStatus: boxStatus, haversineM: haversineM, nearest: nearest, validateAudit: validateAudit, gpsFlag: gpsFlag,
+    normStencil: normStencil, parseDueDate: parseDueDate, parseDispatchRows: parseDispatchRows, parseDispatchText: parseDispatchText, geoDecision: geoDecision, within: within, parseLatLng: parseLatLng };
 });
