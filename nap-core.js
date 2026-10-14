@@ -13,7 +13,7 @@
   var DEFAULTS = { freshnessDays: 14, fullMultiplier: 2, gpsFlagM: 50 };
 
   function opt(o) { var r = {}; for (var k in DEFAULTS) r[k] = (o && o[k] != null) ? o[k] : DEFAULTS[k]; return r; }
-  function toMs(v) { return typeof v === 'number' ? v : Date.parse(v); }
+  function toMs(v) { return typeof v === 'number' ? v : v instanceof Date ? v.getTime() : Date.parse(v); }
   function isUsable(s) { return s === STATUS.VACANT || s === STATUS.RELEASED; }
   function isOccupied(s) { return s === STATUS.AWT || s === STATUS.AWO; }
 
@@ -24,19 +24,28 @@
     return { prefix: m[1].toUpperCase(), nps: m[2].split('-').map(Number) };
   }
 
-  // ports: [{status, verified_at}] for the whole box. Never-seen ports (Unverified) do not count.
+  // ports: ALL port rows of the box [{status, verified_at}], Unverified ones included (total = ports.length). Same rule as the
+  // nap.box_status view. A port is checked when its status is not Unverified and verified_at is a valid date.
+  //   free        = checked Vacant/Released ports verified within freshnessDays (an old free port does not count)
+  //   installable = free > 0
+  //   full        = every port checked, all occupied, newest check within freshnessDays x fullMultiplier
+  //   issue       = newest check within freshnessDays and a Hi Loss / Defective port
+  //   stale       = anything else that was checked; unverified = nothing checked
   function boxStatus(ports, now, o) {
-    var c = opt(o), t = toMs(now);
-    var seen = (ports || []).filter(function (p) { return p.status !== STATUS.UNVERIFIED && p.verified_at != null; });
-    if (!seen.length) return { kind: 'unverified', free: 0, checked: 0, bad: 0, ageDays: null };
+    var c = opt(o), t = toMs(now), all = ports || [];
+    var seen = all.filter(function (p) { return p.status !== STATUS.UNVERIFIED && p.verified_at != null && isFinite(toMs(p.verified_at)); });
+    if (!seen.length) return { kind: 'unverified', free: 0, checked: 0, bad: 0, total: all.length, ageDays: null };
+    var age = function (p) { return (t - toMs(p.verified_at)) / DAY; };
     var newest = Math.max.apply(null, seen.map(function (p) { return toMs(p.verified_at); }));
-    var free = seen.filter(function (p) { return isUsable(p.status); }).length;
-    var bad = seen.filter(function (p) { return p.status === STATUS.HILOSS || p.status === STATUS.DEFECTIVE; }).length;
-    var full = seen.every(function (p) { return isOccupied(p.status); });
-    var windowDays = full ? c.freshnessDays * c.fullMultiplier : c.freshnessDays;
     var ageFrac = (t - newest) / DAY;
-    var kind = ageFrac > windowDays ? 'stale' : free > 0 ? 'installable' : full ? 'full' : 'issue';
-    return { kind: kind, free: free, checked: seen.length, bad: bad, ageDays: Math.max(0, Math.floor(ageFrac)) };
+    var free = seen.filter(function (p) { return isUsable(p.status) && age(p) <= c.freshnessDays; }).length;
+    var bad = seen.filter(function (p) { return p.status === STATUS.HILOSS || p.status === STATUS.DEFECTIVE; }).length;
+    var full = seen.length === all.length && seen.every(function (p) { return isOccupied(p.status); });
+    var kind = free > 0 ? 'installable'
+      : full && ageFrac <= c.freshnessDays * c.fullMultiplier ? 'full'
+      : ageFrac <= c.freshnessDays && bad > 0 ? 'issue'
+      : 'stale';
+    return { kind: kind, free: free, checked: seen.length, bad: bad, total: all.length, ageDays: Math.max(0, Math.floor(ageFrac)) };
   }
 
   function haversineM(lat1, lng1, lat2, lng2) {
@@ -47,6 +56,7 @@
 
   // mode 'install' -> installable boxes; 'audit' -> stale + unverified boxes. Nearest first.
   function nearest(boxes, from, mode, limit) {
+    if (!from || from.lat == null || from.lng == null) return [];
     var want = mode === 'audit' ? ['stale', 'unverified'] : ['installable'];
     return (boxes || [])
       .filter(function (b) { return want.indexOf(b.kind) >= 0 && b.lat != null && b.lng != null; })
@@ -56,12 +66,14 @@
   }
 
   // a: { ports:[{port,status,tag_acct}], photos:number, declaredFull:boolean, jobId?:string }. Server repeats these checks.
+  // Errors accumulate in a fixed order: ports, tags, photo, full-has-free, job.
   function validateAudit(a) {
     var errors = [], ports = a.ports || [];
     var nums = {};
-    ports.forEach(function (p) { if (p.port >= 1 && p.port <= 8) nums[p.port] = true; });
+    ports.forEach(function (p) { if (Number.isInteger(p.port) && p.port >= 1 && p.port <= 8) nums[p.port] = true; });
     var statusOk = ports.every(function (p) { return PORT_STATUSES.indexOf(p.status) >= 0; });
-    if (ports.length !== 8 || Object.keys(nums).length !== 8 || !statusOk)
+    var intOk = ports.every(function (p) { return Number.isInteger(p.port); });
+    if (ports.length !== 8 || Object.keys(nums).length !== 8 || !statusOk || !intOk)
       errors.push({ code: 'NAP_PORTS_INCOMPLETE', msg: 'Kailangan ng status ang lahat ng P1 hanggang P8.' });
     var noTag = ports.filter(function (p) { return p.status === STATUS.AWT && !String(p.tag_acct || '').trim(); }).map(function (p) { return 'P' + p.port; });
     if (noTag.length) errors.push({ code: 'NAP_TAG_REQUIRED', msg: 'Ilagay ang acct no. sa label ng ' + noTag.join(', ') + '.' });
@@ -69,7 +81,7 @@
     if (a.declaredFull) {
       var free = ports.filter(function (p) { return isUsable(p.status); }).map(function (p) { return 'P' + p.port; });
       if (free.length) errors.push({ code: 'NAP_FULL_HAS_FREE', msg: 'Hindi Full NAP: ' + free.join(', ') + ' ay libre. I-install doon o baguhin ang audit.' });
-      if (!a.jobId) errors.push({ code: 'NAP_JOB_REQUIRED', msg: 'Kailangan ng JO para sa Full NAP.' });
+      if (!String(a.jobId == null ? '' : a.jobId).trim()) errors.push({ code: 'NAP_JOB_REQUIRED', msg: 'Kailangan ng JO para sa Full NAP.' });
     }
     return { ok: errors.length === 0, errors: errors };
   }

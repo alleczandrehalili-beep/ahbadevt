@@ -329,7 +329,7 @@
         const job=jobs.find(x=>x.id===jobId)||{id:jobId};
         closeNegative();
         const done=await NapMobile.submitForJob({id:job.id, napcode:job.napcode||job.nap||''});
-        if(!done){ openNegative(jobId,'negative'); showErr('#negErr','Kailangan ng kumpletong NAP Details para sa FULL NAP.'); return; }
+        if(!done){ napReopenFullNap(jobId,'Kailangan ng kumpletong NAP Details para sa FULL NAP.'); return; }
         negPhotoFiles=[]; // the audit photos are already stored with the audit
         return saveNegativeAfterNap(jobId);
       }
@@ -375,6 +375,14 @@
 
     // NAP pilot: FULL NAP close-out after a saved NAP audit (declared_full). No single-photo upload (the audit holds the photos).
     // Does the jobs update itself FIRST so the server NAP_GATE trigger's rejection is seen (saveWrite/saveJobPatch would swallow it into the retry queue).
+    // NAP pilot: reopen the Negative modal with FULL NAP selected again (cancel or gate rejection); toast when openNegative returns early.
+    function napReopenFullNap(jobId, msg){
+      openNegative(jobId,'negative');
+      const m=$('#negModal'), sel=$('#neg_remark');
+      if(!m || m.classList.contains('hidden') || !sel){ toast(msg); return; }   // openNegative returned early (serialBlocked)
+      sel.value='FULL NAP'; if(typeof sel.onchange==='function') sel.onchange();
+      showErr('#negErr', msg);
+    }
     async function saveNegativeAfterNap(jobId){
       try{
         const now=new Date().toISOString();
@@ -386,8 +394,7 @@
         const r=await sb.from('jobs').update(patch).eq('id', jobId).select('id');
         if(r.error && /NAP_GATE/.test(r.error.message||'')){
           // server gate rejected it: show the message, reopen the modal, touch neither the local jobs array nor the sync queue
-          openNegative(jobId,'negative');
-          showErr('#negErr', (r.error.message||'').split('NAP_GATE:').pop().trim());
+          napReopenFullNap(jobId, (r.error.message||'').split('NAP_GATE:').pop().trim());
           return;
         }
         // confirmed row -> synced now; any other error or 0 rows -> the normal saveJobPatch path (queues transient failures, reports permanent ones) like the other negative saves
@@ -760,7 +767,8 @@
       $('#teamName').textContent=headerName();
       show('appView'); setSync('syncing','Connecting…'); signature=''; knownJobIds=null; primeAudio();
       // NAP pilot: NAP Audit tile + Full NAP gate. Runs once per signed-in team (startApp re-runs after the vehicle-concern screen); never blocks the app.
-      try{ if(window.NapMobile && startApp._napTeam!==myTeam){ startApp._napTeam=myTeam; NapMobile.init({sb:sb, team:myTeam, name:myName, technicians:function(){return [shiftTech1,shiftTech2].filter(Boolean).join(', ');}, toast:toast}); } }catch(e){ console.warn('[NAP] init',e&&e.message); }
+      // The guard is set only after init resolved; an offline start (role not readable) retries on the next startApp call.
+      try{ if(window.NapMobile && startApp._napTeam!==myTeam && startApp._napBusy!==myTeam){ const t=myTeam; startApp._napBusy=t; Promise.resolve(NapMobile.init({sb:sb, team:t, name:myName, technicians:function(){return [shiftTech1,shiftTech2].filter(Boolean).join(', ');}, toast:toast})).then(function(){ if(myTeam===t) startApp._napTeam=t; }, function(e){ console.warn('[NAP] init',e&&e.message); }).then(function(){ if(startApp._napBusy===t) startApp._napBusy=''; }); } }catch(e){ console.warn('[NAP] init',e&&e.message); }
       refresh();
       // Coalesce realtime bursts + the poll into ≤1 refetch per ~4s — lighter on the DB, still live.
       if(!startApp._coal){ startApp._coal=function(){ var now=Date.now(), gap=now-(startApp._rlast||0); if(gap>=4000){ startApp._rlast=now; refresh(); return; } if(startApp._rt) return; startApp._rt=setTimeout(function(){ startApp._rt=null; startApp._rlast=Date.now(); refresh(); }, 4000-gap); }; }
@@ -976,7 +984,7 @@
       if(typeof _qaMount!=='undefined'&&_qaMount){ try{_qaMount.destroy();}catch(e){} _qaMount=null; }   // QA inspector: drop realtime + online listeners
       try{ localStorage.removeItem(shiftKey()); }catch(e){}   // clear saved shift → next login picks account manually
       shiftAccount=''; shiftDriver=''; shiftTech1=''; shiftTech2='';
-      try{ const nt=document.getElementById('napTile'); if(nt) nt.remove(); startApp._napTeam=''; }catch(e){}   // NAP pilot: drop the floating tile so it never shows on the login screen / for the next user
+      try{ const nt=document.getElementById('napTile'); if(nt) nt.remove(); startApp._napTeam=''; startApp._napBusy=''; }catch(e){}   // NAP pilot: drop the floating tile so it never shows on the login screen / for the next user
       try{ await sb.auth.signOut(); }catch(e){}
       myTeam=''; jobs=[]; $('#uName').value=''; $('#uPass').value='';
       toast(message||'Signed off');

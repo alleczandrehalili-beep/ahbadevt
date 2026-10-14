@@ -7,11 +7,13 @@
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function uuid() { return (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) { var r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16); })); }
 
+  // Rejects when the role cannot be read (offline start): the caller may retry init on its next start.
   async function init(c) {
-    ctx = c; api = NapApi.create(c.sb);
-    try { role = await api.myRole(); } catch (e) { role = 'none'; }
+    ctx = c; api = NapApi.create(c.sb); role = 'none';
+    role = await api.myRole();
+    if (role !== 'field') return;               // only pilot field teams can upload to the nap-photos bucket
     try { gate = await api.gateApplies(); } catch (e) { /* gate unknown: keep default, tile still shows */ }
-    if (role === 'field' || role === 'admin' || role === 'superadmin') mountTile();
+    mountTile();
   }
   function mountTile() {
     if (q('napTile')) return;
@@ -19,7 +21,12 @@
     b.style.cssText = 'position:fixed;right:14px;bottom:78px;z-index:50;border-radius:22px;padding:10px 16px';
     b.onclick = function () { open(); }; document.body.appendChild(b);
   }
-  async function gateActive() { try { gate = await api.gateApplies(); } catch (e) { /* keep last value */ } return gate; }
+  // Non-pilot users never pay a network round trip; the server trigger stays the real control.
+  async function gateActive() {
+    if (role !== 'field' || !api) return false;
+    try { gate = await api.gateApplies(); } catch (e) { /* keep last value */ }
+    return gate;
+  }
 
   // ---------- modal ----------
   var st = null;   // current audit state
@@ -75,8 +82,9 @@
     q('napModal').hidden = false; q('napSave').disabled = true;
     try { boxes = boxes.length ? boxes : await api.boxStatus(); } catch (e) { q('napErr').textContent = 'Hindi ma-load ang NAP list: ' + e.message; }
     if (st !== mine) return;
-    navigator.geolocation && navigator.geolocation.getCurrentPosition(function (p) { if (st !== mine) return; pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }; renderNear(); if (st.box) renderForm(); },
-      function () { if (st !== mine) return; pos = null; renderNear(); if (st.box) renderForm(); }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 });
+    // a GPS fix only refreshes the list and the distance line: re-rendering the form would drop focus from the acct no. inputs
+    navigator.geolocation && navigator.geolocation.getCurrentPosition(function (p) { if (st !== mine) return; pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }; renderNear(); if (st.box) renderGps(); },
+      function () { if (st !== mine) return; pos = null; renderNear(); if (st.box) renderGps(); }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 });
     renderNear();
     if (st.job && st.job.napcode) { var p = C.parseStencil(st.job.napcode.replace(/ P\d+.*$/, '')); if (p) { var hit = boxes.find(function (b) { return b.stencil.indexOf(p.prefix) === 0 && b.np_numbers.indexOf(p.nps[0]) >= 0; }); if (hit) pick(hit, p.nps[0]); } }
   }
@@ -98,11 +106,16 @@
   function renderForm() {
     var b = st.box;
     q('napBox').textContent = b.stencil; q('napInfo').textContent = (b.street || '') + ' · ' + (b.dwelling || '') + ' · Converge: ' + (b.converge_available == null ? '?' : b.converge_available) + ' available (hindi verified)';
-    var far = pos && b.lat != null ? C.haversineM(pos.lat, pos.lng, b.lat, b.lng) : null;
-    q('napGps').innerHTML = far == null ? '<span style="opacity:.7">Walang GPS. Maisusumite pa rin.</span>' : C.gpsFlag(far) ? '<span style="color:#d98518">Mahigit 50 m (' + Math.round(far) + ' m) ang layo mo sa NAP. Maisusumite pa rin, pero mapupunta sa review.</span>' : '<span style="color:#1c8a4a">Nasa NAP ka (' + Math.round(far) + ' m).</span>';
+    renderGps();
     var head = '<div style="display:grid;grid-template-columns:30px repeat(6,1fr);gap:2px;font-size:9.5px;text-align:center;white-space:pre-line"><span></span>' + C.PORT_STATUSES.map(function (s) { return '<span>' + short[s] + '</span>'; }).join('');
     var rows = ''; for (var i = 0; i < 8; i++) { rows += '<span style="font-weight:600;align-self:center">P' + (i + 1) + '</span>' + C.PORT_STATUSES.map(function (s) { return '<label style="display:flex;justify-content:center;padding:7px 0"><input type="radio" name="np' + i + '" value="' + esc(s) + '" aria-label="P' + (i + 1) + ' ' + esc(s) + '"' + (st.ports[i] === s ? ' checked' : '') + '></label>'; }).join(''); }
     q('napGrid').innerHTML = head + rows + '</div>'; renderTags(); validate();
+  }
+  function renderGps() {
+    var b = st.box, far = pos && b.lat != null ? C.haversineM(pos.lat, pos.lng, b.lat, b.lng) : null;
+    q('napGps').innerHTML = !pos ? '<span style="opacity:.7">Walang GPS. Maisusumite pa rin, pero mapupunta sa review.</span>'
+      : far == null ? '<span style="opacity:.7">Walang coordinates ang NAP na ito. Maisusumite pa rin.</span>'
+      : C.gpsFlag(far) ? '<span style="color:#d98518">Mahigit 50 m (' + Math.round(far) + ' m) ang layo mo sa NAP. Maisusumite pa rin, pero mapupunta sa review.</span>' : '<span style="color:#1c8a4a">Nasa NAP ka (' + Math.round(far) + ' m).</span>';
   }
   function renderTags() {
     var h = ''; st.ports.forEach(function (v, i) { if (v === S.AWT) h += '<div style="margin-top:6px"><label class="lbl" for="napT' + i + '">Acct no. sa label ng P' + (i + 1) + '</label><input id="napT' + i + '" inputmode="numeric" value="' + esc(st.tags[i] || '') + '" style="width:100%;padding:8px"></div>'; });
@@ -138,21 +151,23 @@
     if (!validate()) return;
     setSaving(true);
     var btn = q('napSave'); btn.disabled = true; btn.textContent = 'Ina-upload…';
-    var team = ctx.team || 'ADMIN';
+    var team = ctx.team || 'ADMIN', res;
     try {
       var paths = []; if (!cur.notFound) for (var i = 0; i < cur.files.length; i++) paths.push(await api.uploadPhoto(team, cur.clientId, i + 1, cur.files[i]));
       else if (cur.files.length) paths.push(await api.uploadPhoto(team, cur.clientId, 1, cur.files[0]));
-      var res = await api.submitAudit({ client_id: cur.clientId, box_id: cur.box.box_id, np: cur.np, technicians: ctx.technicians(), job_id: cur.job ? cur.job.id : null,
+      res = await api.submitAudit({ client_id: cur.clientId, box_id: cur.box.box_id, np: cur.np, technicians: ctx.technicians(), job_id: cur.job ? cur.job.id : null,
         gps_lat: pos ? pos.lat : null, gps_lng: pos ? pos.lng : null, declared_full: cur.full && !cur.notFound, not_found: cur.notFound, not_found_reason: cur.notFound ? q('napNfWhy').value.trim() : null,
         ports: cur.notFound ? [] : payloadPorts(), photos: paths });
-      ctx.toast(res.review_status === 'ok' ? 'Na-save ang NAP audit' : 'Na-save. Nasa review ang audit.');
-      var done = cur.done, nf = cur.notFound; cur.cancel = null; setSaving(false); btn.textContent = 'I-submit ang audit'; close(true); if (done) done(res, nf);
-      return;
     } catch (e) {
       var m = String(e && e.message || e), coded = /^NAP_[A-Z0-9_]+:\s*/.test(m);
       setSaving(false); q('napErr').textContent = coded ? m.replace(/^NAP_[A-Z0-9_]+:\s*/, '') : 'Hindi na-save: ' + m + '. Subukan ulit.';
+      btn.textContent = 'I-submit ang audit'; btn.disabled = false;   // form was valid when save started and is unchanged (inert)
+      return;
     }
-    btn.textContent = 'I-submit ang audit'; btn.disabled = false;   // form was valid when save started and is unchanged (inert)
+    // saved: everything below runs outside the save try, so a failing callback can never show "Hindi na-save"
+    var done = cur.done, nf = cur.notFound; cur.cancel = null; setSaving(false); btn.textContent = 'I-submit ang audit'; close(true);
+    try { ctx.toast(res.review_status === 'ok' ? 'Na-save ang NAP audit' : 'Na-save. Nasa review ang audit.'); } catch (e2) { /* toast is cosmetic */ }
+    if (done) { try { done(res, nf); } catch (e3) { if (window.console) console.error('NAP done callback', e3); } }
   }
   function close(saved) {
     if (!saved && st && st.saving) return;
@@ -164,7 +179,8 @@
   function submitForJob(job) {
     return new Promise(function (resolve) {
       var prev = st;
-      open({ job: job, declaredFull: true, onDone: function (res, notFound) { resolve(!notFound); }, onCancel: function () { resolve(false); } });
+      open({ job: job, declaredFull: true, onDone: function (res, notFound) { resolve(!notFound); }, onCancel: function () { resolve(false); } })
+        .catch(function () { resolve(false); });   // open() failed: never leave the caller hanging
       if (st === prev) resolve(false);   // open() ignored: a save is in flight
     });
   }
