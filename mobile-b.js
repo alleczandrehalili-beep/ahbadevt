@@ -987,7 +987,7 @@
       if(typeof _qaMount!=='undefined'&&_qaMount){ try{_qaMount.destroy();}catch(e){} _qaMount=null; }   // QA inspector: drop realtime + online listeners
       try{ localStorage.removeItem(shiftKey()); }catch(e){}   // clear saved shift → next login picks account manually
       shiftAccount=''; shiftDriver=''; shiftTech1=''; shiftTech2='';
-      try{ const nt=document.getElementById('napTile'); if(nt) nt.remove(); napPilotInit._napTeam=''; napPilotInit._napBusy=''; }catch(e){}   // NAP pilot: drop the floating tile so it never shows on the login screen / for the next user
+      try{ ['napTile','napViewTile'].forEach(function(id){ const nt=document.getElementById(id); if(nt) nt.remove(); }); napPilotInit._napTeam=''; napPilotInit._napBusy=''; }catch(e){}   // NAP pilot: drop the floating tiles (NAP Audit + NAP VIEW) so they never show on the login screen / for the next user
       try{ await sb.auth.signOut(); }catch(e){}
       myTeam=''; jobs=[]; $('#uName').value=''; $('#uPass').value='';
       toast(message||'Signed off');

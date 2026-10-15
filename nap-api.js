@@ -36,6 +36,22 @@
     return {
       myRole: function () { return unwrap(nap().rpc('my_role')); },
       gateApplies: function () { return unwrap(nap().rpc('gate_applies_me')).then(Boolean); },
+      // Phase 8: what the phone may show, decided by the server in ONE call: {audit, view, role} (nap.my_nap_access, nap-17). On a database
+      // without nap-17 (function missing) it falls back to my_role: a pilot field team ('field') gets both, everyone else nothing.
+      myNapAccess: function () {
+        var self = this;
+        return Promise.resolve(nap().rpc('my_nap_access')).then(function (r) {
+          if (r && r.error) {
+            var m = String(r.error.message || '') + ' ' + String(r.error.code || '');
+            if (/PGRST202|could not find the function|does not exist|42883/i.test(m)) {
+              return self.myRole().then(function (role) { var f = role === 'field'; return { audit: f, view: f, role: role || 'none', fallback: true }; });
+            }
+            throw fail(r.error, r.status);
+          }
+          var d = (r && r.data) || {};
+          return { audit: d.audit === true, view: d.view === true, role: typeof d.role === 'string' ? d.role : 'none' };
+        });
+      },
       // EVERY box, paged 1000 at a time. Phase 2B (whole QC, ~46k boxes = 46 requests and ~15 MB): no screen calls this any more.
       // The dashboard uses barangaySummary + boxesInBarangay, the mobile boxesNear + searchBoxes. Kept for small tools and tests only.
       boxStatus: function () { return getAll('box_status', function (q) { return q.order('stencil'); }); },

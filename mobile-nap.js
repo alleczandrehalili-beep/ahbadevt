@@ -15,10 +15,15 @@
   function uuid() { return (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) { var r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16); })); }
 
   // Rejects when the role cannot be read (offline start): the caller may retry init on its next start.
+  // Phase 8: ONE server call decides both entries (nap.my_nap_access: {audit, view, role}): NAP Audit for NAP technicians (pilot teams, or
+  // every GC technician when the owner set tech_access_scope = 'gc'), NAP VIEW (the view-only Board on the NAP site) likewise.
+  var canAudit = false, canView = false;
   async function init(c) {
-    ctx = c; api = NapApi.create(c.sb); role = 'none';
-    role = await api.myRole();
-    if (role !== 'field') return;               // only pilot field teams can upload to the nap-photos bucket
+    ctx = c; api = NapApi.create(c.sb); role = 'none'; canAudit = false; canView = false;
+    var acc = await api.myNapAccess();
+    role = acc.role; canAudit = acc.audit === true; canView = acc.view === true;
+    if (canView) mountViewTile();
+    if (!canAudit) return;                      // only NAP technicians can upload to the nap-photos bucket / submit audits
     try { gate = await api.gateApplies(); } catch (e) { /* gate unknown: keep default, tile still shows */ }
     mountTile();
   }
@@ -28,9 +33,52 @@
     b.style.cssText = 'position:fixed;right:14px;bottom:78px;z-index:50;border-radius:22px;padding:10px 16px';
     b.onclick = function () { open(); }; document.body.appendChild(b);
   }
+
+  // ---------- Phase 8: NAP VIEW = the view-only NAP Board on the NAP site, signed in with this phone's session ----------
+  // Shown when the server says view = true (nap.my_nap_access). It opens https://nap.ahbadevt.com/ in a new tab with the phone's ACCESS
+  // token in the URL FRAGMENT (#h=..., never the query string: a fragment is not sent to any server). Never the refresh token (a second
+  // client using it would trip Supabase's refresh-token reuse detection and could sign the phone out). The dashboard removes the fragment
+  // at once and keeps the token in memory only (about an hour). No token / refresh failed: the plain site opens and a toast says to sign in.
+  var NAP_SITE = 'https://nap.ahbadevt.com/', HO_MIN_LEFT_S = 120, viewBusy = false;
+  function handoffHref(token) { return NAP_SITE + (token ? '#h=' + encodeURIComponent(token) : ''); }
+  function mountViewTile() {
+    if (q('napViewTile')) return;
+    var a = document.createElement('a'); a.id = 'napViewTile'; a.className = 'btn-primary'; a.textContent = 'NAP VIEW';
+    a.href = NAP_SITE; a.target = '_blank'; a.rel = 'noopener noreferrer';   // the plain site if the script below cannot run
+    a.style.cssText = 'position:fixed;right:14px;bottom:126px;z-index:50;border-radius:22px;padding:10px 16px;text-decoration:none;text-align:center';
+    a.onclick = function (e) { if (e && e.preventDefault) e.preventDefault(); openView(); };
+    document.body.appendChild(a);
+  }
+  // the phone's current access token with at least HO_MIN_LEFT_S left: read at click time, refreshed first (the phone's OWN session) when
+  // it is missing or about to expire. '' when there is none.
+  async function freshToken() {
+    var auth = ctx && ctx.sb && ctx.sb.auth;
+    if (!auth) return '';
+    var left = function (s) { return s && s.access_token ? Number(s.expires_at) - Date.now() / 1000 : -1; };
+    var r = await auth.getSession(), s = r && r.data && r.data.session;
+    if (!(left(s) > HO_MIN_LEFT_S)) { r = await auth.refreshSession(); s = r && r.data && r.data.session; }
+    return left(s) > HO_MIN_LEFT_S ? String(s.access_token) : '';
+  }
+  // a real link click (target _blank, noopener): window.open with noopener returns null and some browsers block it after an await
+  function openLink(href) {
+    var a = document.createElement('a'); a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.style.display = 'none';
+    document.body.appendChild(a);
+    try { a.click(); } finally { a.remove(); }
+  }
+  async function openView() {
+    if (viewBusy) return;
+    viewBusy = true;
+    var tok = '';
+    try { tok = await freshToken(); } catch (e) { tok = ''; } finally { viewBusy = false; }
+    if (!canView || !q('napViewTile')) return;   // signed off meanwhile (signOff removes the tile)
+    var had = !!tok;
+    openLink(handoffHref(tok));
+    tok = '';
+    if (!had) { try { ctx.toast('Sign in on the NAP site with your FieldOps username and password'); } catch (e) { /* toast is cosmetic */ } }
+  }
   // Non-pilot users never pay a network round trip; the server trigger stays the real control.
   async function gateActive() {
-    if (role !== 'field' || !api) return false;
+    if (!canAudit || !api) return false;
     try { gate = await api.gateApplies(); } catch (e) { /* keep last value */ }
     return gate;
   }
@@ -427,5 +475,5 @@
       if (st === prev) resolve(false);   // open() ignored: a save is in flight
     });
   }
-  window.NapMobile = { init: init, open: open, gateActive: gateActive, submitForJob: submitForJob };
+  window.NapMobile = { init: init, open: open, gateActive: gateActive, submitForJob: submitForJob, openView: openView, NAP_SITE: NAP_SITE };
 })();
