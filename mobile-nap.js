@@ -5,7 +5,7 @@
   // Phase 2B (whole QC, ~46k boxes): the phone NEVER downloads the box list. With a GPS fix it asks for the boxes near it
   // (nap.boxes_near, 1.5 km, 60 nearest); typing a stencil asks nap.search_boxes (debounced, 3+ characters).
   var NEAR_M = 1500, NEAR_N = 60, SEARCH_MIN = 3, SEARCH_MS = 400;
-  var near = [], nearState = 'idle', found = [], findState = 'idle', findSeq = 0, findTimer = null;
+  var rangeStep = 0, near = [], nearState = 'idle', found = [], findState = 'idle', findSeq = 0, findTimer = null;
   // Phase 7 (nap-16): Full NAP flow only, "This job's NAP is deactivated": a search over DEACTIVATED boxes (nap.search_inactive_boxes)
   var deactFound = [], deactState = 'idle', deactSeq = 0, deactTimer = null;
   var SAVE_LABEL = 'Submit audit', SAVE_LABEL_DEACT = 'Submit deactivated-NAP record';
@@ -24,6 +24,7 @@
     role = acc.role; canAudit = acc.audit === true; canView = acc.view === true;
     if (canView) mountViewTile();
     if (!canAudit) return;                      // only NAP technicians can upload to the nap-photos bucket / submit audits
+    p12LocInit();                               // phase 12: "Update NAP location from my GPS" (async; hidden until the server says yes)
     try { gate = await api.gateApplies(); } catch (e) { /* gate unknown: keep default, tile still shows */ }
     mountTile();
   }
@@ -92,6 +93,7 @@
     d.innerHTML = '<style>#napModal input[type=text],#napModal input:not([type]),#napModal input[inputmode],#napModal select{box-sizing:border-box;max-width:100%}</style>' +
       '<h3 id="napTitle" style="margin:0 0 4px">NAP Audit</h3><p id="napSub" style="font-size:12px;opacity:.7;margin:0 0 10px"></p>' +
       '<div id="napPick"><div id="napDisp"></div><label class="lbl">Nearby NAPs (team GPS)</label><div id="napNear" style="max-height:200px;overflow:auto;border:1px solid #d6dde2;border-radius:8px"></div>' +
+      '<div id="napRange" hidden style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px;font-size:12.5px"><span id="napRangeLbl"></span><span><button type="button" id="napRangeMore" style="padding:6px 10px">Expand range</button> <button type="button" id="napRangeReset" style="padding:6px 10px">Reset</button></span></div>' +
       '<input id="napSearch" placeholder="Or type the stencil (QCY003 LP114 NP6-7-8)" style="width:100%;margin-top:8px;padding:8px">' +
       '<div id="napDeactLinkWrap" hidden style="margin-top:14px;padding-top:10px;border-top:1px dashed #d6dde2"><a href="#" id="napDeactLink" style="font-size:13px">This job\'s NAP is deactivated</a>' +
       '<div style="font-size:11.5px;opacity:.7;margin-top:2px">Only when the JO\'s NAP was removed or deactivated in the NAP master. Needs GPS and a photo; the dispatcher reviews it.</div></div></div>' +
@@ -107,6 +109,8 @@
       '<a href="#" id="napDeactRepick" style="display:inline-block;font-size:12px;margin-top:6px">Pick a different NAP</a></div>' +
       '<div id="napPortsWrap"><label class="lbl" for="napNp">NAP No.</label><select id="napNp" style="width:100%;padding:8px"></select></div>' +
       '<div id="napGps" style="font-size:12px;margin:8px 0"></div>' +
+      '<div id="napLocWrap" hidden style="margin:0 0 8px"><button type="button" class="btn-ghost" id="napLocBtn" style="width:100%">Update NAP location from my GPS</button>' +
+      '<div id="napLocMsg" role="status" aria-live="polite" style="font-size:12px;margin-top:4px;overflow-wrap:anywhere"></div></div>' +
       '<div id="napGridWrap"><label class="lbl">Audited Port</label><div id="napGrid"></div><div id="napTags"></div></div>' +
       '<label class="lbl" id="napPhotoLbl" style="margin-top:8px">Photo of the NAP reading <em style="color:#c2503a">*required</em></label>' +
       '<div style="display:flex;gap:8px"><label class="addphoto" style="flex:1">Camera<input type="file" accept="image/*" capture="environment" id="napCam" hidden></label><label class="addphoto" style="flex:1">Album<input type="file" accept="image/*" multiple id="napAlb" hidden></label></div>' +
@@ -118,6 +122,8 @@
     document.body.appendChild(d);
     q('napCancel').onclick = function () { if (st && st.saving) return; close(false); };
     q('napSearch').oninput = onSearchInput;
+    q('napRangeMore').onclick = function () { setRange(C.nextPhoneRange(rangeStep).step); };
+    q('napRangeReset').onclick = function () { setRange(0); };
     q('napNp').onchange = function () { if (st.saving) return; st.np = +q('napNp').value; st.ports = Array(8).fill(null); st.tags = {}; renderForm(); };
     q('napCam').onchange = q('napAlb').onchange = function (e) { addFiles(e.target.files); e.target.value = ''; };
     q('napNfLink').onclick = function (e) { e.preventDefault(); if (st.saving) return; st.notFound = !st.notFound; q('napNfBox').hidden = !st.notFound; validate(); };
@@ -128,6 +134,7 @@
     q('napDeactSearch').oninput = onDeactSearch;
     q('napGps').addEventListener('click', function (e) { if (e.target.id === 'napGpsRetry') { e.preventDefault(); if (st && !st.saving) requestGps(st); } });
     q('napSave').onclick = save;
+    q('napLocBtn').onclick = function () { p12LocUpdate(); };
     q('napGrid').addEventListener('change', function (e) { var r = e.target; if (!st.saving && r.name && r.name.indexOf('np') === 0) { st.ports[+r.name.slice(2)] = r.value; renderTags(); validate(); } });
   }
 
@@ -151,7 +158,7 @@
     q('napPick').hidden = false; q('napForm').hidden = true; q('napErr').textContent = ''; q('napSearch').value = ''; renderThumbs();
     q('napDeactPick').hidden = true; q('napDeactLinkWrap').hidden = !(st.full && st.job); q('napSave').textContent = SAVE_LABEL;
     deactFound = []; deactState = 'idle'; deactSeq++; clearTimeout(deactTimer);
-    near = []; nearState = 'gps'; found = []; findState = 'idle'; findSeq++; clearTimeout(findTimer);
+    rangeStep = 0; near = []; nearState = 'gps'; found = []; findState = 'idle'; findSeq++; clearTimeout(findTimer);
     q('napModal').hidden = false; q('napSave').disabled = true;
     q('napDisp').innerHTML = '';   // a fresh list (filter cleared) on every open
     renderDisp();   // last known list shows at once; the refresh below never depends on the board list
@@ -185,7 +192,7 @@
   function loadNear(mine) {
     if (!pos) return Promise.resolve();
     nearState = 'loading'; renderNear();
-    var p; try { p = Promise.resolve(api.boxesNear({ lat: pos.lat, lng: pos.lng, radius: NEAR_M, limit: NEAR_N })); } catch (e) { p = Promise.reject(e); }
+    var p; try { p = Promise.resolve(api.boxesNear({ lat: pos.lat, lng: pos.lng, radius: C.phoneRange(rangeStep).m, limit: C.phoneRange(rangeStep).n })); } catch (e) { p = Promise.reject(e); }
     return p.then(function (rows) { if (st !== mine) return; near = Array.isArray(rows) ? rows : []; nearState = 'ok'; renderNear(); },
       function (e) { if (st !== mine) return; near = []; nearState = 'error'; if (window.console) console.warn('NAP boxes_near', e); renderNear(); });
   }
@@ -260,7 +267,21 @@
     }).join('') + (rows.length > DISP_MAX ? '<div style="padding:8px;font-size:12px;opacity:.7">' + (rows.length - DISP_MAX) + ' more: filter by barangay or type to narrow the list.</div>' : '') +
       (!rows.length ? '<div style="padding:8px;opacity:.6">Nothing matches the filter.</div>' : '');
   }
+  // Expand range (1.5 -> 3 -> 5 km): hidden without GPS or while a stencil is typed. The busy lock is nearState 'loading'; no polling.
+  function renderRange() {
+    var w = q('napRange'); if (!w) return;
+    var r = C.phoneRange(rangeStep), show = !!pos && nearState !== 'gps' && nearState !== 'nogps' && !C.normStencil(q('napSearch').value);
+    w.hidden = !show; w.style.display = show ? 'flex' : 'none';
+    q('napRangeLbl').textContent = r.label;
+    var busy = nearState === 'loading';
+    q('napRangeMore').hidden = r.last; q('napRangeMore').disabled = busy; q('napRangeReset').hidden = rangeStep === 0; q('napRangeReset').disabled = busy;
+  }
+  function setRange(step) {
+    if (!pos || nearState === 'loading' || !st || st.saving) return;
+    rangeStep = step; loadNear(st);
+  }
   function renderNear() {
+    renderRange();
     var el = q('napNear'); if (!el) return;
     var typed = C.normStencil(q('napSearch').value), list = [], msg = '';
     if (typed) {
@@ -270,7 +291,7 @@
       else { list = found.map(function (b) { return { b: b, d: pos && b.lat != null && b.lng != null ? C.haversineM(pos.lat, pos.lng, b.lat, b.lng) : null }; }); if (!list.length) msg = 'No NAP matches "' + typed + '".'; }
     } else if (nearState === 'ok') {
       list = near.map(function (b) { return { b: b, d: b.distance_m }; });
-      if (!list.length) msg = 'No NAP with coordinates within ' + (NEAR_M / 1000) + ' km. Type the stencil.';
+      if (!list.length) msg = 'No NAP with coordinates within ' + C.fmtRange(C.phoneRange(rangeStep).m) + '. Type the stencil.';
     } else if (nearState === 'loading') msg = 'Loading the NAPs near you…';
     else if (nearState === 'error') msg = 'Cannot load the NAPs near you. Type the stencil instead.';
     else if (nearState === 'nogps') msg = 'No GPS. Type the stencil (at least ' + SEARCH_MIN + ' characters), for example QCY003 LP114.';
@@ -284,6 +305,7 @@
     q('napPick').hidden = true; q('napForm').hidden = false;
     q('napNp').innerHTML = b.np_numbers.map(function (n) { return '<option value="' + n + '"' + (n === st.np ? ' selected' : '') + '>NP' + n + '</option>'; }).join('');
     q('napNf').hidden = false; setFormMode(false);
+    st.remarks = null; st.locCid = null; st.locFix = null; st.locBusy = false; p12LoadRemarks(st);
     renderForm();
   }
   function renderForm() {
@@ -291,8 +313,9 @@
     q('napBox').textContent = b.stencil; q('napInfo').textContent = (b.street || '') + ' · ' + (b.dwelling || '') + ' · Converge: ' + (b.converge_available == null ? '?' : b.converge_available) + ' available (not verified)';
     renderGps();
     var head = '<div style="display:grid;grid-template-columns:30px repeat(6,1fr);gap:2px;font-size:9.5px;text-align:center;white-space:pre-line"><span></span>' + C.PORT_STATUSES.map(function (s) { return '<span>' + short[s] + '</span>'; }).join('');
-    var rows = ''; for (var i = 0; i < 8; i++) { rows += '<span style="font-weight:600;align-self:center">P' + (i + 1) + '</span>' + C.PORT_STATUSES.map(function (s) { return '<label style="display:flex;justify-content:center;padding:7px 0"><input type="radio" name="np' + i + '" value="' + esc(s) + '" aria-label="P' + (i + 1) + ' ' + esc(s) + '"' + (st.ports[i] === s ? ' checked' : '') + '></label>'; }).join(''); }
-    q('napGrid').innerHTML = head + rows + '</div>'; renderTags(); validate();
+    var rows = ''; for (var i = 0; i < 8; i++) { rows += '<span style="font-weight:600;align-self:center">P' + (i + 1) + '</span>' + C.PORT_STATUSES.map(function (s) { return '<label style="display:flex;justify-content:center;padding:7px 0"><input type="radio" name="np' + i + '" value="' + esc(s) + '" aria-label="P' + (i + 1) + ' ' + esc(s) + '"' + (st.ports[i] === s ? ' checked' : '') + '></label>'; }).join('') +
+      '<span data-rmk="' + (i + 1) + '" hidden style="grid-column:1/-1;font-size:11.5px;color:#0f5f8c;padding:0 0 4px 4px;overflow-wrap:anywhere"></span>'; }   // phase 12: the port's remark (read only)
+    q('napGrid').innerHTML = head + rows + '</div>'; renderTags(); validate(); p12ShowRemarks(); p12LocShow();
   }
   function renderGps() {
     if (st.deact) {
@@ -400,6 +423,7 @@
     q('napPortsWrap').hidden = deact; q('napGridWrap').hidden = deact; q('napDeactInfo').hidden = !deact;
     q('napPhotoLbl').innerHTML = deact ? 'Photo of the spot (where the NAP was) <em style="color:#c2503a">*required</em>' : 'Photo of the NAP reading <em style="color:#c2503a">*required</em>';
     q('napSave').textContent = deact ? SAVE_LABEL_DEACT : SAVE_LABEL;
+    p12LocShow();
   }
   function enterDeact() {
     if (!(st.full && st.job)) return;
@@ -458,6 +482,79 @@
     q('napBox').textContent = b.stencil + ' · DEACTIVATED';
     q('napInfo').textContent = [b.street, b.barangay].filter(Boolean).join(', ') || 'No street / barangay on file';
     setFormMode(true); renderGps(); validate();
+  }
+
+  // ---------- phase 12 (nap-21): port remarks (read only) + "Update NAP location from my GPS" ----------
+  // Remarks: the dispatcher's note per port (nap.port_remarks), shown under the port in the grid; text only (escaped by textContent).
+  // Location: the team's GPS fix becomes the NAP's coordinates through nap.set_box_location (method 'gps'), WITHOUT saving an audit.
+  // Needs accuracy <= 30 m (geo_acc_max_m); a move over 300 m is only a proposal for the admin. One request id per GPS fix (a retry of the
+  // same fix cannot save twice). Offline: an error, never queued. No map picker on the phone: the dashboard's Edit location has the map.
+  // A database without nap-21 (or a team the server refuses): the button stays hidden and no remarks show.
+  var locOk = false, locTok = 0;
+  function p12LocInit() {
+    var tok = ++locTok; locOk = false;
+    if (!api || typeof api.myLocationAccess !== 'function') return;
+    Promise.resolve().then(function () { return api.myLocationAccess(); }).then(function (v) { if (tok === locTok) { locOk = v === true; p12LocShow(); } }, function () { /* hidden */ });
+  }
+  function p12LocShow() {
+    var w = q('napLocWrap'); if (!w) return;
+    var on = locOk && !!(st && st.box && st.box.box_id) && !st.deact;
+    w.hidden = !on;
+    if (on) { q('napLocBtn').disabled = !!(st.saving || st.locBusy); }
+  }
+  function p12LoadRemarks(mine) {
+    if (!api || typeof api.portRemarks !== 'function' || !mine.box) return;
+    var id = mine.box.box_id;
+    Promise.resolve().then(function () { return api.portRemarks(id); }).then(function (rows) {
+      if (st !== mine || !st.box || st.box.box_id !== id) return;
+      st.remarks = Array.isArray(rows) ? rows : []; p12ShowRemarks();
+    }, function (e) { if (window.console) console.warn('NAP port_remarks', e); });
+  }
+  function p12ShowRemarks() {
+    var g = q('napGrid'); if (!g || !st) return;
+    var list = (st.remarks || []).filter(function (r) { return Number(r.np) === Number(st.np); });
+    for (var i = 1; i <= 8; i++) {
+      var el = g.querySelector('[data-rmk="' + i + '"]'); if (!el) continue;
+      var r = list.filter(function (x) { return Number(x.port) === i; })[0];
+      el.textContent = r ? 'Remark: ' + r.remark : ''; el.hidden = !r;
+    }
+  }
+  function p12LocMsg(t, bad) { var m = q('napLocMsg'); if (m) { m.textContent = t || ''; m.style.color = bad ? '#c2503a' : ''; } }
+  function p12LocUpdate() {
+    var mine = st;
+    if (!mine || !mine.box || mine.deact || mine.saving || mine.locBusy || !locOk) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) { p12LocMsg('You are offline. Connect to the internet, then try again (location updates are not queued).', true); return; }
+    if (!navigator.geolocation) { p12LocMsg('GPS is not available on this phone.', true); return; }
+    mine.locBusy = true; p12LocShow(); p12LocMsg('Getting a GPS fix…');
+    function done(t, bad) { mine.locBusy = false; if (st === mine) { p12LocMsg(t, bad); p12LocShow(); } }
+    function send(fix) {
+      if (!mine.locCid || mine.locFix !== fix) { mine.locCid = uuid(); mine.locFix = fix; }
+      p12LocMsg('GPS ±' + Math.round(fix.acc) + ' m. Saving the location…');
+      Promise.resolve().then(function () {
+        return api.setBoxLocation(C.p12.locPayload({ clientId: mine.locCid, boxId: mine.box.box_id, lat: fix.lat, lng: fix.lng, method: 'gps', accuracyM: fix.acc }));
+      }).then(function (res) {
+        if (res && (res.result === 'applied' || res.result === 'moved') && res.lat != null) { mine.box.lat = Number(res.lat); mine.box.lng = Number(res.lng); if (st === mine) renderGps(); }
+        mine.locFix = null; mine.locCid = null;   // saved: the next tap is a new update
+        done(C.p12.locResultText(res), res && res.result === 'proposed');
+      }, function (e) {
+        var m = String(e && e.message || e), coded = /^NAP_[A-Z0-9_]+:\s*/.test(m);
+        if (coded) { mine.locFix = null; mine.locCid = null; }   // refused by the server: the next tap takes a new fix
+        done(coded ? m.replace(/^NAP_[A-Z0-9_]+:\s*/, '') : 'Not saved: ' + m + '. Tap again to retry.', true);
+      });
+    }
+    // a retry after a failed send reuses the same fix and request id
+    if (mine.locFix && mine.locCid) { send(mine.locFix); return; }
+    try {
+      navigator.geolocation.getCurrentPosition(function (p) {
+        if (st !== mine) { mine.locBusy = false; return; }
+        var fix = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
+        var bad = C.p12.accuracyError(fix.acc) || (C.p12.inQC(fix.lat, fix.lng) ? '' : 'Your GPS position is outside Quezon City: it cannot be used for this NAP.');
+        if (bad) { done(bad, true); return; }
+        send(fix);
+      }, function (err) {
+        done(err && err.code === 1 ? 'Location permission is off: allow location for FieldOps, then try again.' : 'No GPS fix. Go under open sky and try again.', true);
+      }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+    } catch (e) { done('GPS failed. Try again.', true); }
   }
 
   function close(saved) {
