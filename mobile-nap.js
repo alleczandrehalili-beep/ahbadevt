@@ -25,6 +25,7 @@
     if (canView) mountViewTile();
     if (!canAudit) return;                      // only NAP technicians can upload to the nap-photos bucket / submit audits
     p12LocInit();                               // phase 12: "Update NAP location from my GPS" (async; hidden until the server says yes)
+    p14Init();                                  // phase 14: stage / remark / PDS controls in the audit form (async; hidden until the server says yes)
     try { gate = await api.gateApplies(); } catch (e) { /* gate unknown: keep default, tile still shows */ }
     mountTile();
   }
@@ -111,7 +112,7 @@
       '<div id="napGps" style="font-size:12px;margin:8px 0"></div>' +
       '<div id="napLocWrap" hidden style="margin:0 0 8px"><button type="button" class="btn-ghost" id="napLocBtn" style="width:100%">Update NAP location from my GPS</button>' +
       '<div id="napLocMsg" role="status" aria-live="polite" style="font-size:12px;margin-top:4px;overflow-wrap:anywhere"></div></div>' +
-      '<div id="napGridWrap"><label class="lbl">Audited Port</label><div id="napGrid"></div><div id="napTags"></div></div>' +
+      '<div id="napGridWrap"><label class="lbl">Audited Port</label><div id="napGrid"></div><div id="napTags"></div><div id="napP14" hidden></div></div>' +
       '<label class="lbl" id="napPhotoLbl" style="margin-top:8px">Photo of the NAP reading <em style="color:#c2503a">*required</em></label>' +
       '<div style="display:flex;gap:8px"><label class="addphoto" style="flex:1">Camera<input type="file" accept="image/*" capture="environment" id="napCam" hidden></label><label class="addphoto" style="flex:1">Album<input type="file" accept="image/*" multiple id="napAlb" hidden></label></div>' +
       '<div id="napThumbs" class="thumbs" style="margin-top:6px"></div>' +
@@ -193,7 +194,7 @@
     if (!pos) return Promise.resolve();
     nearState = 'loading'; renderNear();
     var p; try { p = Promise.resolve(api.boxesNear({ lat: pos.lat, lng: pos.lng, radius: C.phoneRange(rangeStep).m, limit: C.phoneRange(rangeStep).n })); } catch (e) { p = Promise.reject(e); }
-    return p.then(function (rows) { if (st !== mine) return; near = Array.isArray(rows) ? rows : []; nearState = 'ok'; renderNear(); },
+    return p.then(function (rows) { if (st !== mine) return; near = Array.isArray(rows) ? rows : []; nearState = 'ok'; renderNear(); p14FillNear(mine, near); },
       function (e) { if (st !== mine) return; near = []; nearState = 'error'; if (window.console) console.warn('NAP boxes_near', e); renderNear(); });
   }
   function onSearchInput() {
@@ -296,7 +297,7 @@
     else if (nearState === 'error') msg = 'Cannot load the NAPs near you. Type the stencil instead.';
     else if (nearState === 'nogps') msg = 'No GPS. Type the stencil (at least ' + SEARCH_MIN + ' characters), for example QCY003 LP114.';
     else msg = 'Waiting for GPS… or type a stencil.';
-    el.innerHTML = list.length ? list.map(function (x, i) { return '<button type="button" data-i="' + i + '" style="display:flex;justify-content:space-between;gap:8px;width:100%;padding:8px;border:0;border-bottom:1px solid #eee;background:none;text-align:left"><span style="font-family:monospace;overflow-wrap:anywhere">' + esc(x.b.stencil) + '</span><span style="opacity:.6;white-space:nowrap">' + (x.d == null ? (x.b.lat == null ? 'no coordinates' : '') : Math.round(x.d) + ' m') + '</span></button>'; }).join('')
+    el.innerHTML = list.length ? list.map(function (x, i) { return '<button type="button" data-i="' + i + '" style="display:flex;justify-content:space-between;gap:8px;width:100%;padding:8px;border:0;border-bottom:1px solid #eee;background:none;text-align:left"><span style="font-family:monospace;overflow-wrap:anywhere">' + esc(x.b.stencil) + p14Chip(x.b) + '</span><span style="opacity:.6;white-space:nowrap">' + (x.d == null ? (x.b.lat == null ? 'no coordinates' : '') : Math.round(x.d) + ' m') + '</span></button>'; }).join('')
       : '<div style="padding:8px;opacity:.6">' + esc(msg) + '</div>';
     el.onclick = function (e) { var b = e.target.closest('button'); if (b && st && !st.saving && list[+b.dataset.i]) pick(list[+b.dataset.i].b); };
   }
@@ -306,6 +307,7 @@
     q('napNp').innerHTML = b.np_numbers.map(function (n) { return '<option value="' + n + '"' + (n === st.np ? ' selected' : '') + '>NP' + n + '</option>'; }).join('');
     q('napNf').hidden = false; setFormMode(false);
     st.remarks = null; st.locCid = null; st.locFix = null; st.locBusy = false; p12LoadRemarks(st);
+    p14Pick(st);   // phase 14: the NAP's stage + PDS marks, fresh
     renderForm();
   }
   function renderForm() {
@@ -331,7 +333,8 @@
   function renderTags() {
     var h = ''; st.ports.forEach(function (v, i) { if (v === S.AWT) h += '<div style="margin-top:6px"><label class="lbl" for="napT' + i + '">Acct no. on the label of P' + (i + 1) + '</label><input id="napT' + i + '" inputmode="numeric" value="' + esc(st.tags[i] || '') + '" style="width:100%;padding:8px"></div>'; });
     q('napTags').innerHTML = h;
-    q('napTags').querySelectorAll('input').forEach(function (el) { el.oninput = function () { st.tags[+el.id.slice(4)] = el.value; validate(); }; });
+    q('napTags').querySelectorAll('input').forEach(function (el) { el.oninput = function () { st.tags[+el.id.slice(4)] = el.value; validate(); p14Hints(); }; });
+    p14Render();   // phase 14: stage / remark / PDS section follows the port statuses
   }
   async function addFiles(files) {
     files = Array.prototype.slice.call(files);   // the input's FileList is live and is emptied by value=''
@@ -405,6 +408,7 @@
     }
     // saved: everything below runs outside the save try, so a failing callback can never show "Not saved"
     var done = cur.done, nf = cur.notFound; cur.cancel = null; setSaving(false); btn.textContent = label; close(true);
+    p14After(cur);   // phase 14: stage / remarks / PDS as separate calls AFTER the saved audit (never part of it, never undo it)
     try {
       if (cur.deact) ctx.toast('Saved: deactivated-NAP record for JO ' + cur.job.id + '. The dispatcher will review it.');
       else {
@@ -423,7 +427,7 @@
     q('napPortsWrap').hidden = deact; q('napGridWrap').hidden = deact; q('napDeactInfo').hidden = !deact;
     q('napPhotoLbl').innerHTML = deact ? 'Photo of the spot (where the NAP was) <em style="color:#c2503a">*required</em>' : 'Photo of the NAP reading <em style="color:#c2503a">*required</em>';
     q('napSave').textContent = deact ? SAVE_LABEL_DEACT : SAVE_LABEL;
-    p12LocShow();
+    p12LocShow(); p14Render();
   }
   function enterDeact() {
     if (!(st.full && st.job)) return;
@@ -518,6 +522,7 @@
       var r = list.filter(function (x) { return Number(x.port) === i; })[0];
       el.textContent = r ? 'Remark: ' + r.remark : ''; el.hidden = !r;
     }
+    p14Render();   // phase 14: the remark inputs start from the saved remarks
   }
   function p12LocMsg(t, bad) { var m = q('napLocMsg'); if (m) { m.textContent = t || ''; m.style.color = bad ? '#c2503a' : ''; } }
   function p12LocUpdate() {
@@ -555,6 +560,111 @@
         done(err && err.code === 1 ? 'Location permission is off: allow location for FieldOps, then try again.' : 'No GPS fix. Go under open sky and try again.', true);
       }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
     } catch (e) { done('GPS failed. Try again.', true); }
+  }
+
+  // ---------- phase 14 (nap-23): NAP stage, port remarks and PDS marks in the NAP Audit form; the stage chip on the nearby list ----------
+  // Rights: nap.my_stage_access (null = a database without nap-23, or no access: every control hidden). The stage is set only on a NAP that
+  // has none (a NAP with a stage shows it read-only: only an admin moves it on the dashboard). Remarks: one input per port (port_remark_roles).
+  // PDS: a checkbox per Active (w/ tagging) port; it needs the 13-digit account typed for that port. All of these are SEPARATE calls sent
+  // AFTER the audit saved (fresh client_ids, NapCore.p14.afterAuditCalls): submit_audit and its payload are unchanged, a failure here never
+  // undoes the audit and only shows a notice. Text from the server is escaped (labels / remarks) or set with textContent.
+  var p14Rights = C.p14 ? C.p14.rights(null) : null, p14Tok = 0, p14Stages = {};
+  function p14Init() {
+    var tok = ++p14Tok; p14Rights = C.p14 ? C.p14.rights(null) : null;
+    if (!C.p14 || !api || typeof api.myStageAccess !== 'function') return;
+    Promise.resolve().then(function () { return api.myStageAccess(); }).then(function (a) { if (tok === p14Tok) { p14Rights = C.p14.rights(a); if (st && st.box) p14Render(); } }, function () { /* hidden */ });
+  }
+  function p14Chip(b) {
+    var code = b && (b.stage !== undefined ? b.stage : p14Stages[b.box_id]), s = code && C.p14 ? C.p14.stage(code) : null;
+    if (!s) return '';
+    return ' <span title="' + esc(s.label) + '" style="display:inline-block;font-family:sans-serif;font-size:10.5px;font-weight:700;color:#fff;background:' + esc(s.color) + ';border-radius:9px;padding:1px 7px;white-space:nowrap">' + esc(s.letter + ' ' + s.short) + '</span>';
+  }
+  // the nearby list (boxes_near rows carry no stage): one box_stages call per list
+  function p14FillNear(mine, rows) {
+    if (!C.p14 || !api || typeof api.boxStages !== 'function') return;
+    var ids = (rows || []).map(function (b) { return b.box_id; }).filter(function (id) { return id && !Object.prototype.hasOwnProperty.call(p14Stages, id); });
+    if (!ids.length) return;
+    Promise.resolve().then(function () { return api.boxStages(ids); }).then(function (got) {
+      if (!got || got.missing) return;
+      ids.forEach(function (id) { p14Stages[id] = null; });
+      got.forEach(function (g) { p14Stages[g.box_id] = g.stage || null; });
+      if (st === mine) renderNear();
+    }, function () { /* no chips */ });
+  }
+  function p14Pick(mine) {
+    mine.p14 = { stage: mine.box && mine.box.stage !== undefined ? mine.box.stage : (mine.box ? p14Stages[mine.box.box_id] : null) || null, stageNew: '', byNp: {}, pdsOn: {}, loaded: false };
+    if (!C.p14 || !api || typeof api.boxStages !== 'function' || !mine.box) return;
+    var id = mine.box.box_id;
+    Promise.all([Promise.resolve().then(function () { return api.boxStages([id]); }), Promise.resolve().then(function () { return api.portFlags(id); })]).then(function (r) {
+      if (st !== mine || !mine.box || mine.box.box_id !== id) return;
+      if (r[0] && !r[0].missing) { mine.p14.stage = (r[0][0] && r[0][0].stage) || null; p14Stages[id] = mine.p14.stage; }
+      (r[1] || []).forEach(function (f) { mine.p14.pdsOn[Number(f.np) + ':' + Number(f.port)] = true; });
+      mine.p14.loaded = true; p14Render();
+    }, function () { /* the section stays as it is */ });
+  }
+  function p14Np(mine) { var k = String(mine.np); return mine.p14.byNp[k] || (mine.p14.byNp[k] = { rmk: {}, pds: {} }); }
+  function p14OrigRemark(mine, port) {
+    var r = (mine.remarks || []).filter(function (x) { return Number(x.np) === Number(mine.np) && Number(x.port) === port; })[0];
+    return r ? String(r.remark) : '';
+  }
+  function p14Render() {
+    var w = q('napP14'); if (!w || !st) return;
+    var r = p14Rights, mine = st;
+    var on = !!(C.p14 && r && mine.box && mine.p14 && !mine.deact && (r.stageSet || r.remark || r.pdsMark || mine.p14.stage));
+    w.hidden = !on; if (!on) { w.innerHTML = ''; return; }
+    var cur = p14Np(mine), s = mine.p14.stage ? C.p14.stage(mine.p14.stage) : null, h = '';
+    h += '<div style="margin-top:10px;padding-top:8px;border-top:1px dashed #d6dde2"><label class="lbl">NAP stage</label>';
+    if (s) h += '<div style="font-size:12.5px">' + p14Chip({ stage: s.code }) + ' <span>' + esc(s.label) + '</span><div style="font-size:11.5px;opacity:.7">Only an admin can change or clear it (on the NAP dashboard).</div></div>';
+    else if (r.stageSet) h += '<select id="napP14Stage" style="width:100%;padding:8px"><option value="">No stage</option>' + C.p14.STAGES.map(function (x) { return '<option value="' + esc(x.code) + '"' + (mine.p14.stageNew === x.code ? ' selected' : '') + '>' + esc(x.label) + '</option>'; }).join('') + '</select>' +
+      '<div style="font-size:11.5px;opacity:.7;margin-top:2px">Optional. Saved after the audit. Once set, only an admin can change it.</div>';
+    else h += '<div style="font-size:12px;opacity:.7">No stage.</div>';
+    h += '</div>';
+    if (r.remark || r.pdsMark) {
+      h += '<label class="lbl" style="margin-top:8px">Port remarks' + (r.pdsMark ? ' and PDS' : '') + ' (optional, saved after the audit)</label><div style="display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:4px 6px;align-items:center">';
+      for (var i = 1; i <= 8; i++) {
+        var k = mine.np + ':' + i, val = Object.prototype.hasOwnProperty.call(cur.rmk, i) ? cur.rmk[i] : p14OrigRemark(mine, i), awt = mine.ports[i - 1] === S.AWT, marked = !!mine.p14.pdsOn[k];
+        h += '<span style="font-weight:600">P' + i + '</span>' +
+          (r.remark ? '<input type="text" data-p14r="' + i + '" maxlength="200" autocomplete="off" placeholder="Remark" value="' + esc(val) + '" style="width:100%;padding:6px">' : '<span></span>') +
+          (r.pdsMark && marked ? '<span style="font-size:11px;font-weight:700;color:#fff;background:#c23b3b;border-radius:4px;padding:1px 5px">PDS</span>'
+            : r.pdsMark && awt ? '<label style="font-size:12px;display:flex;gap:4px;align-items:center;white-space:nowrap"><input type="checkbox" data-p14p="' + i + '"' + (cur.pds[i] ? ' checked' : '') + '>PDS</label>' : '<span></span>') +
+          '<span data-p14h="' + i + '" hidden style="grid-column:2/-1;font-size:11px;color:#c2503a"></span>';
+      }
+      h += '</div><div style="font-size:11.5px;opacity:.7;margin-top:2px">PDS = the account status in IBAS is PDS (pending / permanent disconnection). Needs the 13-digit account number above. Only an admin can clear it.</div>';
+    }
+    w.innerHTML = h;
+    var sel = q('napP14Stage'); if (sel) sel.onchange = function () { if (!mine.saving) mine.p14.stageNew = sel.value; };
+    w.querySelectorAll('[data-p14r]').forEach(function (el) { el.oninput = function () { if (!mine.saving) p14Np(mine).rmk[+el.getAttribute('data-p14r')] = el.value; }; });
+    w.querySelectorAll('[data-p14p]').forEach(function (el) { el.onchange = function () { if (!mine.saving) { p14Np(mine).pds[+el.getAttribute('data-p14p')] = el.checked; p14Hints(); } }; });
+    p14Hints();
+  }
+  // a ticked PDS box without a 13-digit account: say so (the box is ignored at send time)
+  function p14Hints() {
+    var w = q('napP14'); if (!w || !st || !st.p14) return;
+    var cur = p14Np(st);
+    w.querySelectorAll('[data-p14h]').forEach(function (el) {
+      var i = +el.getAttribute('data-p14h'), bad = !!cur.pds[i] && st.ports[i - 1] === S.AWT && !C.p14.acctOk(st.tags[i - 1]);
+      el.textContent = bad ? 'PDS: type the 13-digit account number of P' + i + ' first.' : ''; el.hidden = !bad;
+    });
+  }
+  // after a SAVED audit (not a not-found visit, not the deactivated-NAP record): the extra calls, one after the other, then one notice
+  function p14After(cur) {
+    if (!C.p14 || !cur || !cur.p14 || cur.deact || cur.notFound || !cur.box || !p14Rights) return;
+    var by = p14Np(cur), remarks = [], pds = [];
+    for (var i = 1; i <= 8; i++) {
+      if (Object.prototype.hasOwnProperty.call(by.rmk, i)) remarks.push({ port: i, remark: by.rmk[i], changed: C.p14.reasonNorm(by.rmk[i]) !== C.p14.reasonNorm(p14OrigRemark(cur, i)) });
+      if (by.pds[i] && cur.ports[i - 1] === S.AWT && !cur.p14.pdsOn[cur.np + ':' + i]) pds.push({ port: i, on: true, tag_acct: cur.tags[i - 1] || '' });
+    }
+    var calls = C.p14.afterAuditCalls({ rights: p14Rights, newId: uuid, boxId: cur.box.box_id, np: cur.np, stage: cur.p14.stageNew, currentStage: cur.p14.stage, remarks: remarks, pds: pds });
+    if (!calls.length) return;
+    var fn = { set_box_stage: 'setBoxStage', set_port_remark: 'setPortRemark', set_port_pds: 'setPortPds' }, okN = 0, bad = [];
+    calls.reduce(function (p, c) {
+      return p.then(function () { return api[fn[c.rpc]](c.payload); }).then(function () { okN++; }, function (e) {
+        bad.push((c.rpc === 'set_box_stage' ? 'stage' : c.rpc === 'set_port_remark' ? 'remarks' : 'PDS P' + c.payload.port) + ' (' + String(e && e.message || e).replace(/^NAP_[A-Z0-9_]+:\s*/, '') + ')');
+      });
+    }, Promise.resolve()).then(function () {
+      if (cur.p14.stageNew && !bad.some(function (b) { return b.indexOf('stage') === 0; })) p14Stages[cur.box.box_id] = cur.p14.stageNew;
+      try { ctx.toast(bad.length ? 'The audit is saved. Not saved: ' + bad.join('; ') + '. Ask the dispatcher, or try again later.' : 'Also saved: ' + okN + ' stage / remark / PDS update' + (okN === 1 ? '' : 's') + '.'); } catch (e) { /* toast is cosmetic */ }
+    });
   }
 
   function close(saved) {

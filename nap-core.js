@@ -39,14 +39,15 @@
     var age = function (p) { return (t - toMs(p.verified_at)) / DAY; };
     var newest = Math.max.apply(null, seen.map(function (p) { return toMs(p.verified_at); }));
     var ageFrac = (t - newest) / DAY;
-    var free = seen.filter(function (p) { return isUsable(p.status) && age(p) <= c.freshnessDays; }).length;
+    var free = seen.filter(function (p) { return isUsable(p.status) && !p.pds && age(p) <= c.freshnessDays; }).length;   // phase 14: a PDS port is never free
     var bad = seen.filter(function (p) { return p.status === STATUS.HILOSS || p.status === STATUS.DEFECTIVE; }).length;
     var full = seen.length === total && seen.every(function (p) { return isOccupied(p.status); });
-    var kind = free > 0 ? 'installable'
+    var blk = !!(o && (o.stage === 'NOT_RFS' || o.stage === 'FOR_REHAB_REPAIR'));   // phase 14: nap.stage_blocks_install (NapCore.p14.blocksInstall)
+    var kind = free > 0 && !blk ? 'installable'
       : full && ageFrac <= c.freshnessDays * c.fullMultiplier ? 'full'
-      : ageFrac <= c.freshnessDays && bad > 0 ? 'issue'
+      : ageFrac <= c.freshnessDays && (bad > 0 || blk) ? 'issue'
       : 'stale';
-    return { kind: kind, free: free, checked: seen.length, bad: bad, total: total, ageDays: Math.max(0, Math.floor(ageFrac)) };
+    return { kind: kind, free: blk ? 0 : free, checked: seen.length, bad: bad, total: total, ageDays: Math.max(0, Math.floor(ageFrac)) };
   }
   // 8 ports per NAP number (nap.box_status.total since phase 2B)
   function boxTotal(npNumbers) { return 8 * (Array.isArray(npNumbers) ? npNumbers.length : 0); }
@@ -268,10 +269,17 @@
   // ---------- NAP Master (import / export) helpers. The server (nap._master_run, nap-12) validates every row: these only read files. ----------
   var MASTER_IMPORT_COLS = ['stencil', 'barangay', 'district', 'dwelling', 'street', 'olt', 'lat', 'lng', 'converge_available', 'active', 'note'];
   var MASTER_EXPORT_COLS = ['stencil', 'barangay', 'district', 'dwelling', 'street', 'olt', 'lat', 'lng', 'geo_source', 'geo_updated_at', 'np_numbers',
-    'total_ports', 'status', 'checked_ports', 'free_ports', 'bad_ports', 'age_days', 'last_audit_at', 'last_audit_team', 'converge_available', 'active'];
+    'total_ports', 'status', 'checked_ports', 'free_ports', 'bad_ports', 'age_days', 'last_audit_at', 'last_audit_team', 'converge_available', 'active',
+    'port_remarks'];
+  // phase 13 (nap-22): port_remarks is the LAST column, read-only. A database without nap-22 does not return it: the export then has exactly
+  // the 21 columns it had before (masterExportCols decides from the rows the server sent).
+  var MASTER_EXPORT_COLS_V1 = MASTER_EXPORT_COLS.filter(function (c) { return c !== 'port_remarks'; });
   // grey (computed) export columns: recognized and ignored on import, so an exported file can be imported back as is
   var MASTER_COMPUTED = MASTER_EXPORT_COLS.filter(function (c) { return MASTER_IMPORT_COLS.indexOf(c) < 0; });
-  var MASTER_NUMERIC = { lat: 1, lng: 1, total_ports: 1, checked_ports: 1, free_ports: 1, bad_ports: 1, age_days: 1, converge_available: 1 };
+  var MASTER_NUMERIC = { lat: 1, lng: 1, total_ports: 1, checked_ports: 1, free_ports: 1, bad_ports: 1, age_days: 1, converge_available: 1, pds_ports: 1 };
+  // phase 14 (nap-23): two more read-only columns AFTER port_remarks, only when the database sends them (nap.export_stage_pds): the stage
+  // label and the number of PDS ports. Grey / computed like the others: ignored on import.
+  var MASTER_EXPORT_P14 = ['stage', 'pds_ports'];
   var MASTER_MAX_ROWS = 5000, MASTER_BATCH = 1000;
   // header spellings (after headerKey: lower case, non-alphanumerics -> '_')
   var MASTER_ALIAS = {
@@ -290,7 +298,12 @@
     "Computed columns (grey, read-only, IGNORED when this file is imported back): geo_source (seed | audit | manual), geo_updated_at, np_numbers,",
     "  total_ports (8 per NAP number), status (installable | full | issue | stale | unverified | inactive), checked_ports, free_ports (fresh Vacant/Released only),",
     "  bad_ports (Hi Loss/Defective), age_days (days since the newest check), last_audit_at and last_audit_team (the newest real audit: not-found visits",
-    "  are skipped, so both are empty for a box that was only ever reported not found).",
+    "  are skipped, so both are empty for a box that was only ever reported not found),",
+    "  port_remarks (the port remarks of the box, read-only: 'NP6 P1: text; NP7 P5: text', every NAP number, by NAP number then port; empty when",
+    "  the box has none; cut at 2,000 characters, ending with an ellipsis. Remarks are written in the NAP detail, never by an import),",
+    "  stage (the NAP stage, read-only: FOR NAP AUDIT - No Tagging | FULL NAP - all ports with thermal tagging | NOT RFS - Not ready for selling |",
+    "  FOR REHAB/FOR REPAIR - with defective pigtail - hi loss; empty = no stage. NOT RFS and FOR REHAB/FOR REPAIR are never installable),",
+    "  pds_ports (ports marked PDS: pending / permanent disconnection in IBAS; such a port is never counted free until an admin clears it).",
     "",
     "TO UPDATE BOXES: edit the blue columns, save as .xlsx or .csv, then NAP Master > Import > preview > Apply. Up to 5,000 rows per import file,",
     "  so import one barangay (or a 5,000-row part of the whole-QC file) at a time.",
@@ -310,7 +323,7 @@
     var k = headerKey(h);
     if (!k) return null;
     for (var c in MASTER_ALIAS) if (MASTER_ALIAS[c].test(k)) return c;
-    return MASTER_COMPUTED.indexOf(k) >= 0 ? '#computed' : null;
+    return MASTER_COMPUTED.indexOf(k) >= 0 || MASTER_EXPORT_P14.indexOf(k) >= 0 ? '#computed' : null;
   }
   function isMasterStencil(s) { return MASTER_STENCIL.test(normStencil(s)); }
   // 'QCY003 LP114 NP6-8-7-7' -> [6,7,8] (sorted, unique), as the server stores np_numbers; null when not a valid stencil
@@ -391,11 +404,19 @@
     var d = new Date(v); if (isNaN(d)) return '';
     return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
   }
-  // one export_boxes row -> the export sheet's cells, in MASTER_EXPORT_COLS order (numbers stay numbers, timestamps become local text)
-  function masterExportCells(b) {
-    return MASTER_EXPORT_COLS.map(function (c) {
+  // the export's columns for the rows the server returned: with port_remarks when the server sends that field (nap-22), else the 21 before it
+  function masterExportCols(rows) {
+    var has = (rows || []).some(function (r) { return r && typeof r === 'object' && Object.prototype.hasOwnProperty.call(r, 'port_remarks'); });
+    var p14 = (rows || []).some(function (r) { return r && typeof r === 'object' && Object.prototype.hasOwnProperty.call(r, 'stage') && Object.prototype.hasOwnProperty.call(r, 'pds_ports'); });
+    return (has ? MASTER_EXPORT_COLS : MASTER_EXPORT_COLS_V1).concat(has && p14 ? MASTER_EXPORT_P14 : []);
+  }
+  // one export_boxes row -> the export sheet's cells, in cols order (default MASTER_EXPORT_COLS; numbers stay numbers, timestamps become
+  // local text). Safe as an Array.map callback (a non-array second argument is ignored).
+  function masterExportCells(b, cols) {
+    return (Array.isArray(cols) ? cols : MASTER_EXPORT_COLS).map(function (c) {
       var v = b ? b[c] : null;
       if (c === 'geo_updated_at' || c === 'last_audit_at') return fmtStamp(v);
+      if (c === 'stage') return v == null || v === '' ? '' : (P14.label(v) || String(v));   // phase 14: the label, not the code
       if (MASTER_NUMERIC[c]) return v == null || v === '' || !isFinite(Number(v)) ? '' : Number(v);
       return v == null ? '' : String(v);
     });
@@ -1102,15 +1123,195 @@
     };
   }
 
+  // Board map navigation (dashboard 2026-10-24.1): Expand map memory, Locate me view and messages. The position never leaves the browser.
+  var MAPNAV = {
+    KEY: 'ahba-nap-mapx',   // sessionStorage: '1' = the Board map was expanded
+    LOCATE_FIT_M: 300,      // accuracy above this: fit the accuracy circle instead of zooming in on a guess
+    LOCATE_ZOOM: 17,
+    restore: function (v) { return v === '1'; },
+    locateView: function (acc, zoom) {
+      var a = Number(acc);
+      if (isFinite(a) && a > MAPNAV.LOCATE_FIT_M) return { fit: true, radius: Math.min(a, 20000) };
+      return { fit: false, zoom: Math.max(Number(zoom) || 0, MAPNAV.LOCATE_ZOOM) };
+    },
+    locateMsg: function (acc) {
+      var a = Number(acc);
+      return 'Showing your location' + (isFinite(a) && a > 0 ? ' (accuracy about ' + (a < 1000 ? Math.round(a) + ' m' : (Math.round(a / 100) / 10) + ' km') + ')' : '') + '. It is not sent anywhere.';
+    },
+    geoError: function (err) {
+      var c = err && err.code;
+      return c === 1 ? 'Location permission denied: allow location for this site to use Locate me.' : c === 3 ? 'Locating timed out. Try again.' : 'Cannot get your location. Try again.';
+    }
+  };
+
+  // ======================================================================================================================
+  // ---------- phase 14: NAP STAGES, PDS ports, the PORT tab, technician remarks (nap-23). Self-contained block; NapCore.p14 ----------
+  // THE single source of the stage labels, colours and letters for the dashboard and the phone. Same rules as the server (change both
+  // together): nap.stage_blocks_install = NOT_RFS / FOR_REHAB_REPAIR never installable (free 0); nap.stage_needs_audit = FOR_NAP_AUDIT first
+  // in Aging; setting a FIRST stage = board + NAP technicians (stage_set_roles); changing / clearing one = admin / super with a reason
+  // (3..200); PDS mark = board + technicians (pds_mark_roles) on a port with a 13-digit account; PDS clear = admin / super with a reason.
+  // Display: a NAP with a stage shows the STAGE as its primary status; the computed kind stays as the secondary field and in the filters.
+  var P14 = (function () {
+    var REASON_MIN = 3, REASON_MAX = 200, PORTS_PAGE = 100, PORTS_MAX = 500, BOX_STAGES_CHUNK = 1000;
+    // colours: distinct from the kind colours (green / red / orange / greys) and the subscriber pin (purple); each also has a LETTER
+    // (drawn on the map marker and on the chips), so colour is never the only cue. White text on all four passes 4.5:1.
+    var STAGES = [
+      { code: 'FOR_NAP_AUDIT_NO_TAGGING', label: 'FOR NAP AUDIT - No Tagging', short: 'For NAP audit', letter: 'A', color: '#1f63c4', blocks: false, auditFirst: true },
+      { code: 'FULL_NAP_THERMAL', label: 'FULL NAP - all ports with thermal tagging', short: 'Full NAP (thermal)', letter: 'T', color: '#0b7a7a', blocks: false, auditFirst: false },
+      { code: 'NOT_RFS', label: 'NOT RFS - Not ready for selling', short: 'Not RFS', letter: 'N', color: '#a3166f', blocks: true, auditFirst: false },
+      { code: 'FOR_REHAB_REPAIR', label: 'FOR REHAB/FOR REPAIR - with defective pigtail - hi loss', short: 'For rehab / repair', letter: 'R', color: '#6b4a12', blocks: true, auditFirst: false }];
+    var BY = {}; STAGES.forEach(function (s) { BY[s.code] = s; });
+    function str(v) { return String(v == null ? '' : v); }
+    function stage(code) { return Object.prototype.hasOwnProperty.call(BY, code) ? BY[code] : null; }
+    function isCode(code) { return !!stage(code); }
+    function label(code) { var s = stage(code); return s ? s.label : ''; }
+    function color(code) { var s = stage(code); return s ? s.color : null; }
+    function letter(code) { var s = stage(code); return s ? s.letter : ''; }
+    function blocksInstall(code) { var s = stage(code); return !!(s && s.blocks); }
+    function needsAudit(code) { var s = stage(code); return !!(s && s.auditFirst); }
+    // what each stage does to the lists and counts (the help text and the runbook say the same)
+    function effect(code) {
+      if (code === 'NOT_RFS' || code === 'FOR_REHAB_REPAIR') return 'Never suggested as installable: not in "Installable now", the subscriber pin, the installable counts, the free ports or the Sales feed.';
+      if (code === 'FOR_NAP_AUDIT_NO_TAGGING') return 'Listed first in Aging (needs audit). Availability is unchanged.';
+      if (code === 'FULL_NAP_THERMAL') return 'Informational. Availability is unchanged (a full NAP has no free port).';
+      return '';
+    }
+    // the status shown first: the stage when set, else the computed kind
+    function primary(box, kindLabels) {
+      var b = box || {}, s = stage(b.stage);
+      if (s) return { type: 'stage', code: s.code, label: s.label, short: s.short, letter: s.letter, color: s.color };
+      var k = str(b.kind);
+      return { type: 'kind', code: k, label: (kindLabels && kindLabels[k]) || k, short: (kindLabels && kindLabels[k]) || k, letter: '', color: null };
+    }
+    // stage filter: '' = all, 'any' = with a stage, 'none' = without, or a code
+    var FILTERS = ['', 'any', 'none'].concat(STAGES.map(function (s) { return s.code; }));
+    function filterOk(f) { return FILTERS.indexOf(str(f)) >= 0; }
+    function stageMatch(box, f) {
+      var c = box && box.stage ? String(box.stage) : '';
+      f = str(f);
+      if (!f) return true;
+      if (f === 'any') return !!c;
+      if (f === 'none') return !c;
+      return c === f;
+    }
+    function stageCounts(boxes) {
+      var out = { any: 0, none: 0 }; STAGES.forEach(function (s) { out[s.code] = 0; });
+      (boxes || []).forEach(function (b) { var c = b && b.stage; if (c && Object.prototype.hasOwnProperty.call(BY, c)) { out[c]++; out.any++; } else out.none++; });
+      return out;
+    }
+    // what the session may do (nap.my_stage_access; null / missing = a database without nap-23: nothing)
+    function rights(acc) {
+      var a = acc && typeof acc === 'object' ? acc : {};
+      return { stageSet: a.stage_set === true, stageMove: a.stage_move === true, pdsMark: a.pds_mark === true, pdsClear: a.pds_clear === true,
+               remark: a.remark === true, admin: a.admin === true, board: a.board === true, any: a.stage_set === true || a.pds_mark === true || a.remark === true };
+    }
+    // the stage control for a box: 'set' (no stage yet, may set), 'move' (has one, admin), or '' (read-only)
+    function stageControl(r, box) {
+      var rr = r || {}, has = !!(box && box.stage);
+      if (!box || box.active === false) return '';
+      if (!has) return rr.stageSet ? 'set' : '';
+      return rr.stageMove ? 'move' : '';
+    }
+    function reasonNorm(t) { return str(t).replace(/\s+/g, ' ').trim(); }
+    // '' when ok, else the message (the server's rules: a move / clear needs 3..200 characters; any reason at most 200)
+    function stageError(current, next, reason) {
+      var cur = current ? String(current) : '', nx = next ? String(next) : '', n = reasonNorm(reason).length;
+      if (nx && !isCode(nx)) return 'Choose a stage.';
+      if (cur === nx) return cur ? 'This NAP already has that stage.' : 'Choose a stage.';
+      if (n > REASON_MAX) return 'The reason has at most ' + REASON_MAX + ' characters (' + n + ' entered).';
+      if (cur && n < REASON_MIN) return 'Enter the reason for moving the stage (what was checked in IBAS / Blacklisting).';
+      return '';
+    }
+    function stagePayload(o) {
+      var x = o || {};
+      return { client_id: x.clientId, box_id: x.boxId, stage: x.stage ? String(x.stage) : null, reason: reasonNorm(x.reason) || null };
+    }
+    function acctDigits(s) { return str(s).replace(/[^0-9]/g, ''); }
+    function acctOk(s) { return /^[0-9]{13}$/.test(acctDigits(s)); }
+    // PDS on one port: '' when ok, else why not (mark: needs the 13-digit account; clear: admin + reason)
+    function pdsError(port, on, note, r) {
+      var p = port || {}, rr = r || {}, n = reasonNorm(note).length;
+      if (n > REASON_MAX) return 'The note has at most ' + REASON_MAX + ' characters (' + n + ' entered).';
+      if (on) {
+        if (!rr.pdsMark) return 'You cannot mark PDS ports.';
+        if (!acctOk(p.tag_acct)) return 'Save the 13-digit account number of this port first.';
+        return '';
+      }
+      if (!rr.pdsClear) return 'Only an admin can clear a PDS mark.';
+      if (n < REASON_MIN) return 'Enter the reason (what was validated in IBAS / Blacklisting).';
+      return '';
+    }
+    function pdsPayload(o) {
+      var x = o || {};
+      return { client_id: x.clientId, box_id: x.boxId, np: Number(x.np), port: Number(x.port), pds: x.pds === true, note: reasonNorm(x.note) || null };
+    }
+    // the PORT tab: filters -> nap.list_ports arguments; '' = no filter. Text: 13 digits (dashes / spaces ignored) = account, else stencil.
+    var PORT_STATUS_FILTERS = [STATUS.AWT, STATUS.AWO, STATUS.VACANT, STATUS.RELEASED, STATUS.HILOSS, STATUS.DEFECTIVE, STATUS.UNVERIFIED];
+    function portsDefaults() { return { barangay: '', district: '', stage: '', pdsOnly: false, status: '', q: '' }; }
+    function portsError(f) {
+      var x = f || {}, q = str(x.q).trim();
+      if (x.stage && !filterOk(x.stage)) return 'Unknown stage filter.';
+      if (x.status && PORT_STATUS_FILTERS.indexOf(x.status) < 0) return 'Unknown port status.';
+      if (q.length > 80) return 'The search text has at most 80 characters.';
+      if (q && !acctOk(q) && q.replace(/\s+/g, '').length < 2) return 'Type at least 2 characters of the stencil, or a 13-digit account number.';
+      return '';
+    }
+    function portsArgs(f, cursor, limit) {
+      var x = f || {}, c = cursor || null, q = str(x.q).trim();
+      return { p_barangay: x.barangay || null, p_district: x.district || null, p_stage: x.stage || null, p_pds_only: x.pdsOnly === true, p_status: x.status || null,
+               p_q: q ? (acctOk(q) ? acctDigits(q) : q) : null, p_limit: Math.max(1, Math.min(PORTS_MAX, Math.floor(Number(limit) || PORTS_PAGE))),
+               p_after_stencil: c ? c.stencil : null, p_after_np: c ? Number(c.np) : null, p_after_port: c ? Number(c.port) : null };
+    }
+    // the keyset cursor after a page (null = that was the last page)
+    function portsCursor(rows, limit) {
+      var r = rows || [], lim = Math.max(1, Math.floor(Number(limit) || PORTS_PAGE));
+      if (r.length < lim || !r.length) return null;
+      var last = r[r.length - 1];
+      return { stencil: last.stencil, np: Number(last.np), port: Number(last.port) };
+    }
+    function portsSummary(f) {
+      var x = f || {}, out = [];
+      if (x.pdsOnly) out.push('PDS only');
+      if (x.district) out.push('District ' + x.district);
+      if (x.barangay) out.push(x.barangay);
+      if (x.stage) out.push(x.stage === 'any' ? 'with a stage' : x.stage === 'none' ? 'without a stage' : 'Stage: ' + label(x.stage));
+      if (x.status) out.push(x.status);
+      if (str(x.q).trim()) out.push((acctOk(x.q) ? 'account ' : 'stencil contains ') + '"' + str(x.q).trim() + '"');
+      return out.length ? out.join(' · ') : 'All ports';
+    }
+    // the phone audit form: the extra calls after a saved audit (never part of submit_audit), each with its own fresh client_id
+    function afterAuditCalls(o) {
+      var x = o || {}, calls = [], rr = x.rights || {}, np = Number(x.np), id = typeof x.newId === 'function' ? x.newId : function () { return DESK.newClientId(); };
+      if (x.stage && isCode(x.stage) && !x.currentStage && rr.stageSet) calls.push({ rpc: 'set_box_stage', payload: stagePayload({ clientId: id(), boxId: x.boxId, stage: x.stage, reason: x.stageReason }) });
+      var items = [];
+      (x.remarks || []).forEach(function (m) { if (m && m.port >= 1 && m.port <= 8 && m.changed) items.push({ np: np, port: Number(m.port), remark: reasonNorm(m.remark) }); });
+      if (items.length && rr.remark) calls.push({ rpc: 'set_port_remark', payload: { client_id: id(), box_id: x.boxId, np: np, items: items } });
+      (x.pds || []).forEach(function (p) {
+        if (p && p.on && rr.pdsMark && acctOk(p.tag_acct)) calls.push({ rpc: 'set_port_pds', payload: pdsPayload({ clientId: id(), boxId: x.boxId, np: np, port: p.port, pds: true, note: p.note }) });
+      });
+      return calls;
+    }
+    function chunks(list, n) { var out = [], s = Math.max(1, n || BOX_STAGES_CHUNK); for (var i = 0; i < (list || []).length; i += s) out.push(list.slice(i, i + s)); return out; }
+    return { STAGES: STAGES, REASON_MIN: REASON_MIN, REASON_MAX: REASON_MAX, PORTS_PAGE: PORTS_PAGE, PORTS_MAX: PORTS_MAX, BOX_STAGES_CHUNK: BOX_STAGES_CHUNK,
+             PORT_STATUS_FILTERS: PORT_STATUS_FILTERS, FILTERS: FILTERS,
+             stage: stage, isCode: isCode, label: label, color: color, letter: letter, blocksInstall: blocksInstall, needsAudit: needsAudit, effect: effect, primary: primary,
+             filterOk: filterOk, stageMatch: stageMatch, stageCounts: stageCounts, rights: rights, stageControl: stageControl, reasonNorm: reasonNorm, stageError: stageError,
+             stagePayload: stagePayload, acctDigits: acctDigits, acctOk: acctOk, pdsError: pdsError, pdsPayload: pdsPayload, portsDefaults: portsDefaults, portsError: portsError,
+             portsArgs: portsArgs, portsCursor: portsCursor, portsSummary: portsSummary, afterAuditCalls: afterAuditCalls, chunks: chunks,
+             newClientId: function () { return DESK.newClientId(); } };
+  })();
+  // ======================================================================================================================
+
   return {
-    p12: P12,
+    p14: P14,
+    p12: P12, mapNav: MAPNAV,
     desk: DESK, AUDIT_KINDS: AUDIT_KINDS, AUDIT_KIND_LABEL: AUDIT_KIND_LABEL, AUDIT_PAGE: AUDIT_PAGE, AUDIT_EXPORT_PAGE: AUDIT_EXPORT_PAGE, AUDIT_EXPORT_MAX: AUDIT_EXPORT_MAX,
     AUDIT_STREET_MIN: AUDIT_STREET_MIN, AUDIT_MAXLEN: AUDIT_MAXLEN, auditFilterDefaults: auditFilterDefaults, auditFilterParams: auditFilterParams, auditNewFilters: auditNewFilters,
     auditFilterSummary: auditFilterSummary, auditCursor: auditCursor, auditExportName: auditExportName, fmtManila: fmtManila, AUDIT_EXPORT_COLS: AUDIT_EXPORT_COLS,
     AUDIT_EXPORT_NUMERIC: AUDIT_EXPORT_NUMERIC, AUDIT_EXPORT_WIDTHS: AUDIT_EXPORT_WIDTHS, auditExportCells: auditExportCells, auditExportCsv: auditExportCsv, auditRowFromLegacy: auditRowFromLegacy, STATUS: STATUS, PORT_STATUSES: PORT_STATUSES, DEFAULTS: DEFAULTS, isUsable: isUsable, isOccupied: isOccupied,
     BASKET_MAX: BASKET_MAX, PLAN_MAX_TEAMS: PLAN_MAX_TEAMS, isUuid: isUuid, basketAdd: basketAdd, basketRemove: basketRemove, basketGroups: basketGroups,
     basketParse: basketParse, hilbertIndex: hilbertIndex, walkOrder: walkOrder, splitEvenly: splitEvenly, moveBoxes: moveBoxes, planSummary: planSummary, planPayload: planPayload,
-    MASTER_IMPORT_COLS: MASTER_IMPORT_COLS, MASTER_EXPORT_COLS: MASTER_EXPORT_COLS, MASTER_COMPUTED: MASTER_COMPUTED, MASTER_NUMERIC: MASTER_NUMERIC,
+    MASTER_IMPORT_COLS: MASTER_IMPORT_COLS, MASTER_EXPORT_COLS: MASTER_EXPORT_COLS, MASTER_EXPORT_COLS_V1: MASTER_EXPORT_COLS_V1, MASTER_EXPORT_P14: MASTER_EXPORT_P14, masterExportCols: masterExportCols, MASTER_COMPUTED: MASTER_COMPUTED, MASTER_NUMERIC: MASTER_NUMERIC,
     MASTER_MAX_ROWS: MASTER_MAX_ROWS, MASTER_BATCH: MASTER_BATCH, MASTER_EXPORT_README: MASTER_EXPORT_README, headerKey: headerKey, masterColumn: masterColumn, isMasterStencil: isMasterStencil,
     stencilNps: stencilNps, masterCell: masterCell, findMasterHeader: findMasterHeader, parseMasterGrid: parseMasterGrid, parseMasterText: parseMasterText, splitBatches: splitBatches,
     csvCell: csvCell, toCsv: toCsv, fmtStamp: fmtStamp, masterExportCells: masterExportCells, masterFileName: masterFileName, masterErrorsCsv: masterErrorsCsv,

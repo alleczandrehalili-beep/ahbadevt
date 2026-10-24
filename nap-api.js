@@ -426,6 +426,75 @@
   var createBase12 = create;
   create = function (client) { var api = createBase12(client), d = p12Api(client); Object.keys(d).forEach(function (k) { api[k] = d[k]; }); return api; };
   // ======================================================================================================================
+  // ======================================================================================================================
+  // ---------- phase 14: NAP STAGES, PDS ports, the PORT tab (nap-23). Self-contained block: adds methods to every api ----------
+  // A database without nap-23: the reads answer "nothing" (null / [] with .missing = true) so the screens hide the controls; writes throw.
+  function p14Api(client) {
+    var nap = function () { return client.schema('nap'); };
+    function missingFn(err) { return /PGRST202|could not find the function|does not exist|42883/i.test(String((err && err.message) || '') + ' ' + String((err && err.code) || '')) && !/^NAP_/.test(String((err && err.message) || '')); }
+    function soft(name, args) {
+      return Promise.resolve(nap().rpc(name, args)).then(function (r) {
+        if (r && r.error) { if (missingFn(r.error)) { var n = []; n.missing = true; return n; } throw fail(r.error, r.status); }
+        return (r && r.data) || [];
+      });
+    }
+    // one request per chunk, one after the other; the rows concatenated; .missing when the function is not on the database
+    function chunked(name, key, list, size) {
+      var parts = [], out = [], miss = false;
+      for (var i = 0; i < list.length; i += size) parts.push(list.slice(i, i + size));
+      return parts.reduce(function (p, part) {
+        return p.then(function () { var a = {}; a[key] = part; return soft(name, a).then(function (rows) { if (rows.missing) miss = true; out = out.concat(rows); }); });
+      }, Promise.resolve()).then(function () { if (miss) out.missing = true; return out; });
+    }
+    return {
+      // {stage_set, stage_move, pds_mark, pds_clear, remark, board, admin}; null without nap-23 (every control hidden)
+      myStageAccess: function () {
+        return Promise.resolve(nap().rpc('my_stage_access')).then(function (r) {
+          if (r && r.error) { if (missingFn(r.error)) return null; throw fail(r.error, r.status); }
+          return r && r.data && typeof r.data === 'object' ? r.data : null;
+        });
+      },
+      // payload = NapCore.p14.stagePayload(...) -> {ok, changed, replay, box_id, old_stage, stage, stage_by, stage_at, reason}
+      setBoxStage: function (payload) { return unwrap(nap().rpc('set_box_stage', { p_payload: payload })); },
+      // payload = NapCore.p14.pdsPayload(...) -> {ok, changed, replay, box_id, np, port, pds, pds_by, pds_at, note}
+      setPortPds: function (payload) { return unwrap(nap().rpc('set_port_pds', { p_payload: payload })); },
+      // the stages of these boxes [{box_id, stage, stage_by, stage_at, stage_note}] (1,000 ids per request); without nap-23: [] (.missing)
+      boxStages: function (ids) { return chunked('box_stages', 'p_ids', (ids || []).filter(function (x) { return typeof x === 'string' && x; }), 1000); },
+      // [{barangay, district, for_nap_audit, full_nap, not_rfs, rehab, pds_ports}]; without nap-23: [] (.missing)
+      stageSummary: function () { return soft('stage_summary', {}); },
+      // the PDS marks of one box [{np, port, pds, pds_by, pds_at, pds_note}]; without nap-23: [] (.missing)
+      portFlags: function (boxId) { return soft('port_flags', { p_box_id: boxId }); },
+      // args = NapCore.p14.portsArgs(filters, cursor, limit) -> port rows (board only)
+      listPorts: function (args) { return unwrap(nap().rpc('list_ports', args || {})).then(function (r) { return r || []; }); },
+      // the export's stage / pds_ports for these stencils (10,000 per request); without nap-23: [] (.missing)
+      exportStagePds: function (stencils) { return chunked('export_stage_pds', 'p_stencils', (stencils || []).filter(function (x) { return x != null && x !== ''; }), 10000); }
+    };
+  }
+  var createBase14 = create;
+  create = function (client) {
+    var api = createBase14(client), d = p14Api(client); Object.keys(d).forEach(function (k) { api[k] = d[k]; });
+    // the NAP Master export with o.withStages (the dashboard): each page of rows gets the two phase 14 fields (stage code, pds_ports) from
+    // nap.export_stage_pds (one request per page, by stencil) before it is handed over. A database without nap-23: the rows stay exactly as
+    // before (no keys: the export keeps its columns). Without o.withStages: unchanged (no extra request).
+    var eba = api.exportBoxesAll;
+    if (typeof eba === 'function') api.exportBoxesAll = function (o) {
+      var self = this, miss = false;
+      if (!o || !o.withStages) return eba.apply(self, arguments);
+      function aug(rows) {
+        if (miss || !rows || !rows.length) return Promise.resolve(rows);
+        return d.exportStagePds(rows.map(function (r) { return r && r.stencil; })).then(function (x) {
+          if (x.missing) { miss = true; return rows; }
+          var by = {}; x.forEach(function (e) { by[e.stencil] = e; });
+          rows.forEach(function (r) { if (!r) return; var e = by[r.stencil]; r.stage = e && e.stage ? e.stage : null; r.pds_ports = e ? Number(e.pds_ports || 0) : 0; });
+          return rows;
+        });
+      }
+      if (typeof o.onRows === 'function') return eba.call(self, Object.assign({}, o, { onRows: function (rows) { return aug(rows).then(function (r) { return o.onRows(r); }); } }));
+      return eba.call(self, o).then(aug);
+    };
+    return api;
+  };
+  // ======================================================================================================================
 
   return { create: create, BUCKET: BUCKET, isAuthError: isAuthError, signInFirst: signInFirst, guardAuth: guardAuth };
 });
