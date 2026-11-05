@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-10-24.3';
+    const APP_VERSION = '2026-11-05.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -649,7 +649,18 @@
     }
 
     // ---------- sales agent ----------
-    function startSA(){ $('#teamName').textContent=headerName(); show('saView'); saSwitch('new'); saRenderDocs(); populatePlans(); toggleAddonCount(); startComms(); primeSalesStatus(); startSalesWatch(); const dsel=$('#sa_district'); if(dsel&&!dsel._wired){ dsel._wired=true; dsel.onchange=()=>populateSaBrgys(dsel.value); } }
+    function startSA(){ $('#teamName').textContent=headerName(); show('saView'); saSwitch('new'); saRenderDocs(); populatePlans(); toggleAddonCount(); startComms(); primeSalesStatus(); startSalesWatch(); saLoadSecReq(); const dsel=$('#sa_district'); if(dsel&&!dsel._wired){ dsel._wired=true; dsel.onchange=()=>populateSaBrgys(dsel.value); } }
+    // Owner 2026-11-05: Secondary contact no. ay MANDATORY sa encoding — laging
+    // required sa GC agents (AHBA_*), at per-contractor via orgs flag sa server
+    // (my_secondary_contact_required RPC). saSecReq null = RPC hindi pa sumagot
+    // (offline o wala pa ang SQL) — GC pa rin ang enforced via prefix fallback,
+    // para "effective immediately" sa GC kahit wala pang backend config.
+    let saSecReq=null;
+    function saSecReqNow(){ return (saSecReq===true) || /^AHBA_/i.test(myTeam||''); }
+    async function saLoadSecReq(){
+      try{ const {data,error}=await sb.rpc('my_secondary_contact_required'); if(!error) saSecReq=(data===true); }catch(e){}
+      const lb=$('#sa_ocn_label'); if(lb) lb.textContent=saSecReqNow()?'Secondary contact no. * (11 digits)':'Secondary contact no. (11 digits, optional)';
+    }
     // Load current statuses once at startup so we can detect future changes (without sounding on first load)
     async function primeSalesStatus(){ try{ const {data}=await sb.from('jobs').select('id,status').eq('created_by',myTeam); (data||[]).forEach(j=>{ saStatus[j.id]=j.status; }); }catch(e){} }
 
@@ -1183,8 +1194,13 @@
       if(!email){ showErr('#saErr','Email address is required.'); return; }
       if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ showErr('#saErr','Enter a valid email address (name@email.com).'); return; }
       if(!/^\d{11}$/.test(pno)){ showErr('#saErr','Primary no. must be exactly 11 digits (numbers only).'); return; }
-      if(ono && !/^\d{11}$/.test(ono)){ showErr('#saErr','Other contact no. must be 11 digits (numbers only).'); return; }
       const editing=!!saEditingId;
+      // Owner 2026-11-05: Secondary contact no. ay REQUIRED sa BAGONG encode kapag
+      // GC agent (laging on) o naka-ON ang contractor flag. Resubmit ng rejected na
+      // lumang order = hindi hinaharang (parehong patakaran ng birth_date).
+      if(saSecReq===null){ try{ await saLoadSecReq(); }catch(_e){} }
+      if(!editing && saSecReqNow() && !ono){ showErr('#saErr','Secondary contact no. is required (11 digits).'); return; }
+      if(ono && !/^\d{11}$/.test(ono)){ showErr('#saErr','Secondary contact no. must be 11 digits (numbers only).'); return; }
       // Date of birth: required on NEW encodes; optional on edit/resubmit (old JOs predate the field).
       const bday=($('#sa_birth_date')?$('#sa_birth_date').value.trim():'');
       if(!editing && !bday){ showErr('#saErr','Date of birth is required.'); return; }
