@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-11-05.1';
+    const APP_VERSION = '2026-11-12.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -1068,38 +1068,27 @@
     }
     // Edit a REJECTED order and resubmit it for validation (loads info back into the form)
     let saEditingId=null;
-    // ---- Strict duplicate check on NEW encodes (2026-09-07) ----
-    // Same server-side RPC as the console — scans ALL JOs all-time (any status,
-    // soft-deleted excluded). Fails OPEN kung wala pa ang RPC / network error.
-    let saDupAck=null;   // set by "Proceed anyway" on a WARN-level match
+    // ---- Duplicate check (2026-09-07; policy rework 2026-11-12) ----
+    // Owner 2026-11-12: ang SALES ENCODER ay hindi na nakakakita ng duplicate % at
+    // hindi na hinaharang — lahat ng encode ay tuloy. Ang check ay tahimik na
+    // tumatakbo PAGKATAPOS ng matagumpay na submit (saDupLog → jo_dup_flags,
+    // GC-only Duplicate registry sa console). Ang VALIDATOR pa rin ang nakakakita
+    // ng live % at nagdedesisyon bago ang dispatch (100% = superadmin approval).
     let saSubmitBusy=false;   // in-flight guard — see saSubmit
-    function saDupClear(){ saDupAck=null; const p=$('#saDupPanel'); if(p){p.style.display='none';p.innerHTML='';} }
-    function saDupRender(dup){
-      const p=$('#saDupPanel'); if(!p) return;
-      const esc=v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-      const chip=(ok,label)=>`<span style="margin-right:9px;white-space:nowrap">${ok===null?'– ':(ok?'✓ ':'✗ ')}${label}</span>`;
-      const row=m=>`<div style="margin-top:7px;padding-top:7px;border-top:1px solid rgba(0,0,0,.08)">
-          <b>${m.pct}% match</b> — ${esc(m.id)} · ${esc(String(m.status||'').toUpperCase())} · encoded ${esc(m.encoded_on)}<br>
-          ${esc(m.name)} — ${esc(m.address)}<br>
-          <span style="font-size:11px">${chip(m.same_name,'name '+m.name_pct+'%')}${chip(m.bday,'birthday')}${chip(m.contact,'contact')}${chip(m.email,'email')}${chip(m.same_address,'address '+m.addr_pct+'%')}</span>
-        </div>`;
-      const blocked=!!dup.blocked;
-      // Owner 2026-10-01: BINAWI ang "Proceed anyway" sa BLOCK-level duplicates (NABOR
-      // incident — naunahan ang unang encoder). Sales can no longer push a blocked
-      // duplicate through; a DISPATCHER/VALIDATOR (or Superadmin) can allow a re-encode
-      // upon the sales agent's request (🔓 sa console — encode form o JO detail view).
-      // WARN-level matches (ibang address, mababang %) ay pwede pa ring i-Proceed.
-      const head=blocked
-        ? '🚫 <b>Duplicate found.</b> This subscriber was already encoded in the system — encoding is BLOCKED. If this is a legitimate new order, ask your DISPATCHER or VALIDATOR to allow a re-encode — quote the matching WO number shown below.'
-        : '⚠️ <b>Possible duplicate found.</b> Review the match below before proceeding.';
-      p.innerHTML=`<div style="border:1px solid ${blocked?'#c2503a':'#b8860b'};background:${blocked?'#fdf0ee':'#fdf6e3'};border-radius:10px;padding:10px 12px;font-size:12px;margin-bottom:10px">
-          ${head}${(dup.matches||[]).slice(0,3).map(row).join('')}
-          ${blocked?'':'<div style="margin-top:9px"><button type="button" class="btn-ghost" id="saDupProceed">Proceed anyway</button></div>'}
-        </div>`;
-      p.style.display='';
-      const go=$('#saDupProceed');
-      if(go) go.onclick=()=>{ go.disabled=true; go.textContent='Submitting…'; saDupAck=(dup.matches&&dup.matches[0])||{pct:0,id:'?'}; saSubmit(); };
-      try{ p.scrollIntoView({block:'center'}); }catch(e){}
+    function saDupClear(){ const p=$('#saDupPanel'); if(p){p.style.display='none';p.innerHTML='';} }
+    // Tahimik na post-submit logger — fire-and-forget: hindi hinihintay, walang UI,
+    // walang history line. Fails open (console.warn lang) kung wala pa ang RPC.
+    async function saDupLog(jobId,p,source){
+      try{
+        const {data:dup,error}=await sb.rpc('check_duplicate_jo',{
+          p_first:p.first,p_middle:p.middle||'',p_last:p.last,p_birth:p.birth||null,
+          p_primary:p.primary||'',p_ocn:p.ocn||'',p_email:p.email||'',
+          p_house:p.house||'',p_street:p.street||'',p_village:p.village||'',
+          p_brgy:p.brgy||'',p_district:p.district||'',p_order_type:'SLI',p_exclude_id:jobId});
+        if(error||!dup||!dup.matches||!dup.matches.length) return;
+        const r=await sb.rpc('log_dup_flags',{p_job_id:jobId,p_matches:dup.matches,p_source:source||'mobile'});
+        if(r&&r.error) console.warn('dup registry log unavailable:',r.error.message);
+      }catch(e){ console.warn('dup registry log unavailable:',e); }
     }
     // History lines "[Aug 5, 2:14 PM] Rejected by X: reason" / "Approved at intake by X (...)" →
     // ipakita kung SINO ang UNANG nag-check for validation at ANO ang remarks (+ latest kung iba).
@@ -1208,29 +1197,14 @@
       if(v('sa_play_type')==='2-PLAY' && !v('sa_addon_count')){ showErr('#saErr','For 2-PLAY, select how many add-ons are included.'); return; }
       if(!editing && !saDocs.id.length){ showErr('#saErr','A Valid ID photo is required.'); return; }
       const btn=$('#saSubmit'); btn.disabled=true; btn.textContent=editing?'Resubmitting…':'Submitting…';
-      // Duplicate check — NEW encodes AT edit/resubmit (owner 2026-10-01: dati NEW lang,
-      // pero nagiging butas ang resubmit para makalusot ang duplicate). Ang sariling JO
-      // ay excluded sa paghahambing. Skipped once after "Proceed anyway" on a warning.
-      if(!saDupAck){
-        btn.textContent='Checking for duplicates…';
-        let dup=null;
-        try{
-          const {data,error}=await sb.rpc('check_duplicate_jo',{
-            p_first:fn,p_middle:v('sa_middle_name'),p_last:ln,p_birth:bday||null,
-            p_primary:pno,p_ocn:ono,p_email:email,
-            p_house:v('sa_house_no'),p_street:v('sa_street_name'),p_village:v('sa_village'),
-            p_brgy:brgy,p_district:dist,p_order_type:'SLI',p_exclude_id:(editing?saEditingId:null)});
-          if(!error) dup=data; else console.warn('duplicate check unavailable:',error.message);
-        }catch(e){ console.warn('duplicate check unavailable:',e); }
-        if(dup && dup.matches && dup.matches.length){
-          saDupRender(dup);
-          showErr('#saErr', dup.blocked
-            ? 'Duplicate found — this subscriber was already encoded. Encoding is blocked; ask your dispatcher or validator to allow a re-encode if this is a legitimate new order.'
-            : 'Possible duplicate — review the match above, then press "Proceed anyway" or correct the details.');
-          btn.disabled=false; btn.textContent=editing?'Resubmit for validation':'Submit for validation'; return;
-        }
-        saDupClear();
-      }
+      // Owner 2026-11-12: WALANG duplicate gate sa sales encoder — lahat ng encode ay
+      // tuloy, walang % na ipinapakita, walang block. Ang check ay tahimik na tatakbo
+      // PAGKATAPOS ng matagumpay na submit (saDupLog, fire-and-forget) at mapupunta sa
+      // GC-only Duplicate registry; ang VALIDATOR pa rin ang nagdedesisyon sa dispatch.
+      const dupPayload={first:fn,middle:v('sa_middle_name'),last:ln,birth:bday||null,
+        primary:pno,ocn:ono,email:email,
+        house:v('sa_house_no'),street:v('sa_street_name'),village:v('sa_village'),
+        brgy:brgy,district:dist};
       const full=[fn,v('sa_middle_name'),ln].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
       const addr=[v('sa_house_no'),v('sa_street_name'),v('sa_village'),brgy,'District '+dist,city].filter(Boolean).join(', ');
       const fields={subscriber:full,plan:v('sa_plan'),ref_no:v('sa_ref_no'),area:city,address:addr,status:'for_validation',
@@ -1262,20 +1236,14 @@
             return;
           }
           if(_n!==1) throw new Error('server reported '+_n+' rows changed for one order — refusing to treat as success');
-          // Trace for the Validator when a warned duplicate was pushed through on a RESUBMIT.
-          if(saDupAck){ try{
-            const {data:h}=await sb.from('jobs').select('history').eq('id',jobId).single();
-            await sb.from('jobs').update({history:appendHist((h&&h.history)||'','Resubmitted with duplicate warning: '+saDupAck.pct+'% match with '+saDupAck.id+' (by '+myTeam+')')}).eq('id',jobId);
-          }catch(e){} }
         } else {
           jobId='WO-'+new Date().getFullYear()+'-'+Date.now().toString().slice(-6)+Math.random().toString(36).slice(2,5);
           const ins=Object.assign({id:jobId,service_type:'Installation',wait_time:'Just now',priority:'Normal',schedule:manilaDate()+', 9:00 AM',team:null,created_by:myTeam},fields);
-          // Leave a trace for the Validator when a warned duplicate was pushed through.
-          if(saDupAck) ins.history=appendHist('', (saDupAck.level==='block'
-            ? '🚨 DUPLICATE '+saDupAck.pct+'% — match with '+saDupAck.id+' (sales proceeded; VALIDATOR DECISION REQUIRED)'
-            : 'Encoded with duplicate warning: '+saDupAck.pct+'% match with '+saDupAck.id)+' (by '+myTeam+')');
           const {error}=await sb.from('jobs').insert(ins); if(error) throw error;
         }
+        // 🗂 Duplicate registry (owner 2026-11-12): tahimik, fire-and-forget — hindi
+        // naaantala ang submit at hindi nakikita ng encoder ang resulta.
+        try{ saDupLog(jobId, dupPayload, editing?'mobile-resubmit':'mobile'); }catch(_de){}
         // Phase 2B: HIWALAY na try ang documents — naka-save na ang JO sa puntong ito.
         // 4B-4 A1 (owner 2026-10-06): bawat file ay HIWALAY nang sinusubukan — ang isang
         // palyadong document ay hindi na pumipigil sa natitirang files/categories (dating
