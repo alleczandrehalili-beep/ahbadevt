@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-11-20.3';
+    const APP_VERSION = '2026-11-20.4';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -692,7 +692,7 @@
       // ang mga driver ay nasa dulo sa ilalim ng "Drivers (backup)" na separator.
       const dset=new Set(drivers);
       const techsMain=techsAll.filter(n=>!dset.has(n)), techsBackup=techsAll.filter(n=>dset.has(n));
-      // ★ Madalas gamitin (owner 2026-11-20): mula sa attendance history ng user
+      // ★ Suggestion (owner 2026-11-20): mula sa attendance history ng user
       // account na ito, ang mga pangalang madalas nilang idineklara ay inilalagay
       // sa PINAKAITAAS ng dropdown — hindi na nila hahanapin pa. Hanggang 3 bawat
       // role, dapat nasa roster pa rin (case-insensitive match sa canonical name).
@@ -724,9 +724,9 @@
         old.replaceWith(sel);
         if(cur && flat.includes(cur)) sel.value=cur;   // panatilihin ang prefill kung nasa listahan
       };
-      toSel('sf_driver',[{label:favD.length?'★ Madalas gamitin':'',list:favD},{label:favD.length?'Lahat ng drivers':'',list:drivers}],'— Select driver —');
-      toSel('sf_tech1',[{label:favT.length?'★ Madalas gamitin':'',list:favT},{label:favT.length?'Technicians':'',list:techsMain},{label:'Drivers (backup)',list:techsBackup}],'— Select technician —');
-      toSel('sf_tech2',[{label:favT.length?'★ Madalas gamitin':'',list:favT},{label:favT.length?'Technicians':'',list:techsMain},{label:'Drivers (backup)',list:techsBackup}],'— None —');
+      toSel('sf_driver',[{label:favD.length?'★ Suggestion':'',list:favD},{label:favD.length?'All drivers':'',list:drivers}],'— Select driver —');
+      toSel('sf_tech1',[{label:favT.length?'★ Suggestion':'',list:favT},{label:favT.length?'Technicians':'',list:techsMain},{label:'Drivers (backup)',list:techsBackup}],'— Select technician —');
+      toSel('sf_tech2',[{label:favT.length?'★ Suggestion':'',list:favT},{label:favT.length?'Technicians':'',list:techsMain},{label:'Drivers (backup)',list:techsBackup}],'— None —');
     }
 
     // ---------- sales agent ----------
