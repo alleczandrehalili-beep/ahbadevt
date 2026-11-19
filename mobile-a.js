@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-11-12.1';
+    const APP_VERSION = '2026-11-20.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -645,7 +645,47 @@
       const dw=$('#sf_driver_wrap'), t2w=$('#sf_tech2_wrap'), lab=$('#sf_tech1_label');
       if(dw) dw.style.display=omt?'none':''; if(t2w) t2w.style.display=omt?'none':'';
       if(lab) lab.textContent=omt?'Technician name *':'Technician 1 *';
+      shiftRosterApply();   // 📋 dropdowns kapag may crew_roster (fail-open kung wala)
       clearErr('#shiftErr'); show('shiftView');
+    }
+    // 📋 Crew roster dropdowns (owner 2026-11-20): kapag may crew_roster sa server,
+    // ang Driver / Technician 1 / Technician 2 ay nagiging dropdown — DRIVERS lang
+    // ang mapipili sa Driver, TECHNICIANS lang sa Tech 1/2. Hiwalay na masterlist
+    // bawat role (supabase-crew-roster.sql; ang taong pareho ang role ay dalawang
+    // row). FAIL-OPEN: kapag walang roster rows, offline, o hindi pa tumakbo ang
+    // SQL, nananatiling free-type ang fields — walang technician na maba-block.
+    let crewRoster=null;   // null = hindi pa nahihila · [] = wala/palya (free-type) · [...] = roster
+    async function shiftRosterApply(){
+      if(crewRoster===null){
+        try{
+          const {data,error}=await sb.from('crew_roster').select('name,role').eq('active',true).order('name');
+          crewRoster=(!error&&Array.isArray(data))?data:[];
+        }catch(e){ crewRoster=[]; }
+      }
+      if(!crewRoster.length) return;   // walang masterlist — manatili sa free-type
+      const names=role=>crewRoster.filter(r=>r.role===role&&r.name&&String(r.name).trim()).map(r=>String(r.name).trim());
+      const drivers=[...new Set(names('driver'))], techsAll=[...new Set(names('technician'))];
+      // Owner 2026-11-20: ang DRIVER/INSTALLER ay pwede sa pareho pero PRIORITY bilang
+      // driver — sa Technician dropdown, ang mga purong technician ang nasa itaas at
+      // ang mga driver ay nasa dulo sa ilalim ng "Drivers (backup)" na separator.
+      const dset=new Set(drivers);
+      const techsMain=techsAll.filter(n=>!dset.has(n)), techsBackup=techsAll.filter(n=>dset.has(n));
+      const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const toSel=(id,groups,ph)=>{
+        const flat=groups.flatMap(g=>g.list);
+        const old=$('#'+id); if(!old||!flat.length) return;
+        const cur=(old.value||'').trim();
+        const sel=document.createElement('select');
+        sel.id=id;
+        sel.innerHTML='<option value="">'+ph+'</option>'+groups.map(g=>
+          (g.label&&g.list.length?'<option value="" disabled>— '+esc(g.label)+' —</option>':'')
+          +g.list.map(n=>'<option>'+esc(n)+'</option>').join('')).join('');
+        old.replaceWith(sel);
+        if(cur && flat.includes(cur)) sel.value=cur;   // panatilihin ang prefill kung nasa listahan
+      };
+      toSel('sf_driver',[{list:drivers}],'— Select driver —');
+      toSel('sf_tech1',[{list:techsMain},{label:'Drivers (backup)',list:techsBackup}],'— Select technician —');
+      toSel('sf_tech2',[{list:techsMain},{label:'Drivers (backup)',list:techsBackup}],'— None —');
     }
 
     // ---------- sales agent ----------

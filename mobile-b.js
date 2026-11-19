@@ -859,6 +859,7 @@
       if(!acc){ showErr('#shiftErr','Select an account.'); return; }
       if(omt){ if(!t1){ showErr('#shiftErr','Technician name is required.'); return; } drv=t1; t2=''; }   // one-man team: technician also drives
       else { if(!drv){ showErr('#shiftErr','Driver is required.'); return; } if(!t1){ showErr('#shiftErr','Technician 1 is required.'); return; } }
+      if(t2 && t2===t1){ showErr('#shiftErr','Technician 2 must be a different person from Technician 1.'); return; }   // roster dropdowns (owner 2026-11-20)
       const btn=$('#shiftBtn'); btn.disabled=true; btn.textContent='Starting…';
       // make sure no other active team grabbed this account in the meantime
       try{
