@@ -198,16 +198,21 @@
       var isDx = !isTkt && /DOCSIS/i.test(dwellRaw);
       if(isDx && !s._dxInit){ s._dxInit=1; s.kit={conn:0,patch:0,tbox:0,sar:0,saf:0};
         s.focReel=''; s.focStart=''; s.focEnd=''; s.foc2On=false; s.foc2Reel=''; s.foc2End=''; }
+      // 📺 SLR ticket: OPTIONAL IPTV option din (owner 2026-11-20) — kung
+      // nagpalit/nagkabit ng IPTV mula sa inventory sa repair. Dalawang slot.
+      var tktIptv = (wlt==='SLR-TICKET');
       if(!Array.isArray(s.iptv)) s.iptv=[];
-      if(!is2) s.iptv=[];
+      if(!is2 && !tktIptv) s.iptv=[];
       slot.setAttribute('data-mounted','1');
       var iptvBlock;
       if(is2){
         iptvBlock = '<div style="font-weight:700;font-size:11px;color:#4a5c56;margin:2px 0 4px">Installed IPTV box'+(iptvn>1?'es · '+iptvn+' add-ons on the JO':'')+'</div><div class="wiptv-wrap" data-j="'+jid+'" data-n="'+iptvn+'"></div>';
+      } else if(tktIptv){
+        iptvBlock = '<div style="font-weight:700;font-size:11px;color:#4a5c56;margin:2px 0 4px">📺 IPTV <span style="font-weight:600;color:#8a9a94">(optional — kung nagpalit/nagkabit ng IPTV mula sa inventory)</span></div><div class="wiptv-wrap" data-j="'+jid+'" data-n="2"></div>';
       } else {
         iptvBlock = '<div style="font-size:11px;color:#8a9a94;margin:2px 0 8px">📶 1-PLAY · internet only — no IPTV for this JO</div>';
       }
-      if(isTkt && wlt!=='IPTV') iptvBlock='';
+      if(isTkt && wlt!=='IPTV' && !tktIptv) iptvBlock='';
       var kitRows = KIT.map(function(k){ var q=(s.kit&&s.kit[k[0]]!=null)?s.kit[k[0]]:k[2]; return '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #eef4f1"><span style="flex:1;font-size:11px;color:#4a5c56">'+k[1]+'</span><input type="number" inputmode="numeric" min="0" value="'+q+'" data-wf="kitq" data-kk="'+k[0]+'" data-j="'+jid+'" style="width:54px;padding:5px;text-align:center"></div>'; }).join('');
       slot.innerHTML=
         '<div style="border:1.5px solid #bfe6d5;background:#f6fcf9;border-radius:14px;padding:12px;margin-top:10px">'+
@@ -276,7 +281,7 @@
             ?'Declare at least ONE material — the job cannot be completed without it.'+(wlt==='IPTV'?' The installed IPTV box is REQUIRED.':'')+' Modem serial and FOC reel # are optional.'
             :'Only CPE issued to your team'+(acc.team_code?(' ('+acc.team_code+')'):'')+' appears here. REQUIRED — the job cannot be completed without this report.')+'</div>'+
         '</div>';
-      if(is2) mountIptv(jid);
+      if(is2||tktIptv) mountIptv(jid);
     });
   };
 
