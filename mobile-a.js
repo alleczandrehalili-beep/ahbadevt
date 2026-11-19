@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-11-20.2';
+    const APP_VERSION = '2026-11-20.3';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -626,11 +626,19 @@
         names=(data||[]).map(r=>r.name).filter(Boolean);
         (data||[]).forEach(r=>{ if(r.shared && r.name) sharedSet.add(r.name); });
       }catch(e){}
+      // 🔒 EXCLUSIVE locks (owner 2026-11-20): ang account na naka-lock sa IBANG
+      // user ay hindi mapipili — disabled na may "reserved" label. Account names
+      // lang ang ibinabalik ng RPC (hindi kung kanino), at may server-side
+      // trigger pa sa attendance bilang hard guard. Fail-open kung wala ang RPC.
+      const reserved=new Set();
+      try{ const {data:rv}=await sb.rpc('get_locked_accounts'); (rv||[]).forEach(a=>{ if(a) reserved.add(a); }); }catch(e){}
       // NO hardcoded fallback — an empty pool must stay empty; otherwise a subcon would leak the GC list.
       sel.innerHTML=names.length?'<option value="">— Select account —</option>':'<option value="">— Walang work account na naka-assign. Contact admin. —</option>';
       names.forEach(a=>{ const o=document.createElement('option'); o.value=a;
+        // Reserved (locked sa ibang team) ang pinakamataas na priyoridad — kahit shared pa ito.
+        if(reserved.has(a)){ o.textContent=a+' — 🔒 reserved'; o.disabled=true; }
         // Shared accounts can be used by multiple devices at once — never disabled, even if another team is on it.
-        if(taken[a] && !sharedSet.has(a)){ o.textContent=a+' — in use'; o.disabled=true; }
+        else if(taken[a] && !sharedSet.has(a)){ o.textContent=a+' — in use'; o.disabled=true; }
         else if(sharedSet.has(a)){ o.textContent=a+(taken[a]?' — shared (in use)':' — shared'); }
         else { o.textContent=a; }
         sel.appendChild(o); });
@@ -684,6 +692,25 @@
       // ang mga driver ay nasa dulo sa ilalim ng "Drivers (backup)" na separator.
       const dset=new Set(drivers);
       const techsMain=techsAll.filter(n=>!dset.has(n)), techsBackup=techsAll.filter(n=>dset.has(n));
+      // ★ Madalas gamitin (owner 2026-11-20): mula sa attendance history ng user
+      // account na ito, ang mga pangalang madalas nilang idineklara ay inilalagay
+      // sa PINAKAITAAS ng dropdown — hindi na nila hahanapin pa. Hanggang 3 bawat
+      // role, dapat nasa roster pa rin (case-insensitive match sa canonical name).
+      // Fail-open: palyadong history fetch = walang suggestions, normal ang lista.
+      let favD=[], favT=[];
+      try{
+        const {data:hist}=await sb.from('attendance').select('crew_driver,crew_tech1,crew_tech2').eq('username',myTeam).order('work_date',{ascending:false}).limit(30);
+        const cnt={};
+        (hist||[]).forEach(a=>[a.crew_driver,a.crew_tech1,a.crew_tech2].forEach((n,i)=>{
+          n=String(n||'').trim().toUpperCase(); if(!n) return;
+          const k=(i===0?'D:':'T:')+n; cnt[k]=(cnt[k]||0)+1;
+        }));
+        // Pantay na bilang → mas bago ang nauuna (insertion order mula sa desc history + stable sort)
+        const top=p=>Object.keys(cnt).filter(k=>k.startsWith(p)).sort((a,b)=>cnt[b]-cnt[a]).map(k=>k.slice(2));
+        const canon=(list,n)=>list.find(x=>x.toUpperCase()===n);
+        favD=top('D:').map(n=>canon(drivers,n)).filter(Boolean).slice(0,3);
+        favT=top('T:').map(n=>canon(techsAll,n)).filter(Boolean).slice(0,3);
+      }catch(e){}
       const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       const toSel=(id,groups,ph)=>{
         const flat=groups.flatMap(g=>g.list);
@@ -697,9 +724,9 @@
         old.replaceWith(sel);
         if(cur && flat.includes(cur)) sel.value=cur;   // panatilihin ang prefill kung nasa listahan
       };
-      toSel('sf_driver',[{list:drivers}],'— Select driver —');
-      toSel('sf_tech1',[{list:techsMain},{label:'Drivers (backup)',list:techsBackup}],'— Select technician —');
-      toSel('sf_tech2',[{list:techsMain},{label:'Drivers (backup)',list:techsBackup}],'— None —');
+      toSel('sf_driver',[{label:favD.length?'★ Madalas gamitin':'',list:favD},{label:favD.length?'Lahat ng drivers':'',list:drivers}],'— Select driver —');
+      toSel('sf_tech1',[{label:favT.length?'★ Madalas gamitin':'',list:favT},{label:favT.length?'Technicians':'',list:techsMain},{label:'Drivers (backup)',list:techsBackup}],'— Select technician —');
+      toSel('sf_tech2',[{label:favT.length?'★ Madalas gamitin':'',list:favT},{label:favT.length?'Technicians':'',list:techsMain},{label:'Drivers (backup)',list:techsBackup}],'— None —');
     }
 
     // ---------- sales agent ----------
