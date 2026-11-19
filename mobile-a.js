@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-11-20.1';
+    const APP_VERSION = '2026-11-20.2';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -637,6 +637,20 @@
       // No auto-select of the account — the user must pick it manually each login.
       // (Crew names may prefill for convenience, but the account is always left blank.)
       sel.value='';
+      sel.disabled=false;
+      // 🔒 Auto-assigned work account (owner 2026-11-20): kapag may assignment ang
+      // user na ito sa work_account_locks (sariling row lang ang nababasa via RLS),
+      // awtomatikong napipili ang account; kapag LOCKED, hindi na mapapalitan.
+      // Fail-open: kapag wala pa ang SQL, offline, o wala sa active pool ang
+      // naka-assign na account — normal na malayang pagpili, walang maba-block.
+      try{
+        const {data:wl}=await sb.from('work_account_locks').select('account,locked').limit(1);
+        const asg=(wl&&wl[0])||null;
+        if(asg && asg.account && names.includes(asg.account)){
+          sel.value=asg.account;
+          if(asg.locked) sel.disabled=true;
+        }
+      }catch(e){}
       try{ const s=JSON.parse(localStorage.getItem(shiftKey())||'null');
         if(s && s.date===manilaDate()){ $('#sf_driver').value=s.driver||''; $('#sf_tech1').value=s.tech1||''; $('#sf_tech2').value=s.tech2||''; }
       }catch(e){}
