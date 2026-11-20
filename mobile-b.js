@@ -78,13 +78,15 @@
     const photosReqFor = job => photoLabelsFor(job).length;
     const relaxedPay = job => !!(job&&PHOTO_LABELS_BY_TYPE[job.load_type]);   // Transfer/IPTV: optional ang payment
     // Bilangin lang ang mga label na kasama sa checklist ng MISMONG load type na ito.
-    const photoCount = id => { const L=photoLabelsFor(jobById(id)); const d=labelsDone(id); return L.filter(l=>d.has(l)).length; };
+    // FIX 2026-11-20 (slot #10 bug): i-canonicalize DIN ang checklist label sa paghahambing —
+    // ang v1 (grandfathered) na "GUI SCREENSHOT" slot ay tumutugma na sa canon na "ONU" labels.
+    const photoCount = id => { const L=photoLabelsFor(jobById(id)); const d=labelsDone(id); return L.filter(l=>d.has(canonLabel(l))).length; };
     function photoSlots(id){
       const LABELS=photoLabelsFor(jobById(id)), REQ=LABELS.length;
       const byLabel={}; jobPhotos(id).forEach(p=>{ const cl=canonLabel(p.label); if(cl)(byLabel[cl]=byLabel[cl]||[]).push(p.path); });
       const done=LABELS.filter(l=>byLabel[l]&&byLabel[l].length).length;
       const rows=LABELS.map((l,i)=>{
-        const arr=byLabel[l]||[]; const has=arr.length>0; const lab=l.replace(/"/g,'&quot;');
+        const arr=byLabel[canonLabel(l)]||[]; const has=arr.length>0; const lab=l.replace(/"/g,'&quot;');   // FIX: canon ang slot label (v1 GUI slot ↔ canon ONU photos)
         const thumb=has?`<div class="thumbs">${arr.map(p=>`<span style="position:relative;display:inline-block"><img src="${pubUrl(p)}" alt="" loading="lazy" decoding="async"><button type="button" data-delp="${p}" data-deljob="${id}" title="Delete" style="position:absolute;top:-6px;right:-6px;background:#c2503a;color:#fff;border:0;border-radius:50%;width:19px;height:19px;font-size:11px;line-height:1;padding:0">✕</button></span>`).join('')}</div>`:'';   // lazy: 25 thumbs ay hindi na sabay-sabay nagda-download (owner 2026-11-20 perf)
         return `<div class="pslot ${has?'done':''}"><div class="pslot-head"><span>${i+1}. ${l}</span><span class="pchk ${has?'ok':'need'}">${has?'✓':'•'}</span></div>${thumb}<div style="display:flex;gap:6px;margin-top:6px"><label class="addphoto pmini">${svg('camera')} Camera<input type="file" accept="image/*" capture="environment" hidden data-up="${id}" data-label="${lab}"></label><label class="addphoto pmini">${svg('note')} Album<input type="file" accept="image/*" hidden data-up="${id}" data-label="${lab}"></label></div></div>`;
       }).join('');
