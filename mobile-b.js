@@ -62,23 +62,30 @@
     }
     let gcNotes={};   // jobId -> Validator/Dispatcher internal remark (AHBA techs only)
     const jobPhotos = id => (photoData[id]||[]);
-    const labelsDone = id => new Set(jobPhotos(id).map(p=>p.label).filter(Boolean));
-    // Per-load-type photo checklist: Transfer/IPTV = 3 lang; lahat ng iba = buong 12.
+    // Legacy alias (QAP12): ang dating GUI-SCREENSHOT uploads ay bilang sa ONU slot
+    const canonLabel = l => PHOTO_LABEL_ALIAS[l]||l;
+    const labelsDone = id => new Set(jobPhotos(id).map(p=>canonLabel(p.label)).filter(Boolean));
+    // Per-load-type photo checklist: Transfer/IPTV = 3 lang; lahat ng iba = buong 25
+    // (o 15 para sa mga JO na na-load bago ang PHOTO_V2_CUTOFF — grandfather rule).
     const jobById = id => jobs.find(j=>j.id===id);
     // ↩ Ibinalik ng QA at hindi pa na-re-complete (trigger ang nagse-set ng qa_return_resolved_at).
     const isQaReturned = j => !!(j && j.qa_returned_at && !j.qa_return_resolved_at);
-    const photoLabelsFor = job => (job&&PHOTO_LABELS_BY_TYPE[job.load_type])||PHOTO_LABELS;
+    const photoLabelsFor = job => {
+      if(job && PHOTO_LABELS_BY_TYPE[job.load_type]) return PHOTO_LABELS_BY_TYPE[job.load_type];
+      const ld=job&&job.load_date?String(job.load_date).slice(0,10):'';
+      return (ld && ld<PHOTO_V2_CUTOFF) ? PHOTO_LABELS_V1 : PHOTO_LABELS;
+    };
     const photosReqFor = job => photoLabelsFor(job).length;
     const relaxedPay = job => !!(job&&PHOTO_LABELS_BY_TYPE[job.load_type]);   // Transfer/IPTV: optional ang payment
     // Bilangin lang ang mga label na kasama sa checklist ng MISMONG load type na ito.
     const photoCount = id => { const L=photoLabelsFor(jobById(id)); const d=labelsDone(id); return L.filter(l=>d.has(l)).length; };
     function photoSlots(id){
       const LABELS=photoLabelsFor(jobById(id)), REQ=LABELS.length;
-      const byLabel={}; jobPhotos(id).forEach(p=>{ if(p.label)(byLabel[p.label]=byLabel[p.label]||[]).push(p.path); });
+      const byLabel={}; jobPhotos(id).forEach(p=>{ const cl=canonLabel(p.label); if(cl)(byLabel[cl]=byLabel[cl]||[]).push(p.path); });
       const done=LABELS.filter(l=>byLabel[l]&&byLabel[l].length).length;
       const rows=LABELS.map((l,i)=>{
         const arr=byLabel[l]||[]; const has=arr.length>0; const lab=l.replace(/"/g,'&quot;');
-        const thumb=has?`<div class="thumbs">${arr.map(p=>`<span style="position:relative;display:inline-block"><img src="${pubUrl(p)}" alt=""><button type="button" data-delp="${p}" data-deljob="${id}" title="Delete" style="position:absolute;top:-6px;right:-6px;background:#c2503a;color:#fff;border:0;border-radius:50%;width:19px;height:19px;font-size:11px;line-height:1;padding:0">✕</button></span>`).join('')}</div>`:'';
+        const thumb=has?`<div class="thumbs">${arr.map(p=>`<span style="position:relative;display:inline-block"><img src="${pubUrl(p)}" alt="" loading="lazy" decoding="async"><button type="button" data-delp="${p}" data-deljob="${id}" title="Delete" style="position:absolute;top:-6px;right:-6px;background:#c2503a;color:#fff;border:0;border-radius:50%;width:19px;height:19px;font-size:11px;line-height:1;padding:0">✕</button></span>`).join('')}</div>`:'';   // lazy: 25 thumbs ay hindi na sabay-sabay nagda-download (owner 2026-11-20 perf)
         return `<div class="pslot ${has?'done':''}"><div class="pslot-head"><span>${i+1}. ${l}</span><span class="pchk ${has?'ok':'need'}">${has?'✓':'•'}</span></div>${thumb}<div style="display:flex;gap:6px;margin-top:6px"><label class="addphoto pmini">${svg('camera')} Camera<input type="file" accept="image/*" capture="environment" hidden data-up="${id}" data-label="${lab}"></label><label class="addphoto pmini">${svg('note')} Album<input type="file" accept="image/*" hidden data-up="${id}" data-label="${lab}"></label></div></div>`;
       }).join('');
       // Owner 2026-10-13: TINANGGAL ang bulk "Quick upload" — bawat slot ay isa-isang
@@ -127,7 +134,7 @@
       const _ald=job.load_date?String(job.load_date).slice(0,10):'';
       if(_ald && _ald>manilaDate()){ toast('📅 Scheduled for '+_ald+' — locked until that day.'); return; }
       if(next==='completed'){
-        const REQ=photosReqFor(job);   // Transfer/IPTV = 3 lang; iba = 15
+        const REQ=photosReqFor(job);   // Transfer/IPTV = 3 lang; iba = 25 (15 kung bago ang cutoff — grandfathered)
         if(photoCount(id)<REQ){ toast(`Attach ${REQ} photos first (${photoCount(id)}/${REQ})`); return; }
         if(isQaReturned(job)){ recompleteReturned(id); return; }   // ↩ ibinalik ng QA: picture lang — light path
         openComplete(id); return;   // capture payment before completing

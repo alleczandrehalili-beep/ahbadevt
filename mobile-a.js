@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-11-20.6';
+    const APP_VERSION = '2026-11-20.7';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -48,9 +48,40 @@
     let saDocs = {id:[], billing:[], premise:[]};
     const saStatus = {};   // jobId -> last known status (for sales realtime change detection)
     const headerName = () => myRole==='sales_agent' ? (myTeam+' · '+(myName||'Sales')) : (myName?(myTeam+' · '+myName):myTeam);
-    // Owner 2026-10-08: bagong 15-photo completion checklist (pinalitan ang dating 12).
-    // Ang ORDER dito ang order ng slots sa app (1→15) — sinusunod ang opisyal na listahan.
+    // Owner 2026-11-20: bagong 25-photo completion checklist (QAP01–QAP25, pinalitan
+    // ang dating 15). Ang ORDER dito ang order ng slots sa app (1→25) — opisyal na lista.
+    // GRANDFATHER RULE: ang mga JO na na-load BAGO ang PHOTO_V2_CUTOFF ay nananatili
+    // sa lumang 15 (para walang team na maipit sa kalagitnaan, at ang mga QA-returned
+    // na lumang JO ay hindi obligadong magdagdag ng 10 bagong photos).
     const PHOTO_LABELS = [
+      'SAR / SUBS ACCEPTANCE REPORT (ALL REQUIRED FIELDS FILLED)',          // QAP01
+      'MODEM SERIAL NUMBER (AT THE BOTTOM)',                                // QAP02
+      'SPEED TEST WITH CLIENT / SUBSCRIBER',                                // QAP03
+      'NAP STENCIL',                                                        // QAP04
+      'NAP OPTICAL POWER READING (SC/APC/UPC PATCH CORD)',                  // QAP05
+      'NAP CONDITION - BEFORE PATCHING',                                    // QAP06
+      'NAP CONDITION - AFTER PATCHING (THERMAL TAGGING VISIBLE)',           // QAP07
+      'ACCOUNT LOOKUP - BEFORE',                                            // QAP08
+      'ACCOUNT LOOKUP - AFTER',                                             // QAP09
+      'NIU OPTICAL POWER READING (CLEAR OPM + THERMAL TAGGING VISIBLE)',    // QAP10
+      'NIU LOOPING (INSIDE)',                                               // QAP11
+      'OPTICAL POWER READING - ONU SCREENSHOT',                             // QAP12 (dating GUI SCREENSHOT — may legacy alias)
+      'MODEM & NIU LOCATION - CLOSE-UP VIEW',                               // QAP13
+      'MODEM & NIU LOCATION - WIDE VIEW',                                   // QAP14
+      'SUBSCRIBER HOUSE / DOOR LATITUDE & LONGITUDE',                       // QAP15
+      'HOUSE BRACKET / CABLE ATTACHMENT POINT',                             // QAP16
+      'LAST POLE / MID-SPAN INSTALLATION POINT',                            // QAP17
+      'REEL NO. (BEFORE AND END OF FIBER WIRE)',                            // QAP18
+      'NAP LOCATION',                                                       // QAP19
+      'J-HOOK WITH S-CLAMP',                                                // QAP20
+      'MAINTENANCE LOOP (LOOPING ABOVE THE NAP)',                           // QAP21
+      'ACTIVATION SCREENSHOT W/ PORT ASSIGNED',                             // QAP22
+      'ACCOUNT LOOKUP SCREENSHOT - REGISTERED PORT',                        // QAP23
+      'ACCOUNT LOOKUP SCREENSHOT - UPLOADED PHOTO',                         // QAP24
+      'SUBS LOCATION W/ MAPS.ME'                                            // QAP25
+    ];
+    // Lumang 15-photo list (v1) — gamit pa rin ng mga JO na na-load bago ang cutoff
+    const PHOTO_LABELS_V1 = [
       'SAR / SUBS ACCEPTANCE REPORT (ALL REQUIRED FIELDS FILLED)',
       'MODEM SERIAL NUMBER (AT THE BOTTOM)',
       'SPEED TEST WITH CLIENT / SUBSCRIBER',
@@ -67,6 +98,10 @@
       'HOUSE BRACKET / CABLE ATTACHMENT POINT',
       'LAST POLE / MID-SPAN INSTALLATION POINT'
     ];
+    const PHOTO_V2_CUTOFF = '2026-11-21';   // load_date ≥ dito = 25-photo checklist
+    // Legacy label alias: ang dating "GUI SCREENSHOT" uploads ay bilang pa rin sa
+    // bagong "ONU SCREENSHOT" slot (parehong photo ito, pangalan lang ang nagbago).
+    const PHOTO_LABEL_ALIAS = { 'OPTICAL POWER READING - GUI SCREENSHOT': 'OPTICAL POWER READING - ONU SCREENSHOT' };
     const PHOTOS_REQUIRED = PHOTO_LABELS.length;
     // Bawas-restriction para sa bagong console-encoded load types — hindi angkop sa kanila
     // ang 15 SLI-install photo slots. 3 photos lang bawat isa; optional din ang payment.
