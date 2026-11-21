@@ -27,6 +27,16 @@ function findSheet_() {
   return first;
 }
 
+// The last row that actually carries a JO. sh.getLastRow() is NOT that: the tab is an IMPORTRANGE mirror with helper columns and
+// formatting far below the data (2026-11-21: data ended at row 7,029, getLastRow() pointed ~26,000 rows lower), so a tail window
+// taken from getLastRow() read only blank rows and every run logged "sent 0 rows" for 26 days. One column read, cheap.
+function lastDataRow_(sh, iJo, lastRow) {
+  if (lastRow < 2) return lastRow;
+  var col = sh.getRange(2, iJo + 1, lastRow - 1, 1).getValues();
+  for (var r = col.length - 1; r >= 0; r--) { if (String(col[r][0] == null ? '' : col[r][0]).trim() !== '') return r + 2; }
+  return 1;
+}
+
 function hasQaHeaders_(sh) {
   var lastCol = sh.getLastColumn();
   if (lastCol < 1) return false;
@@ -56,6 +66,8 @@ function runSync_(mode, skipIngest) {
   var hdr = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h || '').trim(); });
   var iClosed = hdr.indexOf('JODATECLOSED'), iJo = hdr.indexOf('JONO');
   if (iJo < 0 || iClosed < 0) throw new Error('Missing JONO or JODATECLOSED column in ' + sh.getName() + ' — sync stopped');
+  lastRow = lastDataRow_(sh, iJo, lastRow);   // the tail window must end at the last JO, not at the last formatted/helper row
+  if (lastRow < 2) return { ok: true, mode: mode, rows: 0, sent: 0, created: 0 };
   // Rows are appended chronologically, so only the tail can hold the last WINDOW_DAYS; reading the whole tab (20k+ rows) every 15 min would burn the account's daily script quota.
   // 'full' pays that cost on purpose — it is the manual "Full re-scan" for rows the tail/date window would never reach.
   var start = mode === 'full' ? 2 : Math.max(2, lastRow - TAIL_ROWS + 1);
