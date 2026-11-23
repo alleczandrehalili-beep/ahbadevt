@@ -860,6 +860,19 @@
       return false;
     }
 
+    // Pwede bang simulan ang shift sa account na ito? Hinaharang lang kapag may ibang
+    // AKTIBONG team na gumagamit ngayon AT hindi naka-mark na shared sa work_accounts.
+    // Fail-open sa network error — gaya ng dating gawi, hindi dapat maipit ang shift.
+    async function waCanStart(acc){
+      try{
+        const {data}=await sb.from('attendance').select('username').eq('work_date',manilaDate()).eq('work_account',acc).is('time_out',null).neq('username',myTeam);
+        if(!(data && data.length)) return {ok:true};
+        let shared=false;
+        try{ const {data:wa}=await sb.from('work_accounts').select('shared').eq('name',acc).eq('active',true).limit(1); shared=!!(wa&&wa[0]&&wa[0].shared); }catch(e){}
+        return shared ? {ok:true} : {ok:false, by:data[0].username};
+      }catch(e){ return {ok:true}; }
+    }
+
     $('#shiftForm').addEventListener('submit', async e=>{
       e.preventDefault(); clearErr('#shiftErr');
       const omt=/OMT/i.test(myTeam||'');
@@ -870,11 +883,11 @@
       else { if(!drv){ showErr('#shiftErr','Driver is required.'); return; } if(!t1){ showErr('#shiftErr','Technician 1 is required.'); return; } }
       if(t2 && t2===t1){ showErr('#shiftErr','Technician 2 must be a different person from Technician 1.'); return; }   // roster dropdowns (owner 2026-11-20)
       const btn=$('#shiftBtn'); btn.disabled=true; btn.textContent='Starting…';
-      // make sure no other active team grabbed this account in the meantime
-      try{
-        const {data}=await sb.from('attendance').select('username').eq('work_date',manilaDate()).eq('work_account',acc).is('time_out',null).neq('username',myTeam);
-        if(data && data.length){ btn.disabled=false; btn.textContent='Start shift'; showErr('#shiftErr','Account '+acc+' is already in use by '+data[0].username+'. Please pick another.'); openShift(); return; }
-      }catch(e){}
+      // make sure no other active team grabbed this account in the meantime —
+      // MALIBAN kapag SHARED (multi-device) ang account: pwede itong gamitin nang
+      // SABAY ng magkakahiwalay na device/team (owner 2026-11-23).
+      const chk=await waCanStart(acc);
+      if(!chk.ok){ btn.disabled=false; btn.textContent='Start shift'; showErr('#shiftErr','Account '+acc+' is already in use by '+chk.by+'. Please pick another.'); openShift(); return; }
       shiftAccount=acc; shiftDriver=drv; shiftTech1=t1; shiftTech2=t2;
       try{ localStorage.setItem(shiftKey(), JSON.stringify({date:manilaDate(),account:acc,driver:drv,tech1:t1,tech2:t2})); }catch(e){}
       // record the shift on today's open attendance row → dashboard + account lock
