@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-11-23.1';
+    const APP_VERSION = '2026-11-25.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -769,7 +769,7 @@
     }
 
     // ---------- sales agent ----------
-    function startSA(){ $('#teamName').textContent=headerName(); show('saView'); saSwitch('new'); saRenderDocs(); populatePlans(); toggleAddonCount(); startComms(); primeSalesStatus(); startSalesWatch(); saLoadSecReq(); const dsel=$('#sa_district'); if(dsel&&!dsel._wired){ dsel._wired=true; dsel.onchange=()=>populateSaBrgys(dsel.value); } }
+    function startSA(){ $('#teamName').textContent=headerName(); show('saView'); saSwitch('new'); saRenderDocs(); populatePlans(); toggleAddonCount(); startComms(); primeSalesStatus(); startSalesWatch(); saLoadSecReq(); saApplyMode(); saBrgyWire(); const dsel=$('#sa_district'); if(dsel&&!dsel._wired){ dsel._wired=true; dsel.onchange=()=>populateSaBrgys(dsel.value); } }
     // Owner 2026-11-05: Secondary contact no. ay MANDATORY sa encoding — laging
     // required sa GC agents (AHBA_*), at per-contractor via orgs flag sa server
     // (my_secondary_contact_required RPC). saSecReq null = RPC hindi pa sumagot
@@ -964,6 +964,54 @@
 "5":["Bagbag","Capri","Fairview","Gulod","Greater Lagro","Kaligayahan","Nagkaisang Nayon","North Fairview","Novaliches Proper","Pasong Putik Proper","San Agustin","San Bartolome","Sta. Lucia","Sta. Monica"],
 "6":["Apolonio Samson","Baesa","Balon Bato","Culiat","New Era","Pasong Tamo","Sangandaan","Sauyo","Talipapa","Tandang Sora","Unang Sigaw"]
 };
+    // ── GC Sales SHORT FORM (owner 2026-11-25): SDU/MDU FTTH = pinaikling encoding;
+    // MDU DOCSIS o subcon = ang buong dating form. Barangay ay type-ahead na may
+    // typo-autocorrect, at ang District ay awtomatikong hinahango mula sa barangay.
+    const QC_BRGY_DISTRICT=(()=>{ const m={}; Object.keys(QC_BRGYS).forEach(d=>QC_BRGYS[d].forEach(b=>{ m[String(b).toUpperCase()]=String(d); })); return m; })();
+    function saLev(a2,b2){ a2=String(a2);b2=String(b2); const al=a2.length,bl=b2.length;
+      if(Math.abs(al-bl)>3) return 9;
+      let prev=Array.from({length:bl+1},(_,i)=>i);
+      for(let i=1;i<=al;i++){ const cur=[i];
+        for(let j=1;j<=bl;j++) cur[j]=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+(a2[i-1]===b2[j-1]?0:1));
+        prev=cur; }
+      return prev[bl]; }
+    function saBrgySuggest(q,limit){
+      q=String(q||'').toUpperCase().trim(); if(!q) return [];
+      const all=Object.keys(QC_BRGY_DISTRICT);
+      const out=all.filter(b=>b.startsWith(q));
+      all.forEach(b=>{ if(!b.startsWith(q)&&b.includes(q)) out.push(b); });
+      if(!out.length) all.map(b=>[saLev(q,b),b]).filter(x=>x[0]<=3).sort((x,y)=>x[0]-y[0]).forEach(x=>out.push(x[1]));
+      return out.slice(0,limit||6); }
+    function saBrgyResolve(q){
+      const Q=String(q||'').toUpperCase().trim(); if(!Q) return null;
+      if(QC_BRGY_DISTRICT[Q]) return Q;
+      const s=saBrgySuggest(Q,2);
+      if(s.length===1) return s[0];
+      if(s.length&&saLev(Q,s[0])<=2) return s[0];
+      return null; }
+    function saIsGc(){ return /^AHBA_/i.test(myTeam||''); }
+    function saShortMode(){ const dw=($('#sa_dwelling')&&$('#sa_dwelling').value)||'SDU'; return saIsGc() && dw!=='MDU DOCSIS'; }
+    function saApplyMode(){
+      const pane=$('#saNew'); if(!pane) return;
+      pane.classList.toggle('sa-short', saShortMode());
+      const pd=$('#sa_pref_date'); if(pd){ if(!pd.value) pd.value=manilaDate(); pd.min=manilaDate(); }
+    }
+    function saBrgyPick(b){
+      const inp=$('#sa_brgy_type'); if(inp) inp.value=b;
+      const d=$('#sa_district_auto'); if(d) d.value=QC_BRGY_DISTRICT[b]?('District '+QC_BRGY_DISTRICT[b]):'';
+      const sug=$('#sa_brgy_sug'); if(sug) sug.innerHTML='';
+    }
+    function saBrgyWire(){
+      const inp=$('#sa_brgy_type'); if(!inp||inp._wired) return; inp._wired=true;
+      inp.addEventListener('input',()=>{
+        const canon=QC_BRGY_DISTRICT[inp.value.toUpperCase().trim()];
+        const d=$('#sa_district_auto'); if(d) d.value=canon?('District '+canon):'';
+        const sug=$('#sa_brgy_sug'); if(!sug) return;
+        const list=canon?[]:saBrgySuggest(inp.value,6);
+        sug.innerHTML=list.map(b=>'<button type="button" class="brgy-chip" data-brgy="'+b+'">'+b+'</button>').join('');
+        sug.querySelectorAll('[data-brgy]').forEach(x=>x.onclick=()=>saBrgyPick(x.dataset.brgy));
+      });
+    }
     function populateSaBrgys(dist){
       const sel=$('#sa_brgy'); if(!sel) return;
       // ALL CAPS na ang sinasave ng form, kaya ALL CAPS din ang mga option — kung hindi,
@@ -995,6 +1043,10 @@
       const svb=$('#saValBanner'); if(svb){svb.style.display='none';svb.innerHTML='';}
       ['first_name','middle_name','last_name','birth_date','primary_no','other_contact_no','house_no','street_name','village','ref_no','amount','source_of_sales','referral_name','special_note'].forEach(k=>{const el=$('#sa_'+k);if(el)el.value='';});
       if(typeof saDupClear==='function') saDupClear();
+      ['brgy_type','district_auto'].forEach(k=>{const el=$('#sa_'+k);if(el)el.value='';});
+      if($('#sa_brgy_sug')) $('#sa_brgy_sug').innerHTML='';
+      const _pd=$('#sa_pref_date'); if(_pd) _pd.value=manilaDate();
+      if(typeof saApplyMode==='function') saApplyMode();
       if($('#sa_district')) $('#sa_district').value=''; populateSaBrgys('');
       if($('#sa_city')) $('#sa_city').value='QUEZON CITY';
       if($('#sa_dwelling')) $('#sa_dwelling').value='SDU'; if($('#sa_install_fee')) $('#sa_install_fee').value='One Time Payment';
@@ -1250,6 +1302,9 @@
         if($('#sa_city')) $('#sa_city').value=j.city||'QUEZON CITY';
         if($('#sa_dwelling')) $('#sa_dwelling').value=(['MDU','MDU DOCSIS'].includes(j.dwelling_type)?j.dwelling_type:'SDU');
         populatePlans(); if($('#sa_plan')) $('#sa_plan').value=j.plan||'';
+        if($('#sa_brgy_type')) saBrgyPick(String(j.brgy||'').toUpperCase());
+        if($('#sa_pref_date')) $('#sa_pref_date').value=(/^\d{4}-\d{2}-\d{2}$/.test(String(j.schedule||''))?j.schedule:manilaDate());
+        saApplyMode();
         if($('#sa_addon')) $('#sa_addon').value=j.add_on||'';
         set('ref_no',j.ref_no);
         if($('#sa_play_type')) $('#sa_play_type').value=j.play_type||'1-PLAY';
@@ -1299,7 +1354,20 @@
       // Email is NOT uppercased (case matters in the local part) — read raw, lowercased.
       const email=($('#sa_email')?$('#sa_email').value.trim().toLowerCase():'');
       const fn=v('sa_first_name'), ln=v('sa_last_name'), dist=v('sa_district'), brgy=v('sa_brgy'), city=v('sa_city')||'QUEZON CITY', pno=v('sa_primary_no'), ono=v('sa_other_contact_no');
-      if(!fn||!ln||!pno||!dist||!brgy){ showErr('#saErr','Please fill: first & last name, primary no., district, and barangay.'); return; }
+      // SHORT FORM (GC Sales, SDU/MDU FTTH): mas kaunting required — ang natanggal ay
+      // ide-edit na lang ng dispatcher/console pagkatapos ng validation (owner 2026-11-25).
+      const shortMode=saShortMode();
+      let shortBrgy='', shortDist='', shortPref='';
+      if(shortMode){
+        shortPref=($('#sa_pref_date')?$('#sa_pref_date').value:'')||manilaDate();
+        const canon=saBrgyResolve($('#sa_brgy_type')?$('#sa_brgy_type').value:'');
+        if(!fn||!ln){ showErr('#saErr','Please fill: first & last name.'); return; }
+        if(!v('sa_street_name')){ showErr('#saErr','Street name is required.'); return; }
+        if(!canon){ showErr('#saErr','Barangay not recognized — type it and pick from the suggestions.'); return; }
+        shortBrgy=canon; shortDist=QC_BRGY_DISTRICT[canon]||'';
+        if(shortPref<manilaDate()){ showErr('#saErr','Preferred installation date cannot be in the past.'); return; }
+      }
+      if(!shortMode && (!fn||!ln||!pno||!dist||!brgy)){ showErr('#saErr','Please fill: first & last name, primary no., district, and barangay.'); return; }
       if(!email){ showErr('#saErr','Email address is required.'); return; }
       if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ showErr('#saErr','Enter a valid email address (name@email.com).'); return; }
       if(!/^\d{11}$/.test(pno)){ showErr('#saErr','Primary no. must be exactly 11 digits (numbers only).'); return; }
@@ -1308,13 +1376,13 @@
       // GC agent (laging on) o naka-ON ang contractor flag. Resubmit ng rejected na
       // lumang order = hindi hinaharang (parehong patakaran ng birth_date).
       if(saSecReq===null){ try{ await saLoadSecReq(); }catch(_e){} }
-      if(!editing && saSecReqNow() && !ono){ showErr('#saErr','Secondary contact no. is required (11 digits).'); return; }
+      if(!editing && !shortMode && saSecReqNow() && !ono){ showErr('#saErr','Secondary contact no. is required (11 digits).'); return; }
       if(ono && !/^\d{11}$/.test(ono)){ showErr('#saErr','Secondary contact no. must be 11 digits (numbers only).'); return; }
       // Date of birth: required on NEW encodes; optional on edit/resubmit (old JOs predate the field).
       const bday=($('#sa_birth_date')?$('#sa_birth_date').value.trim():'');
-      if(!editing && !bday){ showErr('#saErr','Date of birth is required.'); return; }
+      if(!editing && !shortMode && !bday){ showErr('#saErr','Date of birth is required.'); return; }
       if(bday && bday>manilaDate()){ showErr('#saErr','Date of birth cannot be in the future.'); return; }
-      if(v('sa_play_type')==='2-PLAY' && !v('sa_addon_count')){ showErr('#saErr','For 2-PLAY, select how many add-ons are included.'); return; }
+      if(!shortMode && v('sa_play_type')==='2-PLAY' && !v('sa_addon_count')){ showErr('#saErr','For 2-PLAY, select how many add-ons are included.'); return; }
       if(!editing && !saDocs.id.length){ showErr('#saErr','A Valid ID photo is required.'); return; }
       const btn=$('#saSubmit'); btn.disabled=true; btn.textContent=editing?'Resubmitting…':'Submitting…';
       // Owner 2026-11-12: WALANG duplicate gate sa sales encoder — lahat ng encode ay
@@ -1324,15 +1392,18 @@
       const dupPayload={first:fn,middle:v('sa_middle_name'),last:ln,birth:bday||null,
         primary:pno,ocn:ono,email:email,
         house:v('sa_house_no'),street:v('sa_street_name'),village:v('sa_village'),
-        brgy:brgy,district:dist};
+        brgy:shortMode?shortBrgy:brgy,district:shortMode?shortDist:dist};
       const full=[fn,v('sa_middle_name'),ln].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
-      const addr=[v('sa_house_no'),v('sa_street_name'),v('sa_village'),brgy,'District '+dist,city].filter(Boolean).join(', ');
+      const addr=[v('sa_house_no'),v('sa_street_name'),v('sa_village'),(shortMode?shortBrgy:brgy),'District '+(shortMode?shortDist:dist),city].filter(Boolean).join(', ');
       const fields={subscriber:full,plan:v('sa_plan'),ref_no:v('sa_ref_no'),area:city,address:addr,status:'for_validation',
         first_name:fn,middle_name:v('sa_middle_name'),last_name:ln,primary_no:pno,other_contact_no:v('sa_other_contact_no'),email:email,
-        house_no:v('sa_house_no'),street_name:v('sa_street_name'),village:v('sa_village'),district:dist,brgy:brgy,city:city,
+        house_no:v('sa_house_no'),street_name:v('sa_street_name'),village:v('sa_village'),district:(shortMode?shortDist:dist),brgy:(shortMode?shortBrgy:brgy),city:city,
         play_type:v('sa_play_type'),source_of_sales:v('sa_source_of_sales'),referral_name:v('sa_referral_name'),
         dwelling_type:v('sa_dwelling'),install_fee_type:v('sa_install_fee'),amount_to_collect:(v('sa_amount')!==''?Number(v('sa_amount')):null),add_on:v('sa_addon'),addon_count:(v('sa_play_type')==='2-PLAY'&&v('sa_addon_count')!==''?Number(v('sa_addon_count')):null),
         special_note:v('sa_special_note'),updated_at:new Date().toISOString()};
+      if(shortMode){ Object.assign(fields,{plan:'',ref_no:'',play_type:'',source_of_sales:'',install_fee_type:'',
+        amount_to_collect:null,add_on:'',addon_count:null,other_contact_no:'',
+        schedule:shortPref}); }
       if(bday) fields.birth_date=bday;   // blank on edit = keep whatever the record already has
       try{
         let jobId;

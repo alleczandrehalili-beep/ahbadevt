@@ -985,7 +985,7 @@
     $('#saTabNew')?.addEventListener('click',()=>{ if(saEditingId){ saEditingId=null; $('#saSubmit').textContent='Submit for validation'; saReset(); } saSwitch('new'); });
     $('#saTabMine')?.addEventListener('click',()=>saSwitch('mine'));
     ['sa_primary_no','sa_other_contact_no'].forEach(id=>{const el=$('#'+id);if(el)el.oninput=()=>{el.value=el.value.replace(/\D/g,'').slice(0,11)};});
-    $('#sa_dwelling')?.addEventListener('change',populatePlans);
+    $('#sa_dwelling')?.addEventListener('change',()=>{ populatePlans(); if(typeof saApplyMode==='function') saApplyMode(); });
     $('#sa_play_type')?.addEventListener('change',toggleAddonCount);
     $('#saSubmit')?.addEventListener('click',saSubmit);
     // Any edit to the encode form invalidates a pending "Proceed anyway" duplicate acknowledgement.

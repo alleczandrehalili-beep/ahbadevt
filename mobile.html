@@ -147,6 +147,10 @@
     /* Sales encoding is ALL CAPS — show it while typing so it matches what is stored
        (saSubmit uppercases on save). Numbers/dates are unaffected. */
     #saNew input[type="text"],#saNew input:not([type]),#saNew textarea{text-transform:uppercase}
+.sa-short .sa-full-only{display:none!important}
+.sa-short-only{display:none}
+.sa-short .sa-short-only{display:block}
+.brgy-chip{background:#eef6f1;border:1px solid #cfe5d8;color:#17654e;border-radius:14px;padding:6px 10px;font-size:12px;font-weight:700}
 </style>
 </head>
 <body>
@@ -338,34 +342,39 @@
       <div class="sa-pane" id="saNew">
         <div id="saValBanner" style="display:none"></div>
         <div class="sa-card">
+          <div class="form-sec">Connection</div>
+          <div class="field"><label>Connection type *</label><select id="sa_dwelling"><option value="SDU">SDU FTTH</option><option value="MDU">MDU FTTH</option><option value="MDU DOCSIS">MDU DOCSIS</option></select></div>
+          <div class="field sa-short-only"><label>Preferred date of installation *</label><input id="sa_pref_date" type="date"></div>
+
           <div class="form-sec">Subscriber</div>
           <div class="field"><label>First name *</label><input id="sa_first_name" autocapitalize="characters"></div>
           <div class="field"><label>Middle name</label><input id="sa_middle_name" autocapitalize="characters"></div>
           <div class="field"><label>Last name *</label><input id="sa_last_name" autocapitalize="characters"></div>
-          <div class="field"><label>Date of birth *</label><input id="sa_birth_date" type="date"></div>
-          <div class="field"><label>Primary no. * (11 digits)</label><input id="sa_primary_no" inputmode="numeric" maxlength="11"></div>
-          <div class="field"><label id="sa_ocn_label">Secondary contact no. (11 digits, optional)</label><input id="sa_other_contact_no" inputmode="numeric" maxlength="11"></div>
+          <div class="field sa-full-only"><label>Date of birth *</label><input id="sa_birth_date" type="date"></div>
+          <div class="field"><label>Mobile no. * (11 digits)</label><input id="sa_primary_no" inputmode="numeric" maxlength="11"></div>
+          <div class="field sa-full-only"><label id="sa_ocn_label">Secondary contact no. (11 digits, optional)</label><input id="sa_other_contact_no" inputmode="numeric" maxlength="11"></div>
           <div class="field"><label>Email address *</label><input id="sa_email" type="email" inputmode="email" autocapitalize="off" autocomplete="off" placeholder="name@email.com"></div>
 
           <div class="form-sec">Address</div>
+          <div class="field sa-short-only"><label>Barangay * <em style="color:#9aa6a2;font-style:normal">(type it — pick from the suggestions)</em></label><input id="sa_brgy_type" autocomplete="off" autocapitalize="characters"><div id="sa_brgy_sug" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"></div></div>
+          <div class="field sa-short-only"><label>District (auto)</label><input id="sa_district_auto" readonly placeholder="— auto from barangay —"></div>
           <div class="field"><label>House no.</label><input id="sa_house_no"></div>
-          <div class="field"><label>Street name</label><input id="sa_street_name"></div>
+          <div class="field"><label>Street name *</label><input id="sa_street_name"></div>
           <div class="field"><label>Village / Subdivision</label><input id="sa_village"></div>
-          <div class="field"><label>District *</label><select id="sa_district"><option value="">— Select district —</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></div>
-          <div class="field"><label>Barangay *</label><select id="sa_brgy"><option value="">— Select district first —</option></select></div>
-          <div class="field"><label>City *</label><input id="sa_city" value="QUEZON CITY" readonly></div>
+          <div class="field sa-full-only"><label>District *</label><select id="sa_district"><option value="">— Select district —</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></div>
+          <div class="field sa-full-only"><label>Barangay *</label><select id="sa_brgy"><option value="">— Select district first —</option></select></div>
+          <div class="field sa-full-only"><label>City *</label><input id="sa_city" value="QUEZON CITY" readonly></div>
 
           <div class="form-sec">Service</div>
-          <div class="field"><label>Unit type</label><select id="sa_dwelling"><option>SDU</option><option>MDU</option><option>MDU DOCSIS</option></select></div>
-          <div class="field"><label>Plan</label><select id="sa_plan"></select></div>
-          <div class="field"><label>Add-on (optional)</label><select id="sa_addon"></select></div>
-          <div class="field"><label>Reference no.</label><input id="sa_ref_no"></div>
-          <div class="field"><label>1P / 2P</label><select id="sa_play_type"><option>1-PLAY</option><option>2-PLAY</option></select></div>
-          <div class="field hidden" id="sa_addon_count_wrap"><label>No. of add-ons (2P) *</label><select id="sa_addon_count"><option value="">— Select —</option><option>1</option><option>2</option><option>3</option></select></div>
-          <div class="field"><label>Installation fee</label><select id="sa_install_fee"><option>One Time Payment</option><option>Installment</option></select></div>
-          <div class="field"><label>Amount to collect (₱)</label><input id="sa_amount" type="number" inputmode="numeric"></div>
-          <div class="field"><label>Source of sales</label><select id="sa_source_of_sales"><option>Referral</option><option>Organic</option><option>Technician</option></select></div>
-          <div class="field"><label>Referral name</label><input id="sa_referral_name"></div>
+          <div class="field sa-full-only"><label>Plan</label><select id="sa_plan"></select></div>
+          <div class="field sa-full-only"><label>Add-on (optional)</label><select id="sa_addon"></select></div>
+          <div class="field sa-full-only"><label>Reference no.</label><input id="sa_ref_no"></div>
+          <div class="field sa-full-only"><label>1P / 2P</label><select id="sa_play_type"><option>1-PLAY</option><option>2-PLAY</option></select></div>
+          <div class="field hidden sa-full-only" id="sa_addon_count_wrap"><label>No. of add-ons (2P) *</label><select id="sa_addon_count"><option value="">— Select —</option><option>1</option><option>2</option><option>3</option></select></div>
+          <div class="field sa-full-only"><label>Installation fee</label><select id="sa_install_fee"><option>One Time Payment</option><option>Installment</option></select></div>
+          <div class="field sa-full-only"><label>Amount to collect (₱)</label><input id="sa_amount" type="number" inputmode="numeric"></div>
+          <div class="field sa-full-only"><label>Source of sales</label><select id="sa_source_of_sales"><option>Referral</option><option>Organic</option><option>Technician</option></select></div>
+          <div class="field"><label>Referral agent</label><input id="sa_referral_name"></div>
           <div class="field"><label>Special note</label><textarea id="sa_special_note" rows="2"></textarea></div>
 
           <div class="form-sec">Documents</div>
@@ -374,12 +383,12 @@
             <div class="thumbs" data-thumbs="id"></div>
             <div style="display:flex;gap:8px"><label class="addphoto" style="flex:1">📷 Camera<input type="file" accept="image/*" capture="environment" multiple hidden data-doc="id"></label><label class="addphoto" style="flex:1">🖼️ Album<input type="file" accept="image/*" multiple hidden data-doc="id"></label></div>
           </div>
-          <div class="docblock" data-cat="billing">
+          <div class="docblock sa-full-only" data-cat="billing">
             <div class="photos-head"><span>Proof of Billing <em style="color:#9aa6a2;font-style:normal">(optional)</em></span><span class="count" data-cnt="billing">0</span></div>
             <div class="thumbs" data-thumbs="billing"></div>
             <div style="display:flex;gap:8px"><label class="addphoto" style="flex:1">📷 Camera<input type="file" accept="image/*" capture="environment" multiple hidden data-doc="billing"></label><label class="addphoto" style="flex:1">🖼️ Album<input type="file" accept="image/*" multiple hidden data-doc="billing"></label></div>
           </div>
-          <div class="docblock" data-cat="premise">
+          <div class="docblock sa-full-only" data-cat="premise">
             <div class="photos-head"><span>Subscriber Premise <em style="color:#9aa6a2;font-style:normal">(optional)</em></span><span class="count" data-cnt="premise">0</span></div>
             <div class="thumbs" data-thumbs="premise"></div>
             <div style="display:flex;gap:8px"><label class="addphoto" style="flex:1">📷 Camera<input type="file" accept="image/*" capture="environment" multiple hidden data-doc="premise"></label><label class="addphoto" style="flex:1">🖼️ Album<input type="file" accept="image/*" multiple hidden data-doc="premise"></label></div>
@@ -496,17 +505,17 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="mobile-a.js?v=2026-11-23.1"></script>
-  <script src="mobile-b.js?v=2026-11-23.1"></script>
-  <script src="mobile-wims.js?v=2026-11-23.1"></script>
-  <script src="qa-core.js?v=2026-11-23.1"></script>
-  <script src="qa-api.js?v=2026-11-23.1"></script>
-  <script src="mobile-qa.js?v=2026-11-23.1"></script>
-  <script src="fms-core.js?v=2026-11-23.1"></script>
-  <script src="fms-api.js?v=2026-11-23.1"></script>
-  <script src="mobile-fms.js?v=2026-11-23.1"></script>
-  <script src="nap-core.js?v=2026-11-23.1"></script>
-  <script src="nap-api.js?v=2026-11-23.1"></script>
-  <script src="mobile-nap.js?v=2026-11-23.1"></script>
+  <script src="mobile-a.js?v=2026-11-25.1"></script>
+  <script src="mobile-b.js?v=2026-11-25.1"></script>
+  <script src="mobile-wims.js?v=2026-11-25.1"></script>
+  <script src="qa-core.js?v=2026-11-25.1"></script>
+  <script src="qa-api.js?v=2026-11-25.1"></script>
+  <script src="mobile-qa.js?v=2026-11-25.1"></script>
+  <script src="fms-core.js?v=2026-11-25.1"></script>
+  <script src="fms-api.js?v=2026-11-25.1"></script>
+  <script src="mobile-fms.js?v=2026-11-25.1"></script>
+  <script src="nap-core.js?v=2026-11-25.1"></script>
+  <script src="nap-api.js?v=2026-11-25.1"></script>
+  <script src="mobile-nap.js?v=2026-11-25.1"></script>
 </body>
 </html>
