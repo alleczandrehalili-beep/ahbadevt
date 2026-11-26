@@ -4,7 +4,7 @@
     const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
     // ---- App version stamp + auto "new version" nudge (kills stale-cache confusion after deploy) ----
-    const APP_VERSION = '2026-11-25.3';
+    const APP_VERSION = '2026-11-26.1';
     function _stampVersion(){ try{ const m=document.getElementById('menuPop'); if(m && !document.getElementById('appVerStamp')){ const d=document.createElement('div'); d.id='appVerStamp'; d.textContent='v'+APP_VERSION; d.style.cssText='font:600 9px system-ui;color:#8a9894;padding:8px 12px;text-align:center;border-top:1px solid #eee'; m.appendChild(d); } }catch(e){} }
     function _showVerNudge(){
       if(document.getElementById('verNudge')) return;
@@ -1401,7 +1401,7 @@
         play_type:v('sa_play_type'),source_of_sales:v('sa_source_of_sales'),referral_name:v('sa_referral_name'),
         dwelling_type:v('sa_dwelling'),install_fee_type:v('sa_install_fee'),amount_to_collect:(v('sa_amount')!==''?Number(v('sa_amount')):null),add_on:v('sa_addon'),addon_count:(v('sa_play_type')==='2-PLAY'&&v('sa_addon_count')!==''?Number(v('sa_addon_count')):null),
         special_note:v('sa_special_note'),updated_at:new Date().toISOString()};
-      if(shortMode){ Object.assign(fields,{plan:'',play_type:'',source_of_sales:'',install_fee_type:'',
+      if(shortMode){ Object.assign(fields,{play_type:'',source_of_sales:'',install_fee_type:'',
         amount_to_collect:null,add_on:'',addon_count:null,other_contact_no:'',
         schedule:shortPref}); }
       if(bday) fields.birth_date=bday;   // blank on edit = keep whatever the record already has
